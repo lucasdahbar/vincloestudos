@@ -1022,7 +1022,7 @@ export function validarDesistencia(pendencia: Pendencia): string[] {
 - [ ] **Step 4: Rodar e confirmar que passa**
 
 Run: `npm test`
-Expected: PASS, 10 arquivos, 79 testes.
+Expected: PASS, 10 arquivos, 81 testes.
 
 - [ ] **Step 5: Commit**
 
@@ -2590,7 +2590,7 @@ npm test
 npx tsc --noEmit
 npm run build
 ```
-Expected: 10 arquivos / 79 testes, sem erro de tipo, build limpo.
+Expected: 10 arquivos / 81 testes, sem erro de tipo, build limpo.
 
 - [ ] **Step 2: Sincronizar a agenda**
 
