@@ -1033,9 +1033,630 @@ git commit -m "feat(dominio): regras de agendamento e desistencia de reposicao"
 
 ---
 
+### Task 8: Provedor de agenda
+
+Duas implementações atrás de uma interface. É o que permite ligar o Google Calendar depois sem tocar em nada acima.
+
+**Files:**
+- Create: `src/agenda/provedor.ts`, `src/agenda/recorrencia-local.ts`, `src/agenda/google-calendar.ts`, `src/agenda/index.ts`
+
+- [ ] **Step 1: Interface**
+
+`src/agenda/provedor.ts`:
+```ts
+import type { OcorrenciaAula, RecorrenciaTurma } from '@/dominio/agenda/materializacao'
+
+export interface TurmaParaSincronizar extends RecorrenciaTurma {
+  google_calendar_event_id: string | null
+  modalidade: 'Presencial' | 'Online'
+}
+
+export interface ProvedorAgenda {
+  readonly nome: string
+  /**
+   * Ocorrencias da turma no intervalo [de, ate], datas em ISO.
+   * Cada ocorrencia carrega um `google_calendar_event_id` estavel: e a chave
+   * de idempotencia do upsert, e o que garante que ressincronizar nao duplica.
+   */
+  listarOcorrencias(
+    turma: TurmaParaSincronizar,
+    de: string,
+    ate: string,
+  ): Promise<OcorrenciaAula[]>
+}
+```
+
+- [ ] **Step 2: Provedor local**
+
+`src/agenda/recorrencia-local.ts`:
+```ts
+import { materializar } from '@/dominio/agenda/materializacao'
+import type { ProvedorAgenda, TurmaParaSincronizar } from './provedor'
+
+/**
+ * Deriva as ocorrencias dos dias_semana e horarios da propria turma.
+ * Nao depende de credencial nenhuma; e o provedor ativo enquanto o Google
+ * Calendar nao estiver configurado.
+ */
+export const recorrenciaLocal: ProvedorAgenda = {
+  nome: 'recorrencia-local',
+  async listarOcorrencias(turma: TurmaParaSincronizar, de: string, ate: string) {
+    return materializar(turma, de, ate)
+  },
+}
+```
+
+- [ ] **Step 3: Provedor Google, desligado**
+
+`src/agenda/google-calendar.ts`:
+```ts
+import type { ProvedorAgenda, TurmaParaSincronizar } from './provedor'
+import type { OcorrenciaAula } from '@/dominio/agenda/materializacao'
+
+/**
+ * Modulos Operacionais 4.3. Le as ocorrencias do evento recorrente vinculado a
+ * turma (campo google_calendar_event_id) via Google Calendar API, com OAuth 2.0
+ * autorizado uma unica vez pela gestora sobre a agenda compartilhada.
+ *
+ * Fica desligado ate GOOGLE_CALENDAR_ATIVO=true e as credenciais existirem.
+ * A implementacao do fetch entra quando houver credencial para testar contra a
+ * API real — escrever agora seria codigo nao verificavel.
+ */
+export const googleCalendar: ProvedorAgenda = {
+  nome: 'google-calendar',
+  async listarOcorrencias(
+    turma: TurmaParaSincronizar,
+    _de: string,
+    _ate: string,
+  ): Promise<OcorrenciaAula[]> {
+    if (!turma.google_calendar_event_id) return []
+    throw new Error(
+      'Provedor Google Calendar ainda não implementado. ' +
+        'Configure GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET e mantenha ' +
+        'GOOGLE_CALENDAR_ATIVO=false até a integração ser concluída.',
+    )
+  },
+}
+```
+
+- [ ] **Step 4: Seleção por ambiente**
+
+`src/agenda/index.ts`:
+```ts
+import { googleCalendar } from './google-calendar'
+import { recorrenciaLocal } from './recorrencia-local'
+import type { ProvedorAgenda } from './provedor'
+
+export function provedorAtivo(): ProvedorAgenda {
+  return process.env.GOOGLE_CALENDAR_ATIVO === 'true' ? googleCalendar : recorrenciaLocal
+}
+
+export type { ProvedorAgenda, TurmaParaSincronizar } from './provedor'
+```
+
+- [ ] **Step 5: Verificar e commitar**
+
+Run: `npx tsc --noEmit`
+Expected: sem erros.
+
+```bash
+git add src/agenda/
+git commit -m "feat(agenda): provedor com recorrencia local e plugue para Google Calendar"
+```
+
+---
+
+### Task 9: Sincronização de aulas
+
+**Files:**
+- Create: `src/dados/aulas.ts`
+
+- [ ] **Step 1: Implementar**
+
+`src/dados/aulas.ts`:
+```ts
+import 'server-only'
+import { clienteServidor } from './cliente'
+import { provedorAtivo } from '@/agenda'
+import { conflitosComFeriado, type ConflitoFeriado } from '@/dominio/agenda/feriados'
+
+export interface AulaComTurma {
+  id: number
+  turma_id: number
+  google_calendar_event_id: string
+  data_hora_inicio: string
+  data_hora_fim: string
+  status: 'Agendada' | 'Realizada' | 'Cancelada' | 'Feriado'
+  link_online: string | null
+  observacao: string | null
+  turma: { id: number; nome: string; modalidade: string; professor_id: number } | null
+}
+
+const SELECT_AULA = `
+  id, turma_id, google_calendar_event_id, data_hora_inicio, data_hora_fim,
+  status, link_online, observacao,
+  turma:turmas!turma_id (id, nome, modalidade, professor_id)
+`
+
+/**
+ * Materializa as aulas das turmas ativas no intervalo e grava por upsert na
+ * chave google_calendar_event_id. Reprocessar o mesmo intervalo nao duplica
+ * nada — e a propriedade que o teste de determinismo em materializacao.test.ts
+ * garante.
+ *
+ * `ignoreDuplicates` preserva o que ja existe: uma aula com presenca registrada
+ * ou status ajustado a mao nao pode ser sobrescrita pela sincronizacao.
+ */
+export async function sincronizarAulas(
+  de: string,
+  ate: string,
+): Promise<{ criadas: number; turmas: number }> {
+  const supabase = await clienteServidor()
+  const provedor = provedorAtivo()
+
+  const { data: turmas, error } = await supabase
+    .from('turmas')
+    .select('id, dias_semana, horario_inicio, horario_fim, status, google_calendar_event_id, modalidade')
+    .eq('status', 'Ativa')
+
+  if (error) throw new Error(`Falha ao carregar turmas: ${error.message}`)
+
+  let criadas = 0
+
+  for (const turma of turmas ?? []) {
+    const ocorrencias = await provedor.listarOcorrencias(
+      {
+        id: turma.id,
+        dias_semana: turma.dias_semana ?? [],
+        horario_inicio: String(turma.horario_inicio).slice(0, 5),
+        horario_fim: String(turma.horario_fim).slice(0, 5),
+        status: 'Ativa',
+        google_calendar_event_id: turma.google_calendar_event_id,
+        modalidade: turma.modalidade,
+      },
+      de,
+      ate,
+    )
+
+    if (ocorrencias.length === 0) continue
+
+    const linhas = ocorrencias.map((o) => ({
+      turma_id: turma.id,
+      google_calendar_event_id: o.google_calendar_event_id,
+      data_hora_inicio: `${o.data}T${o.horario_inicio}:00`,
+      data_hora_fim: `${o.data}T${o.horario_fim}:00`,
+    }))
+
+    const { data, error: erroUpsert } = await supabase
+      .from('aulas')
+      .upsert(linhas, { onConflict: 'google_calendar_event_id', ignoreDuplicates: true })
+      .select('id')
+
+    if (erroUpsert) throw new Error(`Falha ao sincronizar turma ${turma.id}: ${erroUpsert.message}`)
+    criadas += data?.length ?? 0
+  }
+
+  return { criadas, turmas: turmas?.length ?? 0 }
+}
+
+export async function listarAulas(filtros: {
+  de: string
+  ate: string
+  turmaId?: number
+  professorId?: number
+}): Promise<AulaComTurma[]> {
+  const supabase = await clienteServidor()
+  let consulta = supabase
+    .from('aulas')
+    .select(SELECT_AULA)
+    .gte('data_hora_inicio', `${filtros.de}T00:00:00`)
+    .lte('data_hora_inicio', `${filtros.ate}T23:59:59`)
+
+  if (filtros.turmaId) consulta = consulta.eq('turma_id', filtros.turmaId)
+
+  const { data, error } = await consulta.order('data_hora_inicio')
+  if (error) throw new Error(`Falha ao listar aulas: ${error.message}`)
+
+  const aulas = (data ?? []) as unknown as AulaComTurma[]
+  return filtros.professorId
+    ? aulas.filter((a) => a.turma?.professor_id === filtros.professorId)
+    : aulas
+}
+
+export async function obterAula(id: number): Promise<AulaComTurma | null> {
+  const supabase = await clienteServidor()
+  const { data, error } = await supabase.from('aulas').select(SELECT_AULA).eq('id', id).maybeSingle()
+  if (error) throw new Error(`Falha ao carregar aula: ${error.message}`)
+  return (data ?? null) as unknown as AulaComTurma | null
+}
+
+/** Alunos com matricula ativa na turma na data da aula. */
+export async function matriculadosNaAula(aulaId: number) {
+  const supabase = await clienteServidor()
+  const { data: aula } = await supabase
+    .from('aulas')
+    .select('turma_id, data_hora_inicio')
+    .eq('id', aulaId)
+    .maybeSingle()
+
+  if (!aula) return []
+
+  const dia = String(aula.data_hora_inicio).slice(0, 10)
+  const { data } = await supabase
+    .from('matriculas')
+    .select('aluno_id, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (id, nome)')
+    .eq('turma_id', aula.turma_id)
+    .eq('status', 'Ativa')
+    .lte('data_inicio', dia)
+
+  return ((data ?? []) as unknown as {
+    aluno_id: number
+    flag_reposicao: boolean
+    data_fim: string | null
+    aluno: { id: number; nome: string } | null
+  }[])
+    .filter((m) => !m.data_fim || m.data_fim >= dia)
+    .map((m) => ({
+      aluno_id: m.aluno_id,
+      nome: m.aluno?.nome ?? 'Aluno removido',
+      flag_reposicao: m.flag_reposicao,
+    }))
+}
+
+/** Aulas agendadas que caem em feriado, para o alerta da gestora (RN 4.2). */
+export async function conflitosDeFeriado(de: string, ate: string): Promise<ConflitoFeriado[]> {
+  const supabase = await clienteServidor()
+  const [aulas, feriados] = await Promise.all([
+    supabase
+      .from('aulas')
+      .select('id, data_hora_inicio, status')
+      .gte('data_hora_inicio', `${de}T00:00:00`)
+      .lte('data_hora_inicio', `${ate}T23:59:59`),
+    supabase.from('feriados').select('data, nome').gte('data', de).lte('data', ate),
+  ])
+
+  return conflitosComFeriado(
+    (aulas.data ?? []).map((a) => ({
+      id: a.id,
+      data: String(a.data_hora_inicio).slice(0, 10),
+      status: a.status,
+    })),
+    feriados.data ?? [],
+  )
+}
+```
+
+- [ ] **Step 2: Verificar e commitar**
+
+Run: `npx tsc --noEmit`
+Expected: sem erros. Se aparecer TS2352 em algum cast de join, use o padrão `as unknown as Tipo[]`.
+
+```bash
+git add src/dados/aulas.ts
+git commit -m "feat(dados): sincronizacao idempotente de aulas e conflito com feriado"
+```
+
+---
+
+### Task 10: Provar a idempotência contra o banco real
+
+Esta é a propriedade que impede aula duplicada em produção. Não basta o teste unitário: prove no banco.
+
+**Files:**
+- Create: `scripts/sincronizar.mjs`
+
+- [ ] **Step 1: Escrever o script**
+
+`scripts/sincronizar.mjs`:
+```js
+/**
+ * Sincroniza a agenda pelo provedor local, direto no banco.
+ *
+ * Existe separado da aplicacao porque a sincronizacao periodica (Operacionais
+ * 4.3) vai rodar fora do request: por cron ou job. Por ora e manual.
+ *
+ * Uso:
+ *   node scripts/sincronizar.mjs 2026-08-01 2026-08-31
+ */
+import { readFileSync } from 'node:fs'
+import { createClient } from '@supabase/supabase-js'
+import { materializar } from '../src/dominio/agenda/materializacao.ts'
+
+const env = Object.fromEntries(
+  readFileSync('.env.local', 'utf8')
+    .split('\n')
+    .filter((l) => l.includes('='))
+    .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1).trim()]),
+)
+
+const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+})
+
+const [de, ate] = process.argv.slice(2)
+if (!de || !ate) {
+  console.error('Uso: node scripts/sincronizar.mjs <AAAA-MM-DD> <AAAA-MM-DD>')
+  process.exit(1)
+}
+
+const { data: turmas } = await db
+  .from('turmas')
+  .select('id, nome, dias_semana, horario_inicio, horario_fim, status')
+  .eq('status', 'Ativa')
+
+let total = 0
+for (const t of turmas ?? []) {
+  const oc = materializar(
+    {
+      id: t.id,
+      dias_semana: t.dias_semana ?? [],
+      horario_inicio: String(t.horario_inicio).slice(0, 5),
+      horario_fim: String(t.horario_fim).slice(0, 5),
+      status: t.status,
+    },
+    de,
+    ate,
+  )
+  if (oc.length === 0) continue
+
+  const { data, error } = await db
+    .from('aulas')
+    .upsert(
+      oc.map((o) => ({
+        turma_id: t.id,
+        google_calendar_event_id: o.google_calendar_event_id,
+        data_hora_inicio: `${o.data}T${o.horario_inicio}:00`,
+        data_hora_fim: `${o.data}T${o.horario_fim}:00`,
+      })),
+      { onConflict: 'google_calendar_event_id', ignoreDuplicates: true },
+    )
+    .select('id')
+
+  if (error) {
+    console.error(`Falha na turma ${t.id}: ${error.message}`)
+    process.exit(1)
+  }
+  console.log(`  ${t.nome.slice(0, 50)}: ${oc.length} ocorrencias, ${data.length} novas`)
+  total += data.length
+}
+
+const { count } = await db.from('aulas').select('*', { count: 'exact', head: true })
+console.log(`\nCriadas agora: ${total}. Total de aulas no banco: ${count}.`)
+```
+
+Run: `npm install -D tsx` — o script importa um módulo TypeScript.
+
+Ajuste o comando para: `node --experimental-strip-types scripts/sincronizar.mjs <de> <ate>`, ou rode via `npx tsx scripts/sincronizar.mjs <de> <ate>`. Escolha o que funcionar no Node instalado e registre no plano qual foi.
+
+- [ ] **Step 2: A prova de idempotência**
+
+```bash
+npx tsx scripts/sincronizar.mjs 2026-08-01 2026-08-31
+node scripts/consultar.mjs aulas --count
+npx tsx scripts/sincronizar.mjs 2026-08-01 2026-08-31
+node scripts/consultar.mjs aulas --count
+```
+
+Expected: a primeira execução cria N aulas. **A segunda deve reportar `0 novas` e a contagem total deve ser exatamente a mesma.** Se o número subir, a idempotência está quebrada — pare e reporte.
+
+- [ ] **Step 3: Conferir os dados gerados**
+
+```bash
+node scripts/consultar.mjs aulas "id,turma_id,data_hora_inicio,status,google_calendar_event_id"
+```
+Expected: as datas caem nos dias da semana de cada turma (Matemática às terças e quintas, Português às quartas e sextas, Física às segundas), e todo `google_calendar_event_id` começa com `local:t`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add scripts/sincronizar.mjs package.json package-lock.json
+git commit -m "feat(agenda): script de sincronizacao e prova de idempotencia"
+```
+
+---
+
+### Task 11: Token de presença e registro da chamada
+
+**Files:**
+- Create: `src/dados/presencas.ts`
+
+- [ ] **Step 1: Implementar**
+
+`src/dados/presencas.ts`:
+```ts
+import 'server-only'
+import { randomBytes } from 'node:crypto'
+import { clienteAdmin } from './admin'
+import { clienteServidor } from './cliente'
+import { montarRegistro, type RespostaChamada } from '@/dominio/presencas/registro'
+
+/** Validade padrao do link enviado ao professor. */
+const HORAS_DE_VALIDADE = 48
+
+export interface AulaDoFormulario {
+  aula_id: number
+  turma_nome: string
+  data_hora_inicio: string
+  professor_id: number | null
+  alunos: { aluno_id: number; nome: string; flag_reposicao: boolean }[]
+}
+
+export async function gerarTokenPresenca(aulaId: number): Promise<string> {
+  const supabase = await clienteServidor()
+
+  const { data: aula } = await supabase
+    .from('aulas')
+    .select('id, turma:turmas!turma_id (professor_id)')
+    .eq('id', aulaId)
+    .maybeSingle()
+
+  if (!aula) throw new Error('Aula não encontrada.')
+
+  const token = randomBytes(24).toString('base64url')
+  const expira = new Date(Date.now() + HORAS_DE_VALIDADE * 3600_000).toISOString()
+  const turma = aula.turma as unknown as { professor_id: number } | null
+
+  const { error } = await supabase.from('presenca_tokens').insert({
+    token,
+    aula_id: aulaId,
+    professor_id: turma?.professor_id ?? null,
+    expira_em: expira,
+  })
+
+  if (error) throw new Error(`Falha ao gerar o link: ${error.message}`)
+  return token
+}
+
+/**
+ * Le a aula pelo token, sem sessao. Roda apenas no servidor e usa a service
+ * role key: o RLS nega acesso anonimo as tabelas, e a autorizacao aqui e o
+ * proprio token — de uso unico e com validade.
+ */
+export async function aulaPorToken(token: string): Promise<
+  { ok: true; aula: AulaDoFormulario } | { ok: false; motivo: string }
+> {
+  const admin = clienteAdmin()
+
+  const { data: registro } = await admin
+    .from('presenca_tokens')
+    .select('token, aula_id, professor_id, expira_em, usado_em')
+    .eq('token', token)
+    .maybeSingle()
+
+  if (!registro) return { ok: false, motivo: 'Este link não é válido.' }
+  if (registro.usado_em) {
+    return {
+      ok: false,
+      motivo: 'Esta chamada já foi confirmada. Peça à gestora para reabrir, se precisar corrigir.',
+    }
+  }
+  if (new Date(registro.expira_em) < new Date()) {
+    return { ok: false, motivo: 'Este link expirou. Peça um novo à gestora.' }
+  }
+
+  const { data: aula } = await admin
+    .from('aulas')
+    .select('id, data_hora_inicio, turma_id, turma:turmas!turma_id (nome)')
+    .eq('id', registro.aula_id)
+    .maybeSingle()
+
+  if (!aula) return { ok: false, motivo: 'A aula deste link não existe mais.' }
+
+  const dia = String(aula.data_hora_inicio).slice(0, 10)
+  const { data: matriculas } = await admin
+    .from('matriculas')
+    .select('aluno_id, flag_reposicao, data_fim, aluno:alunos!aluno_id (nome)')
+    .eq('turma_id', aula.turma_id)
+    .eq('status', 'Ativa')
+    .lte('data_inicio', dia)
+
+  const alunos = ((matriculas ?? []) as unknown as {
+    aluno_id: number
+    flag_reposicao: boolean
+    data_fim: string | null
+    aluno: { nome: string } | null
+  }[])
+    .filter((m) => !m.data_fim || m.data_fim >= dia)
+    .map((m) => ({
+      aluno_id: m.aluno_id,
+      nome: m.aluno?.nome ?? 'Aluno removido',
+      flag_reposicao: m.flag_reposicao,
+    }))
+
+  const turma = aula.turma as unknown as { nome: string } | null
+
+  return {
+    ok: true,
+    aula: {
+      aula_id: aula.id,
+      turma_nome: turma?.nome ?? 'Turma',
+      data_hora_inicio: aula.data_hora_inicio,
+      professor_id: registro.professor_id,
+      alunos,
+    },
+  }
+}
+
+/**
+ * Grava a chamada inteira: presencas, pendencias de reposicao, status da aula e
+ * o consumo do token. Sequencia unica — se algo falhar no meio, o token nao e
+ * marcado como usado e o professor pode reenviar.
+ */
+export async function registrarChamada(
+  token: string,
+  respostas: RespostaChamada[],
+): Promise<{ ok: true; ausentes: string[] } | { ok: false; motivo: string }> {
+  const leitura = await aulaPorToken(token)
+  if (!leitura.ok) return { ok: false, motivo: leitura.motivo }
+
+  const admin = clienteAdmin()
+  const { aula } = leitura
+
+  const resultado = montarRegistro({
+    aulaId: aula.aula_id,
+    professorId: aula.professor_id,
+    matriculados: aula.alunos,
+    respostas,
+  })
+
+  if (resultado.presencas.length > 0) {
+    const { error } = await admin
+      .from('presencas')
+      .upsert(resultado.presencas, { onConflict: 'aula_id,aluno_id' })
+    if (error) return { ok: false, motivo: `Falha ao gravar as presenças: ${error.message}` }
+  }
+
+  if (resultado.pendencias.length > 0) {
+    const { error } = await admin
+      .from('pendencias_reposicao')
+      .upsert(resultado.pendencias, { onConflict: 'aluno_id,aula_origem_id', ignoreDuplicates: true })
+    if (error) return { ok: false, motivo: `Falha ao registrar as reposições: ${error.message}` }
+  }
+
+  await admin.from('aulas').update({ status: resultado.novoStatusAula }).eq('id', aula.aula_id)
+  await admin.from('presenca_tokens').update({ usado_em: new Date().toISOString() }).eq('token', token)
+
+  await admin.from('logs_operacionais').insert({
+    acao: 'registrar_chamada',
+    entidade: 'aulas',
+    entidade_id: aula.aula_id,
+    usuario: `professor:${aula.professor_id ?? 'desconhecido'}`,
+    detalhe: {
+      presencas: resultado.presencas.length,
+      ausentes: resultado.ausentes.length,
+      pendencias_geradas: resultado.pendencias.length,
+    },
+  })
+
+  return { ok: true, ausentes: resultado.ausentes.map((a) => a.nome) }
+}
+
+/** A gestora pode reabrir a chamada, conforme Operacionais 5.5. */
+export async function reabrirChamada(token: string): Promise<void> {
+  const supabase = await clienteServidor()
+  const { error } = await supabase
+    .from('presenca_tokens')
+    .update({ usado_em: null, reaberto_em: new Date().toISOString() })
+    .eq('token', token)
+  if (error) throw new Error(`Falha ao reabrir: ${error.message}`)
+}
+```
+
+- [ ] **Step 2: Verificar e commitar**
+
+Run: `npx tsc --noEmit`
+Expected: sem erros.
+
+```bash
+git add src/dados/presencas.ts
+git commit -m "feat(presencas): token de uso unico e registro completo da chamada"
+```
+
+---
+
 ## Continuação
 
-As tarefas 8 a 20 cobrem o provedor de agenda, a sincronização, as telas de agenda e detalhe da aula, o formulário público de presença por token, o painel de reposições, a fila de notificações e a verificação final. Serão escritas na sequência.
+As tarefas 12 a 20 cobrem as telas: agenda em calendário, detalhe da aula, o formulário público de presença, o painel de reposições, a fila de notificações e a verificação final ponta a ponta. Serão escritas na sequência.
 
 ## Cobertura do spec até aqui
 
