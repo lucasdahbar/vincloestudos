@@ -84,6 +84,9 @@ const CASOS = [
   ['/cadastros/responsaveis/2', ['Ana Ribeiro', 'Alunos sob responsabilidade', 'Maria Ribeiro'], 'NAVEGACAO CRUZADA: filhos do responsavel'],
   ['/turmas/nova', ['Nome da turma', 'gerado automaticamente', 'Serviço'], 'formulario de turma'],
   ['/matriculas/nova', ['Matrícula de reposição'], 'formulario de matricula'],
+  ['/agenda', ['agosto', 'Matemática'], 'agenda do mes com aulas materializadas'],
+  ['/agenda?mes=2026-09', ['setembro'], 'agenda navegando por mes'],
+  ['/reposicoes', ['Reposições'], 'painel de reposicoes'],
 ]
 
 let ok = 0
