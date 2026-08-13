@@ -24,7 +24,13 @@ O scaffold instalou **Next.js 16.3**, não a 15. O Next 16 tem mudanças que inv
 
 **Tailwind v4:** tokens declarados em `@theme` viram utilitários automaticamente. Um token `--radius-cartao` gera a classe `rounded-cartao`; `--shadow-cartao` gera `shadow-cartao`; `--font-titulo` gera `font-titulo`. **Use sempre o nome do utilitário gerado**, nunca a sintaxe de valor arbitrário `rounded-cartao`, que não resolve em v4.
 
-**Zod 4:** `z.enum(arrayReadonly)` e `z.number({ message: '...' })` são a sintaxe correta (a v3 usava `required_error`). Não use `schema.isOptional()` para inferir obrigatoriedade — este plano declara um campo `obrigatorio` explícito.
+**Zod 4:** `z.enum(arrayReadonly)` e `z.number({ message: '...' })` são a sintaxe correta (a v3 usava `required_error`). Não use `schema.isOptional()` para inferir obrigatoriedade — este plano declara um campo `obrigatorio` explícito. `z.ZodRawShape` é readonly: construa a forma de uma vez com `Object.fromEntries`, não por mutação.
+
+**⚠️ Fronteira Server → Client (aprendido na marra):** um Server Component só pode passar **objetos simples** como prop para um Client Component. Instância de classe — como um schema Zod — quebra a renderização com `Only plain objects... can be passed to Client Components`, **em runtime**. Nem `npm run build` nem `tsc --noEmit` acusam: o build compila e os tipos fecham. Foi assim que as dez rotas `/cadastros/*` foram parar em HTTP 500 sem ninguém perceber.
+
+Por isso `DefinicaoCadastro` (com schemas, server-side) tem uma projeção `CadastroCliente` (sem schemas), e `paraCliente()` faz a conversão. **Toda prop que atravessa para um Client Component precisa ser serializável.** Antes de passar qualquer objeto rico como prop, pergunte se ele carrega classe, função ou `Date` dentro.
+
+**Verificação só vale com sessão.** Rota protegida devolve 307 para `/login` sem cookie — o que prova apenas que a rota existe, não que funciona. Verificação de verdade faz login pela API de auth, monta o cookie `sb-<ref>-auth-token` no formato do `@supabase/ssr` (base64, fatiado em `.0`/`.1` se passar de ~3180 chars) e confere que o dado do banco aparece no HTML.
 
 A documentação da versão exata instalada está em `node_modules/next/dist/docs/`. Em caso de dúvida sobre uma API do Next, consulte lá antes de escrever.
 
