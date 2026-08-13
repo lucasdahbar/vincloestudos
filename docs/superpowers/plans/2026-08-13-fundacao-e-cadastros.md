@@ -1637,9 +1637,911 @@ git commit -m "feat(dados): clientes Supabase e middleware de sessao"
 
 ---
 
-## Próximas tarefas deste plano
+### Task 15: Tokens visuais e tipografia
 
-As tarefas 15–30 cobrem design system, autenticação, motor de cadastros, as dez definições de entidade, telas de Turma e Matrícula, navegação cruzada e seed. Estão detalhadas na continuação do plano, escrita na sequência.
+**Files:**
+- Modify: `src/app/globals.css`
+- Modify: `src/app/layout.tsx`
+
+- [ ] **Step 1: Escrever os tokens**
+
+Substituir o conteúdo de `src/app/globals.css` por:
+```css
+@import 'tailwindcss';
+
+@theme {
+  --color-fundo: #fbf8f3;
+  --color-superficie: #ffffff;
+  --color-superficie-2: #f4efe6;
+  --color-borda: #e5dccd;
+  --color-tinta: #2b2724;
+  --color-tinta-suave: #6b6259;
+  --color-destaque: #c0603f;
+  --color-destaque-forte: #a34d2f;
+  --color-destaque-suave: #f7e9e3;
+  --color-apoio: #5c7a63;
+  --color-apoio-suave: #e8efe9;
+  --color-alerta: #b4571f;
+  --color-alerta-suave: #fbeee2;
+  --color-erro: #a32f2f;
+  --color-erro-suave: #f9e6e6;
+
+  --radius-campo: 0.75rem;
+  --radius-cartao: 1.25rem;
+
+  --font-texto: var(--fonte-texto), system-ui, sans-serif;
+  --font-titulo: var(--fonte-titulo), Georgia, serif;
+
+  --shadow-cartao: 0 1px 2px rgb(43 39 36 / 0.04), 0 8px 24px rgb(43 39 36 / 0.06);
+}
+
+@layer base {
+  html {
+    background: var(--color-fundo);
+    color: var(--color-tinta);
+  }
+
+  body {
+    font-family: var(--font-texto);
+    /* O sistema e usado por muitas horas seguidas: corpo maior que o padrao. */
+    font-size: 1.0625rem;
+    line-height: 1.6;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-titulo);
+    letter-spacing: -0.01em;
+  }
+
+  /* Foco sempre visivel: navegacao por teclado e um requisito de acessibilidade. */
+  :focus-visible {
+    outline: 3px solid var(--color-destaque);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+```
+
+- [ ] **Step 2: Carregar as fontes e definir o idioma**
+
+`src/app/layout.tsx`:
+```tsx
+import type { Metadata } from 'next'
+import { Fraunces, Inter } from 'next/font/google'
+import './globals.css'
+
+const texto = Inter({
+  subsets: ['latin'],
+  variable: '--fonte-texto',
+  display: 'swap',
+})
+
+const titulo = Fraunces({
+  subsets: ['latin'],
+  variable: '--fonte-titulo',
+  weight: ['500', '600'],
+  display: 'swap',
+})
+
+export const metadata: Metadata = {
+  title: 'Mesinha Redonda',
+  description: 'Gestão de reforço escolar e aulas particulares',
+}
+
+export default function LayoutRaiz({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="pt-BR" className={`${texto.variable} ${titulo.variable}`}>
+      <body className="min-h-dvh bg-fundo text-tinta antialiased">{children}</body>
+    </html>
+  )
+}
+```
+
+- [ ] **Step 3: Verificar**
+
+Run: `npm run build`
+Expected: `✓ Compiled successfully`
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/app/globals.css src/app/layout.tsx
+git commit -m "feat(ui): tokens visuais e tipografia do design system"
+```
+
+---
+
+### Task 16: Componentes base do design system
+
+**Files:**
+- Create: `src/ui/Botao.tsx`, `src/ui/Campo.tsx`, `src/ui/Cartao.tsx`, `src/ui/Selo.tsx`, `src/ui/EstadoVazio.tsx`
+
+- [ ] **Step 1: Botão**
+
+`src/ui/Botao.tsx`:
+```tsx
+import Link from 'next/link'
+import type { ComponentProps, ReactNode } from 'react'
+
+type Aparencia = 'primario' | 'secundario' | 'discreto' | 'perigo'
+
+const BASE =
+  'inline-flex items-center justify-center gap-2 rounded-[--radius-campo] ' +
+  'px-5 min-h-[44px] font-medium transition-all duration-150 ' +
+  'active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none'
+
+const APARENCIAS: Record<Aparencia, string> = {
+  primario: 'bg-destaque text-white hover:bg-destaque-forte shadow-sm',
+  secundario: 'bg-superficie text-tinta border border-borda hover:bg-superficie-2',
+  discreto: 'text-tinta-suave hover:text-tinta hover:bg-superficie-2',
+  perigo: 'bg-erro-suave text-erro border border-erro/20 hover:bg-erro hover:text-white',
+}
+
+interface Comum {
+  aparencia?: Aparencia
+  children: ReactNode
+}
+
+export function Botao({
+  aparencia = 'primario',
+  className = '',
+  ...props
+}: Comum & ComponentProps<'button'>) {
+  return <button className={`${BASE} ${APARENCIAS[aparencia]} ${className}`} {...props} />
+}
+
+export function BotaoLink({
+  aparencia = 'primario',
+  className = '',
+  ...props
+}: Comum & ComponentProps<typeof Link>) {
+  return <Link className={`${BASE} ${APARENCIAS[aparencia]} ${className}`} {...props} />
+}
+```
+
+**Nota sobre alvos de toque:** `min-h-[44px]` não é estético. É o mínimo recomendado para toque confiável, e a usuária principal opera o sistema também no celular.
+
+- [ ] **Step 2: Campo de formulário**
+
+`src/ui/Campo.tsx`:
+```tsx
+import type { ReactNode } from 'react'
+
+interface CampoProps {
+  etiqueta: string
+  /** Explicacao em linguagem comum. Aparece sempre, nao em tooltip escondido. */
+  ajuda?: string
+  erro?: string
+  obrigatorio?: boolean
+  children: ReactNode
+}
+
+export function Campo({ etiqueta, ajuda, erro, obrigatorio, children }: CampoProps) {
+  return (
+    <label className="block">
+      <span className="mb-1 block font-medium text-tinta">
+        {etiqueta}
+        {obrigatorio && <span className="ml-1 text-destaque">*</span>}
+      </span>
+      {ajuda && <span className="mb-2 block text-sm text-tinta-suave">{ajuda}</span>}
+      {children}
+      {erro && <span className="mt-1 block text-sm text-erro">{erro}</span>}
+    </label>
+  )
+}
+
+export const entradaClasse =
+  'w-full min-h-[44px] rounded-[--radius-campo] border border-borda bg-superficie ' +
+  'px-4 py-2 text-tinta placeholder:text-tinta-suave/60 ' +
+  'transition-colors focus:border-destaque focus:outline-none ' +
+  'focus-visible:outline-3 focus-visible:outline-destaque'
+```
+
+- [ ] **Step 3: Cartão, selo e estado vazio**
+
+`src/ui/Cartao.tsx`:
+```tsx
+import type { ReactNode } from 'react'
+
+export function Cartao({
+  children,
+  className = '',
+}: {
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={`rounded-[--radius-cartao] border border-borda bg-superficie p-6 shadow-[--shadow-cartao] ${className}`}
+    >
+      {children}
+    </div>
+  )
+}
+```
+
+`src/ui/Selo.tsx`:
+```tsx
+type Tom = 'ativo' | 'encerrado' | 'alerta' | 'neutro'
+
+const TONS: Record<Tom, string> = {
+  ativo: 'bg-apoio-suave text-apoio',
+  encerrado: 'bg-superficie-2 text-tinta-suave',
+  alerta: 'bg-alerta-suave text-alerta',
+  neutro: 'bg-destaque-suave text-destaque-forte',
+}
+
+export function Selo({ tom = 'neutro', children }: { tom?: Tom; children: React.ReactNode }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${TONS[tom]}`}
+    >
+      {children}
+    </span>
+  )
+}
+
+export function tomDoStatus(status: string): Tom {
+  if (status === 'Ativa' || status === 'Ativo' || status === 'Pago') return 'ativo'
+  if (status === 'Encerrada' || status === 'Encerrado') return 'encerrado'
+  if (status === 'Pendente' || status === 'Parcial') return 'alerta'
+  return 'neutro'
+}
+```
+
+`src/ui/EstadoVazio.tsx`:
+```tsx
+import type { ReactNode } from 'react'
+
+/**
+ * Tabela vazia nao diz o que fazer. Este componente sempre nomeia o proximo passo:
+ * e a diferenca entre a usuaria travar e a usuaria seguir sozinha.
+ */
+export function EstadoVazio({
+  titulo,
+  descricao,
+  acao,
+}: {
+  titulo: string
+  descricao: string
+  acao?: ReactNode
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-[--radius-cartao] border border-dashed border-borda bg-superficie-2/50 px-6 py-16 text-center">
+      <h3 className="text-xl">{titulo}</h3>
+      <p className="max-w-md text-tinta-suave">{descricao}</p>
+      {acao && <div className="mt-2">{acao}</div>}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 4: Verificar**
+
+Run: `npm run build`
+Expected: `✓ Compiled successfully`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/ui/
+git commit -m "feat(ui): botao, campo, cartao, selo e estado vazio"
+```
+
+---
+
+### Task 17: Animações compartilhadas
+
+**Files:**
+- Create: `src/ui/animacoes.ts`, `src/ui/ListaAnimada.tsx`
+
+- [ ] **Step 1: Variantes**
+
+`src/ui/animacoes.ts`:
+```ts
+import type { Variants } from 'motion/react'
+
+/** Entrada suave de conteudo de pagina. */
+export const entrada: Variants = {
+  oculto: { opacity: 0, y: 8 },
+  visivel: { opacity: 1, y: 0, transition: { duration: 0.25, ease: 'easeOut' } },
+}
+
+/** Lista com atraso progressivo entre itens: guia o olho de cima para baixo. */
+export const containerEscalonado: Variants = {
+  oculto: {},
+  visivel: { transition: { staggerChildren: 0.035 } },
+}
+
+export const itemEscalonado: Variants = {
+  oculto: { opacity: 0, y: 6 },
+  visivel: { opacity: 1, y: 0, transition: { duration: 0.2, ease: 'easeOut' } },
+}
+```
+
+- [ ] **Step 2: Wrapper de lista**
+
+`src/ui/ListaAnimada.tsx`:
+```tsx
+'use client'
+
+import { motion } from 'motion/react'
+import type { ReactNode } from 'react'
+import { containerEscalonado, itemEscalonado } from './animacoes'
+
+export function ListaAnimada({ children }: { children: ReactNode }) {
+  return (
+    <motion.div variants={containerEscalonado} initial="oculto" animate="visivel">
+      {children}
+    </motion.div>
+  )
+}
+
+export function ItemAnimado({ children }: { children: ReactNode }) {
+  return <motion.div variants={itemEscalonado}>{children}</motion.div>
+}
+```
+
+- [ ] **Step 3: Verificar**
+
+Run: `npm run build`
+Expected: `✓ Compiled successfully`
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/ui/animacoes.ts src/ui/ListaAnimada.tsx
+git commit -m "feat(ui): variantes de animacao e lista escalonada"
+```
+
+---
+
+### Task 18: Login e sessão
+
+**Files:**
+- Create: `src/app/login/page.tsx`, `src/app/login/acoes.ts`, `src/dados/sessao.ts`
+
+- [ ] **Step 1: Leitura da sessão**
+
+`src/dados/sessao.ts`:
+```ts
+import 'server-only'
+import { redirect } from 'next/navigation'
+import { clienteServidor } from './cliente'
+import type { Papel } from '@/dominio/tipos'
+
+export interface SessaoAtual {
+  usuarioId: string
+  nome: string
+  papel: Papel
+  professorId: number | null
+}
+
+export async function sessaoAtual(): Promise<SessaoAtual | null> {
+  const supabase = await clienteServidor()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data: perfil } = await supabase
+    .from('perfis')
+    .select('nome, papel, professor_id')
+    .eq('usuario_id', user.id)
+    .single()
+
+  if (!perfil) return null
+
+  return {
+    usuarioId: user.id,
+    nome: perfil.nome,
+    papel: perfil.papel,
+    professorId: perfil.professor_id,
+  }
+}
+
+/** Usar no topo de toda pagina protegida. */
+export async function exigirSessao(): Promise<SessaoAtual> {
+  const sessao = await sessaoAtual()
+  if (!sessao) redirect('/login')
+  return sessao
+}
+
+export async function exigirGestora(): Promise<SessaoAtual> {
+  const sessao = await exigirSessao()
+  if (sessao.papel !== 'gestora') redirect('/')
+  return sessao
+}
+```
+
+- [ ] **Step 2: Ações de login e logout**
+
+`src/app/login/acoes.ts`:
+```ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
+import { clienteServidor } from '@/dados/cliente'
+
+export async function entrar(_anterior: string | null, dados: FormData): Promise<string | null> {
+  const email = String(dados.get('email') ?? '').trim()
+  const senha = String(dados.get('senha') ?? '')
+
+  if (!email || !senha) return 'Preencha o e-mail e a senha.'
+
+  const supabase = await clienteServidor()
+  const { error } = await supabase.auth.signInWithPassword({ email, password: senha })
+
+  if (error) return 'E-mail ou senha incorretos. Confira e tente de novo.'
+
+  revalidatePath('/', 'layout')
+  redirect('/')
+}
+
+export async function sair() {
+  const supabase = await clienteServidor()
+  await supabase.auth.signOut()
+  revalidatePath('/', 'layout')
+  redirect('/login')
+}
+```
+
+- [ ] **Step 3: Tela de login**
+
+`src/app/login/page.tsx`:
+```tsx
+'use client'
+
+import { useActionState } from 'react'
+import { motion } from 'motion/react'
+import { entrar } from './acoes'
+import { Botao } from '@/ui/Botao'
+import { Campo, entradaClasse } from '@/ui/Campo'
+import { entrada } from '@/ui/animacoes'
+
+export default function PaginaLogin() {
+  const [erro, acao, pendente] = useActionState(entrar, null)
+
+  return (
+    <main className="grid min-h-dvh place-items-center px-4">
+      <motion.div variants={entrada} initial="oculto" animate="visivel" className="w-full max-w-sm">
+        <div className="mb-8 text-center">
+          <h1 className="text-4xl">Mesinha Redonda</h1>
+          <p className="mt-2 text-tinta-suave">Entre para acessar o sistema</p>
+        </div>
+
+        <form action={acao} className="flex flex-col gap-5">
+          <Campo etiqueta="E-mail" obrigatorio>
+            <input
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              className={entradaClasse}
+            />
+          </Campo>
+
+          <Campo etiqueta="Senha" obrigatorio>
+            <input
+              name="senha"
+              type="password"
+              autoComplete="current-password"
+              required
+              className={entradaClasse}
+            />
+          </Campo>
+
+          {erro && (
+            <p role="alert" className="rounded-[--radius-campo] bg-erro-suave px-4 py-3 text-erro">
+              {erro}
+            </p>
+          )}
+
+          <Botao type="submit" disabled={pendente}>
+            {pendente ? 'Entrando…' : 'Entrar'}
+          </Botao>
+        </form>
+      </motion.div>
+    </main>
+  )
+}
+```
+
+- [ ] **Step 4: Criar a gestora no banco local**
+
+Run:
+```bash
+npx supabase db psql -c "
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+values (gen_random_uuid(), '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+        'gestora@mesinharedonda.local', crypt('mesinha123', gen_salt('bf')), now(), now(), now());
+insert into public.perfis (usuario_id, nome, papel)
+select id, 'Gestora', 'gestora' from auth.users where email = 'gestora@mesinharedonda.local';
+"
+```
+Expected: `INSERT 0 1` duas vezes.
+
+- [ ] **Step 5: Testar o login**
+
+Run: `npm run dev` e abrir `http://localhost:3000` no navegador.
+Expected: redireciona para `/login`; entrar com `gestora@mesinharedonda.local` / `mesinha123` leva à raiz.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/app/login/ src/dados/sessao.ts
+git commit -m "feat(auth): login, logout e leitura de sessao com papel"
+```
+
+---
+
+### Task 19: Layout do app e navegação
+
+**Files:**
+- Create: `src/app/(app)/layout.tsx`, `src/ui/NavLateral.tsx`
+- Move: `src/app/page.tsx` → `src/app/(app)/page.tsx`
+
+- [ ] **Step 1: Navegação lateral**
+
+`src/ui/NavLateral.tsx`:
+```tsx
+'use client'
+
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { motion } from 'motion/react'
+import type { Papel } from '@/dominio/tipos'
+
+interface Secao {
+  titulo: string
+  itens: { rotulo: string; href: string; papeis?: Papel[] }[]
+}
+
+const SECOES: Secao[] = [
+  {
+    titulo: 'Dia a dia',
+    itens: [
+      { rotulo: 'Início', href: '/' },
+      { rotulo: 'Turmas', href: '/turmas' },
+      { rotulo: 'Matrículas', href: '/matriculas', papeis: ['gestora'] },
+    ],
+  },
+  {
+    titulo: 'Cadastros',
+    itens: [
+      { rotulo: 'Responsáveis', href: '/cadastros/responsaveis', papeis: ['gestora'] },
+      { rotulo: 'Alunos', href: '/cadastros/alunos', papeis: ['gestora'] },
+      { rotulo: 'Professores', href: '/cadastros/professores', papeis: ['gestora'] },
+      { rotulo: 'Escolas', href: '/cadastros/escolas', papeis: ['gestora'] },
+      { rotulo: 'Serviços', href: '/cadastros/servicos', papeis: ['gestora'] },
+      { rotulo: 'Matérias', href: '/cadastros/materias', papeis: ['gestora'] },
+      { rotulo: 'Anos escolares', href: '/cadastros/anos-escolares', papeis: ['gestora'] },
+      { rotulo: 'Cidades', href: '/cadastros/cidades', papeis: ['gestora'] },
+      { rotulo: 'Contas', href: '/cadastros/contas', papeis: ['gestora'] },
+      { rotulo: 'Feriados', href: '/cadastros/feriados', papeis: ['gestora'] },
+    ],
+  },
+]
+
+export function NavLateral({ papel }: { papel: Papel }) {
+  const caminho = usePathname()
+
+  return (
+    <nav aria-label="Navegação principal" className="flex flex-col gap-6 p-4">
+      {SECOES.map((secao) => {
+        const visiveis = secao.itens.filter((i) => !i.papeis || i.papeis.includes(papel))
+        if (visiveis.length === 0) return null
+
+        return (
+          <div key={secao.titulo}>
+            <h2 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-tinta-suave">
+              {secao.titulo}
+            </h2>
+            <ul className="flex flex-col gap-0.5">
+              {visiveis.map((item) => {
+                const ativo =
+                  item.href === '/' ? caminho === '/' : caminho.startsWith(item.href)
+                return (
+                  <li key={item.href} className="relative">
+                    {ativo && (
+                      <motion.span
+                        layoutId="nav-ativo"
+                        className="absolute inset-0 rounded-[--radius-campo] bg-destaque-suave"
+                        transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                      />
+                    )}
+                    <Link
+                      href={item.href}
+                      aria-current={ativo ? 'page' : undefined}
+                      className={`relative flex min-h-[44px] items-center rounded-[--radius-campo] px-3 transition-colors ${
+                        ativo ? 'font-medium text-destaque-forte' : 'text-tinta-suave hover:text-tinta'
+                      }`}
+                    >
+                      {item.rotulo}
+                    </Link>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )
+      })}
+    </nav>
+  )
+}
+```
+
+**Nota:** o `layoutId` faz o realce deslizar entre itens em vez de piscar. É a animação que mais comunica "você está aqui".
+
+- [ ] **Step 2: Layout protegido**
+
+`src/app/(app)/layout.tsx`:
+```tsx
+import { exigirSessao } from '@/dados/sessao'
+import { NavLateral } from '@/ui/NavLateral'
+import { sair } from '@/app/login/acoes'
+import { Botao } from '@/ui/Botao'
+
+export default async function LayoutApp({ children }: { children: React.ReactNode }) {
+  const sessao = await exigirSessao()
+
+  return (
+    <div className="mx-auto flex min-h-dvh max-w-[1400px]">
+      <aside className="hidden w-64 shrink-0 border-r border-borda bg-superficie-2/40 md:flex md:flex-col">
+        <div className="px-7 py-6">
+          <p className="font-[family-name:--font-titulo] text-xl leading-tight">
+            Mesinha
+            <br />
+            Redonda
+          </p>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <NavLateral papel={sessao.papel} />
+        </div>
+        <div className="border-t border-borda p-4">
+          <p className="px-3 pb-2 text-sm text-tinta-suave">{sessao.nome}</p>
+          <form action={sair}>
+            <Botao aparencia="discreto" className="w-full justify-start px-3">
+              Sair
+            </Botao>
+          </form>
+        </div>
+      </aside>
+
+      <main className="min-w-0 flex-1 px-5 py-8 md:px-10">{children}</main>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: Mover a página inicial**
+
+Run:
+```bash
+mkdir -p "src/app/(app)"
+git mv src/app/page.tsx "src/app/(app)/page.tsx"
+```
+
+- [ ] **Step 4: Página inicial provisória**
+
+`src/app/(app)/page.tsx`:
+```tsx
+import { exigirSessao } from '@/dados/sessao'
+import { Cartao } from '@/ui/Cartao'
+
+export default async function PaginaInicial() {
+  const sessao = await exigirSessao()
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-3xl">Olá, {sessao.nome}</h1>
+        <p className="mt-1 text-tinta-suave">Bem-vinda ao sistema da Mesinha Redonda.</p>
+      </header>
+      <Cartao>
+        <p className="text-tinta-suave">
+          O painel com aulas do dia, reposições pendentes e cobranças em aberto chega no
+          Plano 3. Por enquanto, use o menu ao lado para os cadastros.
+        </p>
+      </Cartao>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 5: Verificar**
+
+Run: `npm run build && npm run dev`
+Expected: build limpo; a raiz mostra a navegação lateral com o nome da gestora.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -A
+git commit -m "feat(ui): layout do app com navegacao lateral por papel"
+```
+
+---
+
+### Task 20: Motor de cadastros — definição de entidade
+
+O sistema tem dez cadastros com o mesmo comportamento: listar, filtrar, criar, editar, ativar/desativar. Implementar dez vezes seria dez vezes a superfície de bug. Em vez disso, uma definição declarativa por entidade alimenta uma engine única.
+
+**Files:**
+- Create: `src/cadastros/tipos.ts`
+- Test: `src/cadastros/tipos.test.ts`
+
+- [ ] **Step 1: Escrever o teste que falha**
+
+`src/cadastros/tipos.test.ts`:
+```ts
+import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
+import { defineCadastro, valoresIniciais } from './tipos'
+
+const materias = defineCadastro({
+  tabela: 'materias',
+  rotulo: { singular: 'Matéria', plural: 'Matérias', genero: 'f' },
+  rota: 'materias',
+  ordenacao: { coluna: 'nome' },
+  campos: [
+    { nome: 'nome', etiqueta: 'Nome', tipo: 'texto', schema: z.string().min(1), naLista: true },
+    { nome: 'ativo', etiqueta: 'Ativo', tipo: 'booleano', schema: z.boolean(), padrao: true },
+  ],
+})
+
+describe('defineCadastro', () => {
+  it('preserva a definicao', () => {
+    expect(materias.tabela).toBe('materias')
+    expect(materias.campos).toHaveLength(2)
+  })
+
+  it('monta um schema Zod a partir dos campos', () => {
+    expect(materias.schema.parse({ nome: 'Matemática', ativo: true })).toEqual({
+      nome: 'Matemática',
+      ativo: true,
+    })
+    expect(() => materias.schema.parse({ nome: '', ativo: true })).toThrow()
+  })
+
+  it('expoe apenas os campos marcados para a lista', () => {
+    expect(materias.camposDaLista.map((c) => c.nome)).toEqual(['nome'])
+  })
+})
+
+describe('valoresIniciais', () => {
+  it('usa o padrao declarado quando existe', () => {
+    expect(valoresIniciais(materias)).toEqual({ nome: '', ativo: true })
+  })
+
+  it('usa o registro existente na edicao', () => {
+    expect(valoresIniciais(materias, { nome: 'Física', ativo: false })).toEqual({
+      nome: 'Física',
+      ativo: false,
+    })
+  })
+})
+```
+
+- [ ] **Step 2: Rodar e confirmar a falha**
+
+Run: `npm test -- cadastros/tipos`
+Expected: FAIL — `Failed to resolve import "./tipos"`
+
+- [ ] **Step 3: Implementar**
+
+`src/cadastros/tipos.ts`:
+```ts
+import { z } from 'zod'
+
+export type TipoCampo =
+  | 'texto'
+  | 'texto-longo'
+  | 'numero'
+  | 'dinheiro'
+  | 'percentual'
+  | 'data'
+  | 'booleano'
+  | 'selecao'
+  | 'referencia'
+
+export interface DefinicaoCampo {
+  nome: string
+  etiqueta: string
+  tipo: TipoCampo
+  schema: z.ZodTypeAny
+  /** Explicacao em linguagem comum, exibida sob a etiqueta. */
+  ajuda?: string
+  padrao?: unknown
+  /** Aparece na tabela de listagem. */
+  naLista?: boolean
+  /** Entra na busca por texto livre. */
+  buscavel?: boolean
+  /** Opcoes para `selecao`. */
+  opcoes?: readonly string[]
+  /** Tabela alvo para `referencia`. */
+  referencia?: { tabela: string; rotulo: string; rota?: string }
+}
+
+export interface DefinicaoCadastro {
+  tabela: string
+  rota: string
+  rotulo: { singular: string; plural: string; genero: 'm' | 'f' }
+  ordenacao: { coluna: string; ascendente?: boolean }
+  campos: DefinicaoCampo[]
+  /** Texto do estado vazio. Sempre nomeia o proximo passo. */
+  dicaVazio?: string
+  schema: z.ZodObject<z.ZodRawShape>
+  camposDaLista: DefinicaoCampo[]
+  camposBuscaveis: DefinicaoCampo[]
+}
+
+type EntradaDefinicao = Omit<
+  DefinicaoCadastro,
+  'schema' | 'camposDaLista' | 'camposBuscaveis'
+>
+
+export function defineCadastro(entrada: EntradaDefinicao): DefinicaoCadastro {
+  const forma: z.ZodRawShape = {}
+  for (const campo of entrada.campos) forma[campo.nome] = campo.schema
+
+  return {
+    ...entrada,
+    schema: z.object(forma),
+    camposDaLista: entrada.campos.filter((c) => c.naLista),
+    camposBuscaveis: entrada.campos.filter((c) => c.buscavel),
+  }
+}
+
+const VAZIO_POR_TIPO: Record<TipoCampo, unknown> = {
+  texto: '',
+  'texto-longo': '',
+  numero: null,
+  dinheiro: '',
+  percentual: '',
+  data: '',
+  booleano: false,
+  selecao: '',
+  referencia: null,
+}
+
+export function valoresIniciais(
+  definicao: DefinicaoCadastro,
+  registro?: Record<string, unknown>,
+): Record<string, unknown> {
+  const valores: Record<string, unknown> = {}
+  for (const campo of definicao.campos) {
+    if (registro && campo.nome in registro) {
+      valores[campo.nome] = registro[campo.nome]
+    } else if ('padrao' in campo) {
+      valores[campo.nome] = campo.padrao
+    } else {
+      valores[campo.nome] = VAZIO_POR_TIPO[campo.tipo]
+    }
+  }
+  return valores
+}
+```
+
+- [ ] **Step 4: Rodar e confirmar que passa**
+
+Run: `npm test -- cadastros/tipos`
+Expected: PASS, 5 testes.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/cadastros/
+git commit -m "feat(cadastros): definicao declarativa de entidade com schema derivado"
+```
 
 ---
 
