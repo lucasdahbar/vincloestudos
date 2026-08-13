@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { CADASTROS } from '@/cadastros/definicoes'
 import { Formulario } from '@/cadastros/motor/Formulario'
 import { carregarReferencias } from '@/cadastros/motor/referencias'
+import { paraCliente } from '@/cadastros/tipos'
 import { exigirGestora } from '@/dados/sessao'
 
 export default async function PaginaNovo({
@@ -23,7 +24,7 @@ export default async function PaginaNovo({
       <h1 className="text-3xl">
         {artigo} {definicao.rotulo.singular.toLowerCase()}
       </h1>
-      <Formulario definicao={definicao} referencias={referencias} />
+      <Formulario definicao={paraCliente(definicao)} referencias={referencias} />
     </div>
   )
 }

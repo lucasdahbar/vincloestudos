@@ -8,10 +8,10 @@ import { salvarCadastro } from './acoes'
 import { Botao } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { entrada } from '@/ui/animacoes'
-import { valoresIniciais, type DefinicaoCadastro } from '@/cadastros/tipos'
+import { valoresIniciais, type CadastroCliente } from '@/cadastros/tipos'
 
 interface Props {
-  definicao: DefinicaoCadastro
+  definicao: CadastroCliente
   registro?: Record<string, unknown> & { id: number }
   referencias: Record<string, OpcaoReferencia[]>
 }

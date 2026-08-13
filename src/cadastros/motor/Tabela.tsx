@@ -5,14 +5,14 @@ import { motion } from 'motion/react'
 import { formatarCelula } from './formatar'
 import { Selo } from '@/ui/Selo'
 import { containerEscalonado, itemEscalonado } from '@/ui/animacoes'
-import type { DefinicaoCadastro } from '@/cadastros/tipos'
+import type { CadastroCliente } from '@/cadastros/tipos'
 import type { Registro } from '@/dados/crud'
 
 export function Tabela({
   definicao,
   registros,
 }: {
-  definicao: DefinicaoCadastro
+  definicao: CadastroCliente
   registros: Registro[]
 }) {
   const temAtivo = definicao.campos.some((c) => c.nome === 'ativo')

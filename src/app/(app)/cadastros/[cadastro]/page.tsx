@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
 import { CADASTROS, ROTAS_DE_CADASTRO } from '@/cadastros/definicoes'
 import { Tabela } from '@/cadastros/motor/Tabela'
+import { paraCliente } from '@/cadastros/tipos'
 import { listar } from '@/dados/crud'
 import { exigirGestora } from '@/dados/sessao'
 import { BotaoLink } from '@/ui/Botao'
@@ -66,7 +67,7 @@ export default async function PaginaListagem({
           }
         />
       ) : (
-        <Tabela definicao={definicao} registros={registros} />
+        <Tabela definicao={paraCliente(definicao)} registros={registros} />
       )}
     </div>
   )

@@ -3,6 +3,7 @@ import { CADASTROS } from '@/cadastros/definicoes'
 import { Formulario } from '@/cadastros/motor/Formulario'
 import { carregarReferencias } from '@/cadastros/motor/referencias'
 import { PainelRelacionados, paineisDe } from '@/cadastros/motor/Relacionados'
+import { paraCliente } from '@/cadastros/tipos'
 import { obter } from '@/dados/crud'
 import { exigirGestora } from '@/dados/sessao'
 
@@ -27,7 +28,7 @@ export default async function PaginaEdicao({
     <div className="flex flex-col gap-6">
       <h1 className="text-3xl">{String(registro.nome ?? definicao.rotulo.singular)}</h1>
       <Formulario
-        definicao={definicao}
+        definicao={paraCliente(definicao)}
         registro={registro as Record<string, unknown> & { id: number }}
         referencias={referencias}
       />

@@ -1,10 +1,10 @@
 import { deNumeric, formatarBRL } from '@/dominio/dinheiro'
-import type { DefinicaoCampo } from '@/cadastros/tipos'
+import type { CampoCliente } from '@/cadastros/tipos'
 
 const VAZIO = '—'
 
 export function formatarCelula(
-  campo: DefinicaoCampo,
+  campo: CampoCliente,
   valor: unknown,
   registro: Record<string, unknown>,
 ): string {

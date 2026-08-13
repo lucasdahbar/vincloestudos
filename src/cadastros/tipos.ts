@@ -64,6 +64,40 @@ export function defineCadastro(entrada: EntradaDefinicao): DefinicaoCadastro {
   }
 }
 
+/**
+ * Versao de um campo sem o schema Zod. Schemas sao instancias de classe e nao
+ * atravessam a fronteira Server -> Client do React: passar a definicao completa
+ * para um Client Component quebra a renderizacao em runtime.
+ */
+export type CampoCliente = Omit<DefinicaoCampo, 'schema'>
+
+/** Versao do cadastro sem os schemas, segura para atravessar a fronteira RSC. */
+export interface CadastroCliente {
+  tabela: string
+  rota: string
+  rotulo: { singular: string; plural: string; genero: 'm' | 'f' }
+  ordenacao: { coluna: string; ascendente?: boolean }
+  dicaVazio?: string
+  campos: CampoCliente[]
+  camposDaLista: CampoCliente[]
+  camposBuscaveis: CampoCliente[]
+}
+
+/** Descarta os schemas. Chame sempre que a definicao for para um Client Component. */
+export function paraCliente(definicao: DefinicaoCadastro): CadastroCliente {
+  const semSchema = ({ schema: _schema, ...resto }: DefinicaoCampo): CampoCliente => resto
+  return {
+    tabela: definicao.tabela,
+    rota: definicao.rota,
+    rotulo: definicao.rotulo,
+    ordenacao: definicao.ordenacao,
+    dicaVazio: definicao.dicaVazio,
+    campos: definicao.campos.map(semSchema),
+    camposDaLista: definicao.camposDaLista.map(semSchema),
+    camposBuscaveis: definicao.camposBuscaveis.map(semSchema),
+  }
+}
+
 const VAZIO_POR_TIPO: Record<TipoCampo, unknown> = {
   texto: '',
   'texto-longo': '',
@@ -77,7 +111,7 @@ const VAZIO_POR_TIPO: Record<TipoCampo, unknown> = {
 }
 
 export function valoresIniciais(
-  definicao: DefinicaoCadastro,
+  definicao: CadastroCliente,
   registro?: Record<string, unknown>,
 ): Record<string, unknown> {
   const valores: Record<string, unknown> = {}

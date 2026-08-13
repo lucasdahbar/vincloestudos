@@ -1,7 +1,7 @@
 'use client'
 
 import { Campo, entradaClasse } from '@/ui/Campo'
-import type { DefinicaoCampo } from '@/cadastros/tipos'
+import type { CampoCliente } from '@/cadastros/tipos'
 
 export interface OpcaoReferencia {
   id: number
@@ -9,7 +9,7 @@ export interface OpcaoReferencia {
 }
 
 interface Props {
-  campo: DefinicaoCampo
+  campo: CampoCliente
   valor: unknown
   erro?: string
   referencias: Record<string, OpcaoReferencia[]>
