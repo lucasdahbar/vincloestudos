@@ -1048,7 +1048,7 @@ export function calcularFechamento(presencas: PresencaRemunerada[]): Fechamento 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
 Run: `npm test`
-Expected: PASS, 14 arquivos, 129 testes.
+Expected: PASS, 14 arquivos, 128 testes.
 
 - [ ] **Step 5: Commit**
 
@@ -2941,7 +2941,7 @@ npm test
 npx tsc --noEmit
 npm run build
 ```
-Expected: 14 arquivos / 129 testes, sem erro de tipo, build limpo.
+Expected: 14 arquivos / 128 testes, sem erro de tipo, build limpo.
 
 - [ ] **Step 2: Estender o e2e**
 
