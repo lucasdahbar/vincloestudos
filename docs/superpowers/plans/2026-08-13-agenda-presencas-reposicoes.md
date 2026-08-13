@@ -2372,7 +2372,7 @@ git commit -m "feat(agenda): calendario mensal, detalhe da aula e alerta de feri
 ### Task 15: Painel de reposições
 
 **Files:**
-- Create: `src/app/(app)/reposicoes/page.tsx`, `src/app/(app)/reposicoes/acoes.ts`, `src/app/(app)/reposicoes/Acoes.tsx`
+- Create: `src/app/(app)/reposicoes/page.tsx`, `src/app/(app)/reposicoes/acoes.ts`, `src/app/(app)/reposicoes/ControlesPendencia.tsx`
 
 - [ ] **Step 1: Ações**
 
@@ -2401,7 +2401,7 @@ export async function desistir(pendenciaId: number) {
 
 - [ ] **Step 2: Controles por linha**
 
-`src/app/(app)/reposicoes/Acoes.tsx`:
+`src/app/(app)/reposicoes/ControlesPendencia.tsx`:
 ```tsx
 'use client'
 
@@ -2489,7 +2489,7 @@ import { exigirGestora } from '@/dados/sessao'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { Selo } from '@/ui/Selo'
-import { AcoesPendencia } from './Acoes'
+import { AcoesPendencia } from './ControlesPendencia'
 
 const TOM: Record<string, 'ativo' | 'encerrado' | 'alerta' | 'neutro'> = {
   Pendente: 'alerta',
