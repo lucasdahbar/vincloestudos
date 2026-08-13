@@ -6,9 +6,27 @@
 
 **Architecture:** Next.js 15 (App Router) sobre Supabase Postgres local. Três camadas com dependência unidirecional: `app → dados → dominio`. Os dez cadastros base não são dez implementações — são uma engine de CRUD genérica alimentada por definições declarativas (Zod + metadados de UI), uma por entidade. Turmas e Matrículas têm telas próprias por causa das regras condicionais.
 
-**Tech Stack:** Next.js 15, TypeScript strict, Supabase (Postgres + Auth), Tailwind CSS v4, Motion, React Hook Form, Zod, Vitest.
+**Tech Stack:** Next.js 16.3, React 19.2, TypeScript strict, Supabase (Postgres + Auth), Tailwind CSS v4, Motion, Zod 4, Vitest 4.
 
 **Spec:** `docs/superpowers/specs/2026-08-13-mesinha-redonda-design.md`
+
+## Notas de versão — leia antes de escrever código
+
+O scaffold instalou **Next.js 16.3**, não a 15. O Next 16 tem mudanças que invalidam padrões comuns:
+
+| Mudança | O que fazer |
+|---|---|
+| `middleware.ts` foi renomeado para **`proxy.ts`** | Arquivo `proxy.ts` na raiz, exportando `proxy`, não `middleware`. Runtime é sempre Node.js. |
+| `params` e `searchParams` são **sempre Promise** | Já assumido em todo este plano: `params: Promise<{...}>` com `await`. |
+| `next lint` foi removido | `npm run lint` roda `eslint` direto (já configurado pelo scaffold). `next build` não roda lint. |
+| Turbopack é o padrão | Nada a fazer. |
+| `revalidateTag` exige segundo argumento | Este plano usa apenas `revalidatePath`, que não mudou. |
+
+**Tailwind v4:** tokens declarados em `@theme` viram utilitários automaticamente. Um token `--radius-cartao` gera a classe `rounded-cartao`; `--shadow-cartao` gera `shadow-cartao`; `--font-titulo` gera `font-titulo`. **Use sempre o nome do utilitário gerado**, nunca a sintaxe de valor arbitrário `rounded-cartao`, que não resolve em v4.
+
+**Zod 4:** `z.enum(arrayReadonly)` e `z.number({ message: '...' })` são a sintaxe correta (a v3 usava `required_error`). Não use `schema.isOptional()` para inferir obrigatoriedade — este plano declara um campo `obrigatorio` explícito.
+
+A documentação da versão exata instalada está em `node_modules/next/dist/docs/`. Em caso de dúvida sobre uma API do Next, consulte lá antes de escrever.
 
 ---
 
@@ -1573,16 +1591,18 @@ export function clienteAdmin() {
 
 Run: `npm install server-only`
 
-- [ ] **Step 3: Middleware de sessão**
+- [ ] **Step 3: Proxy de sessão**
 
-`middleware.ts` (na raiz do projeto):
+No Next 16 este arquivo se chama `proxy.ts` (era `middleware.ts` até a 15) e a função exportada é `proxy`.
+
+`proxy.ts` (na raiz do projeto):
 ```ts
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLICAS = ['/login', '/p/']
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let resposta = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -1631,8 +1651,8 @@ Expected: `✓ Compiled successfully`
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dados/ middleware.ts package.json package-lock.json
-git commit -m "feat(dados): clientes Supabase e middleware de sessao"
+git add src/dados/ proxy.ts package.json package-lock.json
+git commit -m "feat(dados): clientes Supabase e proxy de sessao"
 ```
 
 ---
@@ -1773,7 +1793,7 @@ import type { ComponentProps, ReactNode } from 'react'
 type Aparencia = 'primario' | 'secundario' | 'discreto' | 'perigo'
 
 const BASE =
-  'inline-flex items-center justify-center gap-2 rounded-[--radius-campo] ' +
+  'inline-flex items-center justify-center gap-2 rounded-campo ' +
   'px-5 min-h-[44px] font-medium transition-all duration-150 ' +
   'active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none'
 
@@ -1838,7 +1858,7 @@ export function Campo({ etiqueta, ajuda, erro, obrigatorio, children }: CampoPro
 }
 
 export const entradaClasse =
-  'w-full min-h-[44px] rounded-[--radius-campo] border border-borda bg-superficie ' +
+  'w-full min-h-[44px] rounded-campo border border-borda bg-superficie ' +
   'px-4 py-2 text-tinta placeholder:text-tinta-suave/60 ' +
   'transition-colors focus:border-destaque focus:outline-none ' +
   'focus-visible:outline-3 focus-visible:outline-destaque'
@@ -1859,7 +1879,7 @@ export function Cartao({
 }) {
   return (
     <div
-      className={`rounded-[--radius-cartao] border border-borda bg-superficie p-6 shadow-[--shadow-cartao] ${className}`}
+      className={`rounded-cartao border border-borda bg-superficie p-6 shadow-cartao ${className}`}
     >
       {children}
     </div>
@@ -1914,7 +1934,7 @@ export function EstadoVazio({
   acao?: ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-[--radius-cartao] border border-dashed border-borda bg-superficie-2/50 px-6 py-16 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-cartao border border-dashed border-borda bg-superficie-2/50 px-6 py-16 text-center">
       <h3 className="text-xl">{titulo}</h3>
       <p className="max-w-md text-tinta-suave">{descricao}</p>
       {acao && <div className="mt-2">{acao}</div>}
@@ -2140,7 +2160,7 @@ export default function PaginaLogin() {
           </Campo>
 
           {erro && (
-            <p role="alert" className="rounded-[--radius-campo] bg-erro-suave px-4 py-3 text-erro">
+            <p role="alert" className="rounded-campo bg-erro-suave px-4 py-3 text-erro">
               {erro}
             </p>
           )}
@@ -2254,14 +2274,14 @@ export function NavLateral({ papel }: { papel: Papel }) {
                     {ativo && (
                       <motion.span
                         layoutId="nav-ativo"
-                        className="absolute inset-0 rounded-[--radius-campo] bg-destaque-suave"
+                        className="absolute inset-0 rounded-campo bg-destaque-suave"
                         transition={{ type: 'spring', stiffness: 400, damping: 32 }}
                       />
                     )}
                     <Link
                       href={item.href}
                       aria-current={ativo ? 'page' : undefined}
-                      className={`relative flex min-h-[44px] items-center rounded-[--radius-campo] px-3 transition-colors ${
+                      className={`relative flex min-h-[44px] items-center rounded-campo px-3 transition-colors ${
                         ativo ? 'font-medium text-destaque-forte' : 'text-tinta-suave hover:text-tinta'
                       }`}
                     >
@@ -2297,7 +2317,7 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
     <div className="mx-auto flex min-h-dvh max-w-[1400px]">
       <aside className="hidden w-64 shrink-0 border-r border-borda bg-superficie-2/40 md:flex md:flex-col">
         <div className="px-7 py-6">
-          <p className="font-[family-name:--font-titulo] text-xl leading-tight">
+          <p className="font-titulo text-xl leading-tight">
             Mesinha
             <br />
             Redonda
@@ -2460,6 +2480,8 @@ export interface DefinicaoCampo {
   schema: z.ZodTypeAny
   /** Explicacao em linguagem comum, exibida sob a etiqueta. */
   ajuda?: string
+  /** Marca o asterisco no formulario. Declarado, nao inferido do Zod. */
+  obrigatorio?: boolean
   padrao?: unknown
   /** Aparece na tabela de listagem. */
   naLista?: boolean
@@ -2698,8 +2720,6 @@ interface Props {
 }
 
 export function CampoDinamico({ campo, valor, erro, referencias, aoMudar }: Props) {
-  const obrigatorio = !campo.schema.isOptional() && !campo.schema.isNullable()
-
   if (campo.tipo === 'booleano') {
     return (
       <label className="flex min-h-[44px] cursor-pointer items-center gap-3">
@@ -2707,7 +2727,7 @@ export function CampoDinamico({ campo, valor, erro, referencias, aoMudar }: Prop
           type="checkbox"
           checked={Boolean(valor)}
           onChange={(e) => aoMudar(campo.nome, e.target.checked)}
-          className="size-5 accent-[--color-destaque]"
+          className="size-5 accent-destaque"
         />
         <span>
           <span className="font-medium">{campo.etiqueta}</span>
@@ -2718,7 +2738,12 @@ export function CampoDinamico({ campo, valor, erro, referencias, aoMudar }: Prop
   }
 
   return (
-    <Campo etiqueta={campo.etiqueta} ajuda={campo.ajuda} erro={erro} obrigatorio={obrigatorio}>
+    <Campo
+      etiqueta={campo.etiqueta}
+      ajuda={campo.ajuda}
+      erro={erro}
+      obrigatorio={campo.obrigatorio}
+    >
       {campo.tipo === 'texto-longo' ? (
         <textarea
           rows={3}
@@ -2935,7 +2960,7 @@ export function Formulario({ definicao, registro, referencias }: Props) {
       </Cartao>
 
       {mensagem && (
-        <p role="alert" className="mt-4 rounded-[--radius-campo] bg-erro-suave px-4 py-3 text-erro">
+        <p role="alert" className="mt-4 rounded-campo bg-erro-suave px-4 py-3 text-erro">
           {mensagem}
         </p>
       )}
@@ -2966,6 +2991,8 @@ git commit -m "feat(cadastros): formulario generico com validacao por campo"
 
 **Files:**
 - Create: `src/cadastros/definicoes/index.ts` e um arquivo por entidade
+
+**Antes de começar:** todo campo cujo schema Zod é obrigatório deve carregar `obrigatorio: true` na definição — é o que desenha o asterisco no formulário. Nos dois arquivos abaixo, isso vale exatamente para: `materias.nome`, `anosEscolares.nome`, `anosEscolares.ordem`, `cidades.nome`, `contas.nome`, `contas.tipo`, `feriados.data`, `feriados.nome`, `feriados.abrangencia`, `escolas.nome`, `servicos.nome`, `servicos.valor_padrao`, `professores.nome`, `professores.percentual_repasse`, `responsaveis.nome`, `alunos.nome`, `alunos.responsavel_id`, `alunos.destinatario_notificacao` e `alunos.canal_notificacao`. Os blocos de código abaixo omitem essa linha por brevidade; acrescente-a nesses campos.
 
 - [ ] **Step 1: Cadastros simples**
 
@@ -3525,7 +3552,7 @@ export function Tabela({
   const colunas = definicao.camposDaLista.filter((c) => c.nome !== 'ativo')
 
   return (
-    <div className="overflow-x-auto rounded-[--radius-cartao] border border-borda bg-superficie">
+    <div className="overflow-x-auto rounded-cartao border border-borda bg-superficie">
       <table className="w-full min-w-[36rem] border-collapse text-left">
         <thead>
           <tr className="border-b border-borda bg-superficie-2/60">
@@ -4135,13 +4162,13 @@ export function FormularioTurma({
   return (
     <form onSubmit={enviar} className="max-w-2xl">
       <Cartao className="flex flex-col gap-5">
-        <div className="rounded-[--radius-campo] bg-superficie-2 px-4 py-3">
+        <div className="rounded-campo bg-superficie-2 px-4 py-3">
           <span className="text-sm text-tinta-suave">Nome da turma (gerado automaticamente)</span>
           <motion.p
             key={nomeGerado}
             initial={{ opacity: 0.4 }}
             animate={{ opacity: 1 }}
-            className="mt-1 font-[family-name:--font-titulo] text-lg"
+            className="mt-1 font-titulo text-lg"
           >
             {nomeGerado || 'Preencha os campos abaixo…'}
           </motion.p>
@@ -4295,7 +4322,7 @@ export function FormularioTurma({
                   type="button"
                   onClick={() => alternarDia(dia.valor)}
                   aria-pressed={marcado}
-                  className={`min-h-[44px] min-w-[56px] rounded-[--radius-campo] border px-3 font-medium transition-all active:scale-95 ${
+                  className={`min-h-[44px] min-w-[56px] rounded-campo border px-3 font-medium transition-all active:scale-95 ${
                     marcado
                       ? 'border-destaque bg-destaque text-white'
                       : 'border-borda bg-superficie text-tinta-suave hover:border-destaque/40'
@@ -4329,7 +4356,7 @@ export function FormularioTurma({
       </Cartao>
 
       {erros.length > 0 && (
-        <ul role="alert" className="mt-4 flex flex-col gap-1 rounded-[--radius-campo] bg-erro-suave px-4 py-3 text-erro">
+        <ul role="alert" className="mt-4 flex flex-col gap-1 rounded-campo bg-erro-suave px-4 py-3 text-erro">
           {erros.map((erro) => (
             <li key={erro}>{erro}</li>
           ))}
@@ -4412,10 +4439,10 @@ export default async function PaginaTurmas() {
             <li key={turma.id}>
               <Link
                 href={`/turmas/${turma.id}`}
-                className="block rounded-[--radius-cartao] border border-borda bg-superficie p-5 shadow-[--shadow-cartao] transition-all hover:-translate-y-0.5 hover:border-destaque/40"
+                className="block rounded-cartao border border-borda bg-superficie p-5 shadow-cartao transition-all hover:-translate-y-0.5 hover:border-destaque/40"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <h2 className="font-[family-name:--font-titulo] text-lg leading-snug">
+                  <h2 className="font-titulo text-lg leading-snug">
                     {turma.nome}
                   </h2>
                   <Selo tom={turma.status === 'Ativa' ? 'ativo' : 'encerrado'}>{turma.status}</Selo>
@@ -4687,7 +4714,7 @@ export function FormularioMatricula({
             type="checkbox"
             checked={estado.flag_reposicao}
             onChange={(e) => setEstado((a) => ({ ...a, flag_reposicao: e.target.checked }))}
-            className="size-5 accent-[--color-destaque]"
+            className="size-5 accent-destaque"
           />
           <span className="font-medium">Matrícula de reposição</span>
         </label>
@@ -4698,7 +4725,7 @@ export function FormularioMatricula({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="overflow-hidden rounded-[--radius-campo] bg-alerta-suave px-4 py-3 text-alerta"
+              className="overflow-hidden rounded-campo bg-alerta-suave px-4 py-3 text-alerta"
             >
               {aviso}
             </motion.p>
@@ -4707,7 +4734,7 @@ export function FormularioMatricula({
       </Cartao>
 
       {erros.length > 0 && (
-        <ul role="alert" className="mt-4 flex flex-col gap-1 rounded-[--radius-campo] bg-erro-suave px-4 py-3 text-erro">
+        <ul role="alert" className="mt-4 flex flex-col gap-1 rounded-campo bg-erro-suave px-4 py-3 text-erro">
           {erros.map((erro) => (
             <li key={erro}>{erro}</li>
           ))}
@@ -4844,7 +4871,7 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
             }
           />
         ) : (
-          <ul className="divide-y divide-borda rounded-[--radius-cartao] border border-borda bg-superficie">
+          <ul className="divide-y divide-borda rounded-cartao border border-borda bg-superficie">
             {matriculas.map((matricula) => (
               <li key={matricula.id} className="flex items-center justify-between gap-4 px-5 py-4">
                 <Link
@@ -4964,7 +4991,7 @@ export default async function PaginaMatriculas() {
           acao={<BotaoLink href="/matriculas/nova">+ Nova matrícula</BotaoLink>}
         />
       ) : (
-        <div className="overflow-x-auto rounded-[--radius-cartao] border border-borda bg-superficie">
+        <div className="overflow-x-auto rounded-cartao border border-borda bg-superficie">
           <table className="w-full min-w-[40rem] border-collapse text-left">
             <thead>
               <tr className="border-b border-borda bg-superficie-2/60 text-sm text-tinta-suave">
