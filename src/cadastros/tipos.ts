@@ -50,8 +50,11 @@ type EntradaDefinicao = Omit<
 >
 
 export function defineCadastro(entrada: EntradaDefinicao): DefinicaoCadastro {
-  const forma: z.ZodRawShape = {}
-  for (const campo of entrada.campos) forma[campo.nome] = campo.schema
+  // `z.ZodRawShape` e readonly no Zod 4, entao a forma e construida de uma vez
+  // em vez de por mutacao.
+  const forma = Object.fromEntries(
+    entrada.campos.map((campo) => [campo.nome, campo.schema]),
+  ) as z.ZodRawShape
 
   return {
     ...entrada,
