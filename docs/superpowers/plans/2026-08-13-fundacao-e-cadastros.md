@@ -863,17 +863,19 @@ git commit -m "feat(dominio): validacao de matricula aluno-turma"
 **Files:**
 - Create: `supabase/config.toml` (gerado), `supabase/migrations/20260813000100_fundacao.sql`, `.env.local`, `.env.example`
 
-- [ ] **Step 1: Subir o Docker Desktop**
+> **Ambiente: banco REMOTO, sem Docker.** O WSL desta máquina não tem distribuição instalada, então o Supabase local (que roda em contêiner) não sobe. O projeto **Mesinha Redonda** (`ixegxvjimyhlvkyarcyr`, Postgres 17.6, us-east-2) já está criado e vinculado via `supabase link`, e `.env.local` já tem URL, anon key e service_role key.
+>
+> ⚠️ **Nunca rode `supabase db reset` neste projeto.** Com o projeto vinculado, ele apaga o banco remoto. O comando para aplicar migrations aqui é **`npx supabase db push`**, que é incremental e só aplica o que ainda não está no histórico.
+>
+> Para conferir dados, o CLI remoto não oferece `db psql`. Use `node scripts/consultar.mjs <tabela> [colunas]`, que consulta via service_role key.
 
-Docker está instalado mas o daemon não está rodando. Abra o Docker Desktop e aguarde o ícone ficar verde.
+- [x] **Step 1: Vincular o projeto remoto** — feito
 
-Run: `docker info --format '{{.ServerVersion}}'`
-Expected: um número de versão, não erro de pipe.
-
-- [ ] **Step 2: Inicializar o Supabase**
-
-Run: `npx supabase init`
-Expected: cria `supabase/config.toml`.
+```bash
+npx supabase init
+npx supabase link --project-ref ixegxvjimyhlvkyarcyr
+npx supabase migration list   # confirma a conexão
+```
 
 - [ ] **Step 3: Criar a migration de fundação**
 
@@ -904,38 +906,20 @@ create type public.abrangencia_feriado as enum ('Nacional', 'Estadual', 'Municip
 create type public.papel_usuario as enum ('gestora', 'professor');
 ```
 
-- [ ] **Step 4: Subir o banco local**
+- [ ] **Step 4: Aplicar no banco remoto**
 
-Run: `npx supabase start`
-Expected: imprime `API URL`, `anon key` e `service_role key`. Guarde-os para o próximo passo.
+Run: `npx supabase db push`
+Expected: `Applying migration 20260813000100_fundacao.sql...` e `Finished supabase db push.` sem erro de SQL.
 
-- [ ] **Step 5: Criar os arquivos de ambiente**
+- [x] **Step 5: Arquivos de ambiente** — feito
 
-`.env.example`:
-```
-# Supabase local: rode `npx supabase start` e copie os valores impressos.
-NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-NEXT_PUBLIC_SUPABASE_ANON_KEY=cole-a-anon-key-aqui
-SUPABASE_SERVICE_ROLE_KEY=cole-a-service-role-key-aqui
+`.env.example` (versionado, sem segredo) e `.env.local` (ignorado, com os valores reais) já existem. `.gitignore` tem `.env*` com exceção `!.env.example`, confirmado por `git check-ignore -v .env.local`.
 
-# Google Calendar: desligado ate haver credenciais (spec, secao 6).
-GOOGLE_CALENDAR_ATIVO=false
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-```
-
-`.env.local`: mesma estrutura, com os valores reais impressos por `supabase start`.
-
-- [ ] **Step 6: Garantir que `.env.local` está ignorado**
-
-Run: `grep -n "env" .gitignore`
-Expected: contém `.env*` (o create-next-app já inclui). Se não, adicionar `.env*.local`.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add supabase/ .env.example .gitignore
-git commit -m "feat(banco): supabase local e migration de fundacao"
+git add supabase/ scripts/
+git commit -m "feat(banco): vinculo remoto e migration de fundacao"
 ```
 
 ---
@@ -1057,8 +1041,8 @@ create trigger tocar_updated_at before update on public.feriados
 
 - [ ] **Step 2: Aplicar e verificar**
 
-Run: `npx supabase db reset`
-Expected: `Finished supabase db reset` sem erro de SQL.
+Run: `npx supabase db push`
+Expected: `Finished supabase db push.` sem erro de SQL.
 
 - [ ] **Step 3: Commit**
 
@@ -1154,8 +1138,8 @@ create trigger tocar_updated_at before update on public.alunos
 
 - [ ] **Step 2: Aplicar e verificar**
 
-Run: `npx supabase db reset`
-Expected: sem erro.
+Run: `npx supabase db push`
+Expected: `Finished supabase db push.` sem erro.
 
 - [ ] **Step 3: Commit**
 
@@ -1272,19 +1256,16 @@ $$;
 
 - [ ] **Step 2: Aplicar**
 
-Run: `npx supabase db reset`
-Expected: sem erro.
+Run: `npx supabase db push`
+Expected: `Finished supabase db push.` sem erro.
 
 - [ ] **Step 3: Verificar o comportamento na prática**
 
 Run:
 ```bash
-npx supabase db reset && npx supabase db psql -c "
-insert into public.servicos (nome, valor_padrao) values ('Reforço', 100.00);
-update public.servicos set valor_padrao = 120.00 where nome = 'Reforço';
-select valor, vigencia_inicio, vigencia_fim from public.servico_valor_historico order by id;
-select public.valor_servico_em(1, current_date) as vigente;
-"
+npx supabase db push
+node scripts/consultar.mjs servicos "id,nome,valor_padrao"
+node scripts/consultar.mjs servico_valor_historico "servico_id,valor,vigencia_inicio,vigencia_fim"
 ```
 Expected: uma linha de histórico com `valor = 120.00` e `vigencia_fim` nulo (mesma data, substitui), e `vigente = 120.00`.
 
@@ -1400,8 +1381,8 @@ create trigger tocar_updated_at before update on public.matriculas
 
 - [ ] **Step 2: Aplicar**
 
-Run: `npx supabase db reset`
-Expected: sem erro.
+Run: `npx supabase db push`
+Expected: `Finished supabase db push.` sem erro.
 
 - [ ] **Step 3: Commit**
 
@@ -1513,8 +1494,8 @@ create policy "professor le matriculas de suas turmas" on public.matriculas for 
 
 - [ ] **Step 2: Aplicar**
 
-Run: `npx supabase db reset`
-Expected: sem erro.
+Run: `npx supabase db push`
+Expected: `Finished supabase db push.` sem erro.
 
 - [ ] **Step 3: Verificar que o anônimo não lê nada**
 
@@ -2179,24 +2160,20 @@ export default function PaginaLogin() {
 }
 ```
 
-- [ ] **Step 4: Criar a gestora no banco local**
+- [ ] **Step 4: Criar a gestora**
 
-Run:
+O schema `auth` é gerenciado pelo GoTrue; inserir nele por SQL funciona no Supabase local mas é frágil em projeto remoto. Use a API de admin, via `scripts/criar-usuario.mjs` (já existe no repo):
+
 ```bash
-npx supabase db psql -c "
-insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
-values (gen_random_uuid(), '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-        'gestora@mesinharedonda.local', crypt('mesinha123', gen_salt('bf')), now(), now(), now());
-insert into public.perfis (usuario_id, nome, papel)
-select id, 'Gestora', 'gestora' from auth.users where email = 'gestora@mesinharedonda.local';
-"
+node scripts/criar-usuario.mjs gestora@mesinharedonda.app "mesinha123" "Gestora" gestora
 ```
-Expected: `INSERT 0 1` duas vezes.
+Expected: `Usuario ... criado` seguido de `Perfil gravado: Gestora (gestora).`
+O script é seguro de rodar duas vezes — se o usuário já existir, reaproveita.
 
 - [ ] **Step 5: Testar o login**
 
 Run: `npm run dev` e abrir `http://localhost:3000` no navegador.
-Expected: redireciona para `/login`; entrar com `gestora@mesinharedonda.local` / `mesinha123` leva à raiz.
+Expected: redireciona para `/login`; entrar com `gestora@mesinharedonda.app` / `mesinha123` leva à raiz.
 
 - [ ] **Step 6: Commit**
 
@@ -5068,17 +5045,11 @@ git commit -m "feat(matriculas): detalhe da turma, matricula e navegacao cruzada
 `supabase/seed.sql`:
 ```sql
 -- Dados ficticios para a gestora explorar o sistema.
--- Rodar com `npx supabase db reset`. Para comecar do zero em producao,
--- basta nao aplicar este arquivo.
+-- Aplicar com `npx supabase db push --include-seed`.
+-- Para comecar do zero em producao, basta nao passar --include-seed.
 
-insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
-values (
-  '11111111-1111-1111-1111-111111111111',
-  '00000000-0000-0000-0000-000000000000',
-  'authenticated', 'authenticated',
-  'gestora@mesinharedonda.local',
-  crypt('mesinha123', gen_salt('bf')), now(), now(), now()
-);
+-- O usuario de login NAO e criado aqui: o schema `auth` e gerenciado pelo
+-- GoTrue. Rode `node scripts/criar-usuario.mjs` depois do push (ver Task 18).
 
 insert into public.cidades (nome, uf) values ('Campinas', 'SP'), ('Valinhos', 'SP');
 
@@ -5115,9 +5086,6 @@ insert into public.professores (nome, percentual_repasse, telefone, email, chave
   ('Beatriz Lima', 60.00, '(19) 99811-1122', 'beatriz@exemplo.com', 'beatriz@exemplo.com'),
   ('Carlos Menezes', 55.00, '(19) 99822-3344', 'carlos@exemplo.com', '(19) 99822-3344');
 
-insert into public.perfis (usuario_id, nome, papel)
-values ('11111111-1111-1111-1111-111111111111', 'Gestora', 'gestora');
-
 insert into public.responsaveis (nome, telefone, email, cidade_id) values
   ('Ana Ribeiro', '(19) 99700-1111', 'ana@exemplo.com', 1),
   ('Marcos Tavares', '(19) 99700-2222', 'marcos@exemplo.com', 1),
@@ -5151,12 +5119,11 @@ insert into public.matriculas (aluno_id, turma_id, data_inicio) values
 
 Run:
 ```bash
-npx supabase db reset && npx supabase db psql -c "
-select (select count(*) from public.turmas) as turmas,
-       (select count(*) from public.matriculas) as matriculas,
-       (select count(*) from public.servico_valor_historico) as historico_valor,
-       (select count(*) from public.professor_percentual_historico) as historico_repasse;
-"
+npx supabase db push --include-seed
+node scripts/consultar.mjs turmas --count
+node scripts/consultar.mjs matriculas --count
+node scripts/consultar.mjs servico_valor_historico --count
+node scripts/consultar.mjs professor_percentual_historico --count
 ```
 Expected: `turmas = 3`, `matriculas = 4`, `historico_valor = 3`, `historico_repasse = 2` — os históricos são preenchidos pelos triggers da Task 11, sem nenhum insert explícito.
 
@@ -5366,15 +5333,15 @@ Expected: sem erros em nenhum dos três.
 
 - [ ] **Step 3: Banco do zero**
 
-Run: `npx supabase db reset`
-Expected: todas as migrations e o seed aplicam sem erro.
+Run: `npx supabase db push --include-seed`
+Expected: todas as migrations aplicam sem erro (as ja aplicadas sao puladas).
 
 - [ ] **Step 4: Roteiro manual**
 
 Com `npm run dev`, logado como gestora:
 
 1. `/` mostra a saudação com o nome.
-2. `/cadastros/servicos` → editar "Aula regular" mudando o valor para `110,00` → salvar. Conferir com `npx supabase db psql -c "select valor, vigencia_inicio, vigencia_fim from public.servico_valor_historico where servico_id = 1 order by id"`: o histórico registra a troca.
+2. `/cadastros/servicos` → editar "Aula regular" mudando o valor para `110,00` → salvar. Conferir com `node scripts/consultar.mjs servico_valor_historico "servico_id,valor,vigencia_inicio,vigencia_fim"`: o histórico registra a troca.
 3. `/turmas/nova` → escolher "Aula particular" (permite escola = false) → o campo Escola não aparece; o nome no topo se monta ao vivo.
 4. Tentar salvar uma turma sem dia da semana → erro em português: "Escolha ao menos um dia da semana para ativar a turma."
 5. `/turmas/3` → "+ Adicionar aluno" → marcar "Matrícula de reposição" → o aviso amarelo aparece animado.
