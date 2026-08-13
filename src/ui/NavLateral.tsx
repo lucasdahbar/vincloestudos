@@ -15,8 +15,10 @@ const SECOES: Secao[] = [
     titulo: 'Dia a dia',
     itens: [
       { rotulo: 'Início', href: '/' },
+      { rotulo: 'Agenda', href: '/agenda' },
       { rotulo: 'Turmas', href: '/turmas' },
       { rotulo: 'Matrículas', href: '/matriculas', papeis: ['gestora'] },
+      { rotulo: 'Reposições', href: '/reposicoes', papeis: ['gestora'] },
     ],
   },
   {
