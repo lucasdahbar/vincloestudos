@@ -1654,9 +1654,1007 @@ git commit -m "feat(presencas): token de uso unico e registro completo da chamad
 
 ---
 
-## Continuação
+### Task 12: Pendências de reposição — dados
 
-As tarefas 12 a 20 cobrem as telas: agenda em calendário, detalhe da aula, o formulário público de presença, o painel de reposições, a fila de notificações e a verificação final ponta a ponta. Serão escritas na sequência.
+**Files:**
+- Create: `src/dados/reposicoes.ts`
+
+- [ ] **Step 1: Implementar**
+
+`src/dados/reposicoes.ts`:
+```ts
+import 'server-only'
+import { clienteServidor } from './cliente'
+import { planejarReposicao, validarDesistencia, type Pendencia } from '@/dominio/reposicoes/agendamento'
+
+export interface PendenciaComRelacoes {
+  id: number
+  aluno_id: number
+  aula_origem_id: number
+  status: 'Pendente' | 'Agendada' | 'Realizada' | 'Desistida'
+  aula_reposicao_id: number | null
+  aluno: { id: number; nome: string } | null
+  aula_origem: {
+    id: number
+    data_hora_inicio: string
+    turma_id: number
+    turma: { id: number; nome: string } | null
+  } | null
+}
+
+const SELECT = `
+  id, aluno_id, aula_origem_id, status, aula_reposicao_id,
+  aluno:alunos!aluno_id (id, nome),
+  aula_origem:aulas!aula_origem_id (
+    id, data_hora_inicio, turma_id, turma:turmas!turma_id (id, nome)
+  )
+`
+
+export async function listarPendencias(filtros: { status?: string; alunoId?: number } = {}) {
+  const supabase = await clienteServidor()
+  let consulta = supabase.from('pendencias_reposicao').select(SELECT)
+
+  if (filtros.status) consulta = consulta.eq('status', filtros.status)
+  if (filtros.alunoId) consulta = consulta.eq('aluno_id', filtros.alunoId)
+
+  const { data, error } = await consulta.order('created_at', { ascending: false })
+  if (error) throw new Error(`Falha ao listar reposições: ${error.message}`)
+  return (data ?? []) as unknown as PendenciaComRelacoes[]
+}
+
+/** Aulas futuras agendadas, para a gestora escolher o destino da reposição. */
+export async function aulasDisponiveis(de: string) {
+  const supabase = await clienteServidor()
+  const { data } = await supabase
+    .from('aulas')
+    .select('id, data_hora_inicio, turma_id, turma:turmas!turma_id (id, nome)')
+    .eq('status', 'Agendada')
+    .gte('data_hora_inicio', `${de}T00:00:00`)
+    .order('data_hora_inicio')
+    .limit(200)
+
+  return (data ?? []) as unknown as {
+    id: number
+    data_hora_inicio: string
+    turma_id: number
+    turma: { id: number; nome: string } | null
+  }[]
+}
+
+/**
+ * Agenda a reposição. Quando é em turma diferente da original, cria a matrícula
+ * com flag_reposicao — que nunca entra na base de cálculo de cobrança.
+ */
+export async function agendarReposicao(
+  pendenciaId: number,
+  aulaDestinoId: number,
+): Promise<{ ok: boolean; erros?: string[] }> {
+  const supabase = await clienteServidor()
+
+  const { data: p } = await supabase
+    .from('pendencias_reposicao')
+    .select('id, aluno_id, aula_origem_id, status, aula_origem:aulas!aula_origem_id (turma_id)')
+    .eq('id', pendenciaId)
+    .maybeSingle()
+
+  if (!p) return { ok: false, erros: ['Pendência não encontrada.'] }
+
+  const { data: destino } = await supabase
+    .from('aulas')
+    .select('id, turma_id, status')
+    .eq('id', aulaDestinoId)
+    .maybeSingle()
+
+  if (!destino) return { ok: false, erros: ['Aula de destino não encontrada.'] }
+
+  const origem = p.aula_origem as unknown as { turma_id: number } | null
+
+  const pendencia: Pendencia = {
+    id: p.id,
+    aluno_id: p.aluno_id,
+    aula_origem_id: p.aula_origem_id,
+    turma_origem_id: origem?.turma_id ?? 0,
+    status: p.status,
+  }
+
+  const { data: matriculas } = await supabase
+    .from('matriculas')
+    .select('aluno_id, turma_id')
+    .eq('aluno_id', p.aluno_id)
+    .eq('status', 'Ativa')
+
+  const plano = planejarReposicao(pendencia, destino, matriculas ?? [])
+  if (plano.erros.length > 0) return { ok: false, erros: plano.erros }
+
+  let matriculaId: number | null = null
+  if (plano.precisaMatricula && plano.matricula) {
+    const { data, error } = await supabase
+      .from('matriculas')
+      .insert({ ...plano.matricula, data_inicio: new Date().toISOString().slice(0, 10) })
+      .select('id')
+      .single()
+    if (error) return { ok: false, erros: [error.message] }
+    matriculaId = data.id
+  }
+
+  const { error } = await supabase
+    .from('pendencias_reposicao')
+    .update({
+      status: 'Agendada',
+      aula_reposicao_id: aulaDestinoId,
+      matricula_reposicao_id: matriculaId,
+    })
+    .eq('id', pendenciaId)
+
+  if (error) return { ok: false, erros: [error.message] }
+  return { ok: true }
+}
+
+export async function desistirReposicao(pendenciaId: number): Promise<{ ok: boolean; erros?: string[] }> {
+  const supabase = await clienteServidor()
+  const { data: p } = await supabase
+    .from('pendencias_reposicao')
+    .select('id, aluno_id, aula_origem_id, status')
+    .eq('id', pendenciaId)
+    .maybeSingle()
+
+  if (!p) return { ok: false, erros: ['Pendência não encontrada.'] }
+
+  const erros = validarDesistencia({ ...p, turma_origem_id: 0 })
+  if (erros.length > 0) return { ok: false, erros }
+
+  const { error } = await supabase
+    .from('pendencias_reposicao')
+    .update({ status: 'Desistida' })
+    .eq('id', pendenciaId)
+
+  if (error) return { ok: false, erros: [error.message] }
+  return { ok: true }
+}
+```
+
+- [ ] **Step 2: Verificar e commitar**
+
+Run: `npx tsc --noEmit`
+
+```bash
+git add src/dados/reposicoes.ts
+git commit -m "feat(reposicoes): agendamento com matricula de reposicao e desistencia"
+```
+
+---
+
+### Task 13: Formulário público de presença
+
+A única rota sem login do sistema. É a tela que o professor abre pelo celular, muitas vezes com o aluno na frente — tem que ser óbvia e rápida.
+
+**Files:**
+- Create: `src/app/p/presenca/[token]/page.tsx`, `src/app/p/presenca/[token]/acoes.ts`, `src/app/p/presenca/[token]/Chamada.tsx`
+
+- [ ] **Step 1: Ação de servidor**
+
+`src/app/p/presenca/[token]/acoes.ts`:
+```ts
+'use server'
+
+import { registrarChamada } from '@/dados/presencas'
+import type { RespostaChamada } from '@/dominio/presencas/registro'
+
+export async function confirmarPresencas(token: string, respostas: RespostaChamada[]) {
+  return registrarChamada(token, respostas)
+}
+```
+
+- [ ] **Step 2: Componente de chamada**
+
+`src/app/p/presenca/[token]/Chamada.tsx`:
+```tsx
+'use client'
+
+import { useState, useTransition } from 'react'
+import { motion } from 'motion/react'
+import { confirmarPresencas } from './acoes'
+import { Botao } from '@/ui/Botao'
+import { entradaClasse } from '@/ui/Campo'
+
+interface Aluno {
+  aluno_id: number
+  nome: string
+  flag_reposicao: boolean
+}
+
+export function Chamada({
+  token,
+  turmaNome,
+  quando,
+  alunos,
+}: {
+  token: string
+  turmaNome: string
+  quando: string
+  alunos: Aluno[]
+}) {
+  // Padrao Presente para todos (Operacionais 5.5): o caso comum nao deve dar trabalho.
+  const [presentes, setPresentes] = useState<Record<number, boolean>>(
+    Object.fromEntries(alunos.map((a) => [a.aluno_id, true])),
+  )
+  const [observacoes, setObservacoes] = useState<Record<number, string>>({})
+  const [pendente, iniciar] = useTransition()
+  const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null)
+
+  function enviar() {
+    iniciar(async () => {
+      const r = await confirmarPresencas(
+        token,
+        alunos.map((a) => ({
+          aluno_id: a.aluno_id,
+          presente: presentes[a.aluno_id],
+          observacao: observacoes[a.aluno_id],
+        })),
+      )
+      setResultado(
+        r.ok
+          ? {
+              ok: true,
+              texto:
+                r.ausentes.length === 0
+                  ? 'Presenças confirmadas. Obrigado!'
+                  : `Presenças confirmadas. Faltaram: ${r.ausentes.join(', ')}. A gestora foi avisada.`,
+            }
+          : { ok: false, texto: r.motivo },
+      )
+    })
+  }
+
+  if (resultado?.ok) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="rounded-cartao border border-borda bg-apoio-suave p-8 text-center"
+      >
+        <p className="font-titulo text-2xl text-apoio">Tudo certo!</p>
+        <p className="mt-2 text-tinta-suave">{resultado.texto}</p>
+        <p className="mt-6 text-sm text-tinta-suave">Você já pode fechar esta página.</p>
+      </motion.div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="font-titulo text-2xl leading-snug">{turmaNome}</h1>
+        <p className="mt-1 text-tinta-suave">{quando}</p>
+      </header>
+
+      <ul className="flex flex-col gap-3">
+        {alunos.map((aluno) => {
+          const presente = presentes[aluno.aluno_id]
+          return (
+            <li
+              key={aluno.aluno_id}
+              className="rounded-cartao border border-borda bg-superficie p-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className="font-medium">
+                  {aluno.nome}
+                  {aluno.flag_reposicao && (
+                    <span className="ml-2 rounded-full bg-alerta-suave px-2 py-0.5 text-sm text-alerta">
+                      reposição
+                    </span>
+                  )}
+                </span>
+
+                <div className="flex gap-2" role="group" aria-label={`Presença de ${aluno.nome}`}>
+                  {[true, false].map((valor) => (
+                    <button
+                      key={String(valor)}
+                      type="button"
+                      aria-pressed={presente === valor}
+                      onClick={() =>
+                        setPresentes((a) => ({ ...a, [aluno.aluno_id]: valor }))
+                      }
+                      className={`min-h-[44px] rounded-campo border px-5 font-medium transition-all active:scale-95 ${
+                        presente === valor
+                          ? valor
+                            ? 'border-apoio bg-apoio text-white'
+                            : 'border-alerta bg-alerta text-white'
+                          : 'border-borda bg-superficie text-tinta-suave'
+                      }`}
+                    >
+                      {valor ? 'Presente' : 'Faltou'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {!presente && (
+                <motion.input
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  type="text"
+                  placeholder="Observação (opcional)"
+                  value={observacoes[aluno.aluno_id] ?? ''}
+                  onChange={(e) =>
+                    setObservacoes((o) => ({ ...o, [aluno.aluno_id]: e.target.value }))
+                  }
+                  className={`${entradaClasse} mt-3`}
+                />
+              )}
+            </li>
+          )
+        })}
+      </ul>
+
+      {resultado && !resultado.ok && (
+        <p role="alert" className="rounded-campo bg-erro-suave px-4 py-3 text-erro">
+          {resultado.texto}
+        </p>
+      )}
+
+      <Botao onClick={enviar} disabled={pendente} className="w-full">
+        {pendente ? 'Confirmando…' : 'Confirmar presenças'}
+      </Botao>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: Página pública**
+
+`src/app/p/presenca/[token]/page.tsx`:
+```tsx
+import { aulaPorToken } from '@/dados/presencas'
+import { Chamada } from './Chamada'
+
+export const metadata = { title: 'Registro de presença — Mesinha Redonda' }
+
+function formatarQuando(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleDateString('pt-BR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+export default async function PaginaPresenca({
+  params,
+}: {
+  params: Promise<{ token: string }>
+}) {
+  const { token } = await params
+  const leitura = await aulaPorToken(token)
+
+  return (
+    <main className="mx-auto min-h-dvh max-w-lg px-5 py-10">
+      {!leitura.ok ? (
+        <div className="rounded-cartao border border-borda bg-superficie p-8 text-center">
+          <h1 className="font-titulo text-2xl">Link indisponível</h1>
+          <p className="mt-3 text-tinta-suave">{leitura.motivo}</p>
+        </div>
+      ) : leitura.aula.alunos.length === 0 ? (
+        <div className="rounded-cartao border border-borda bg-superficie p-8 text-center">
+          <h1 className="font-titulo text-2xl">{leitura.aula.turma_nome}</h1>
+          <p className="mt-3 text-tinta-suave">
+            Nenhum aluno matriculado nesta turma na data da aula. Fale com a gestora.
+          </p>
+        </div>
+      ) : (
+        <Chamada
+          token={token}
+          turmaNome={leitura.aula.turma_nome}
+          quando={formatarQuando(leitura.aula.data_hora_inicio)}
+          alunos={leitura.aula.alunos}
+        />
+      )}
+    </main>
+  )
+}
+```
+
+- [ ] **Step 4: Confirmar que a rota é pública**
+
+O `proxy.ts` já libera caminhos que começam com `/p/` (constante `PUBLICAS`). Confirme lendo o arquivo — se `/p/` não estiver lá, adicione.
+
+Run: `npm run build`
+Expected: compila, e a rota `/p/presenca/[token]` aparece na listagem.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add "src/app/p/"
+git commit -m "feat(presencas): formulario publico de chamada por token"
+```
+
+---
+
+### Task 14: Agenda e detalhe da aula
+
+**Files:**
+- Create: `src/app/(app)/agenda/page.tsx`, `src/app/(app)/agenda/acoes.ts`, `src/app/(app)/agenda/aulas/[id]/page.tsx`
+- Modify: `src/ui/NavLateral.tsx`
+
+- [ ] **Step 1: Ações**
+
+`src/app/(app)/agenda/acoes.ts`:
+```ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { sincronizarAulas } from '@/dados/aulas'
+import { gerarTokenPresenca } from '@/dados/presencas'
+import { exigirGestora } from '@/dados/sessao'
+import { clienteServidor } from '@/dados/cliente'
+
+export async function sincronizar(de: string, ate: string) {
+  await exigirGestora()
+  const r = await sincronizarAulas(de, ate)
+  revalidatePath('/agenda')
+  return r
+}
+
+export async function criarLinkDeChamada(aulaId: number): Promise<string> {
+  await exigirGestora()
+  const token = await gerarTokenPresenca(aulaId)
+  revalidatePath(`/agenda/aulas/${aulaId}`)
+  return `/p/presenca/${token}`
+}
+
+export async function mudarStatusAula(
+  aulaId: number,
+  status: 'Agendada' | 'Cancelada' | 'Feriado',
+) {
+  await exigirGestora()
+  const supabase = await clienteServidor()
+  const { error } = await supabase.from('aulas').update({ status }).eq('id', aulaId)
+  if (error) throw new Error(error.message)
+  revalidatePath('/agenda')
+  revalidatePath(`/agenda/aulas/${aulaId}`)
+}
+```
+
+- [ ] **Step 2: Tela da agenda**
+
+`src/app/(app)/agenda/page.tsx`:
+```tsx
+import Link from 'next/link'
+import { conflitosDeFeriado, listarAulas } from '@/dados/aulas'
+import { exigirSessao } from '@/dados/sessao'
+import { Cartao } from '@/ui/Cartao'
+import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Selo } from '@/ui/Selo'
+
+/** Primeiro e último dia do mês informado (ou do mês corrente). */
+function intervaloDoMes(mes?: string) {
+  const base = mes ? new Date(`${mes}-01T00:00:00`) : new Date()
+  const de = new Date(base.getFullYear(), base.getMonth(), 1)
+  const ate = new Date(base.getFullYear(), base.getMonth() + 1, 0)
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return { de: iso(de), ate: iso(ate), rotulo: base.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) }
+}
+
+const TOM: Record<string, 'ativo' | 'encerrado' | 'alerta' | 'neutro'> = {
+  Agendada: 'neutro',
+  Realizada: 'ativo',
+  Cancelada: 'encerrado',
+  Feriado: 'alerta',
+}
+
+export default async function PaginaAgenda({
+  searchParams,
+}: {
+  searchParams: Promise<{ mes?: string }>
+}) {
+  const sessao = await exigirSessao()
+  const { mes } = await searchParams
+  const { de, ate, rotulo } = intervaloDoMes(mes)
+
+  const [aulas, conflitos] = await Promise.all([
+    listarAulas({
+      de,
+      ate,
+      professorId: sessao.papel === 'professor' ? (sessao.professorId ?? -1) : undefined,
+    }),
+    sessao.papel === 'gestora' ? conflitosDeFeriado(de, ate) : Promise.resolve([]),
+  ])
+
+  const porDia = new Map<string, typeof aulas>()
+  for (const aula of aulas) {
+    const dia = aula.data_hora_inicio.slice(0, 10)
+    porDia.set(dia, [...(porDia.get(dia) ?? []), aula])
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-3xl capitalize">{rotulo}</h1>
+        <p className="mt-1 text-tinta-suave">
+          {aulas.length} {aulas.length === 1 ? 'aula' : 'aulas'} no mês
+        </p>
+      </header>
+
+      {conflitos.length > 0 && (
+        <Cartao className="border-alerta/30 bg-alerta-suave">
+          <h2 className="text-lg text-alerta">Aulas em feriado</h2>
+          <p className="mt-1 text-sm text-tinta-suave">
+            Estas aulas caem em feriado. Decida se cancela, remarca ou mantém — o sistema não
+            muda nada sozinho.
+          </p>
+          <ul className="mt-3 flex flex-col gap-1">
+            {conflitos.map((c) => (
+              <li key={c.aulaId}>
+                <Link
+                  href={`/agenda/aulas/${c.aulaId}`}
+                  className="font-medium text-destaque hover:underline"
+                >
+                  {c.data.split('-').reverse().join('/')} — {c.feriado}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Cartao>
+      )}
+
+      {aulas.length === 0 ? (
+        <EstadoVazio
+          titulo="Nenhuma aula neste mês"
+          descricao="As aulas são geradas a partir dos dias e horários cadastrados em cada turma. Rode a sincronização para materializá-las."
+        />
+      ) : (
+        <div className="flex flex-col gap-5">
+          {[...porDia.entries()].map(([dia, doDia]) => (
+            <section key={dia}>
+              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-tinta-suave">
+                {new Date(`${dia}T12:00:00`).toLocaleDateString('pt-BR', {
+                  weekday: 'long',
+                  day: '2-digit',
+                  month: 'long',
+                })}
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {doDia.map((aula) => (
+                  <li key={aula.id}>
+                    <Link
+                      href={`/agenda/aulas/${aula.id}`}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-cartao border border-borda bg-superficie px-5 py-4 transition-all hover:-translate-y-0.5 hover:border-destaque/40"
+                    >
+                      <span>
+                        <span className="font-medium">
+                          {aula.data_hora_inicio.slice(11, 16)}
+                        </span>
+                        <span className="ml-3 text-tinta-suave">{aula.turma?.nome}</span>
+                      </span>
+                      <Selo tom={TOM[aula.status]}>{aula.status}</Selo>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: Detalhe da aula**
+
+`src/app/(app)/agenda/aulas/[id]/page.tsx`:
+```tsx
+import Link from 'next/link'
+import { notFound } from 'next/navigation'
+import { matriculadosNaAula, obterAula } from '@/dados/aulas'
+import { clienteServidor } from '@/dados/cliente'
+import { exigirSessao } from '@/dados/sessao'
+import { Cartao } from '@/ui/Cartao'
+import { Selo } from '@/ui/Selo'
+
+export default async function PaginaAula({ params }: { params: Promise<{ id: string }> }) {
+  await exigirSessao()
+  const { id } = await params
+  const aula = await obterAula(Number(id))
+  if (!aula) notFound()
+
+  const supabase = await clienteServidor()
+  const [matriculados, { data: presencas }] = await Promise.all([
+    matriculadosNaAula(aula.id),
+    supabase
+      .from('presencas')
+      .select('aluno_id, presente, observacao, aluno:alunos!aluno_id (nome)')
+      .eq('aula_id', aula.id),
+  ])
+
+  const registradas = (presencas ?? []) as unknown as {
+    aluno_id: number
+    presente: boolean
+    observacao: string | null
+    aluno: { nome: string } | null
+  }[]
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-3xl">{aula.turma?.nome}</h1>
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-tinta-suave">
+          <Selo tom={aula.status === 'Realizada' ? 'ativo' : 'neutro'}>{aula.status}</Selo>
+          <span>
+            {new Date(aula.data_hora_inicio).toLocaleDateString('pt-BR', {
+              weekday: 'long',
+              day: '2-digit',
+              month: 'long',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </span>
+        </div>
+      </header>
+
+      <Cartao>
+        <h2 className="mb-3 text-lg">
+          {registradas.length > 0 ? 'Presenças registradas' : 'Alunos matriculados'}
+        </h2>
+
+        {registradas.length > 0 ? (
+          <ul className="divide-y divide-borda/60">
+            {registradas.map((p) => (
+              <li key={p.aluno_id} className="flex items-center justify-between gap-3 py-3">
+                <span>
+                  {p.aluno?.nome}
+                  {p.observacao && (
+                    <span className="block text-sm text-tinta-suave">{p.observacao}</span>
+                  )}
+                </span>
+                <Selo tom={p.presente ? 'ativo' : 'alerta'}>
+                  {p.presente ? 'Presente' : 'Faltou'}
+                </Selo>
+              </li>
+            ))}
+          </ul>
+        ) : matriculados.length === 0 ? (
+          <p className="text-tinta-suave">Nenhum aluno matriculado nesta turma na data da aula.</p>
+        ) : (
+          <>
+            <ul className="divide-y divide-borda/60">
+              {matriculados.map((m) => (
+                <li key={m.aluno_id} className="flex items-center justify-between gap-3 py-3">
+                  <Link
+                    href={`/cadastros/alunos/${m.aluno_id}`}
+                    className="font-medium text-destaque hover:underline"
+                  >
+                    {m.nome}
+                  </Link>
+                  {m.flag_reposicao && <Selo tom="alerta">Reposição</Selo>}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4 text-sm text-tinta-suave">
+              A chamada ainda não foi registrada. Gere o link e envie ao professor.
+            </p>
+          </>
+        )}
+      </Cartao>
+
+      <Link href="/agenda" className="text-destaque hover:underline">
+        ← Voltar para a agenda
+      </Link>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 4: Adicionar Agenda e Reposições à navegação**
+
+Em `src/ui/NavLateral.tsx`, na seção `'Dia a dia'`, acrescentar após `Início`:
+```ts
+      { rotulo: 'Agenda', href: '/agenda' },
+```
+e depois de `Matrículas`:
+```ts
+      { rotulo: 'Reposições', href: '/reposicoes', papeis: ['gestora'] },
+```
+
+- [ ] **Step 5: Verificar e commitar**
+
+Run: `npm run build && npx tsc --noEmit`
+
+```bash
+git add -A
+git commit -m "feat(agenda): calendario mensal, detalhe da aula e alerta de feriado"
+```
+
+---
+
+### Task 15: Painel de reposições
+
+**Files:**
+- Create: `src/app/(app)/reposicoes/page.tsx`, `src/app/(app)/reposicoes/acoes.ts`, `src/app/(app)/reposicoes/Acoes.tsx`
+
+- [ ] **Step 1: Ações**
+
+`src/app/(app)/reposicoes/acoes.ts`:
+```ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { agendarReposicao, desistirReposicao } from '@/dados/reposicoes'
+import { exigirGestora } from '@/dados/sessao'
+
+export async function agendar(pendenciaId: number, aulaDestinoId: number) {
+  await exigirGestora()
+  const r = await agendarReposicao(pendenciaId, aulaDestinoId)
+  revalidatePath('/reposicoes')
+  return r
+}
+
+export async function desistir(pendenciaId: number) {
+  await exigirGestora()
+  const r = await desistirReposicao(pendenciaId)
+  revalidatePath('/reposicoes')
+  return r
+}
+```
+
+- [ ] **Step 2: Controles por linha**
+
+`src/app/(app)/reposicoes/Acoes.tsx`:
+```tsx
+'use client'
+
+import { useState, useTransition } from 'react'
+import { agendar, desistir } from './acoes'
+import { Botao } from '@/ui/Botao'
+import { entradaClasse } from '@/ui/Campo'
+
+interface OpcaoAula {
+  id: number
+  rotulo: string
+}
+
+export function AcoesPendencia({
+  pendenciaId,
+  aulas,
+}: {
+  pendenciaId: number
+  aulas: OpcaoAula[]
+}) {
+  const [destino, setDestino] = useState('')
+  const [erro, setErro] = useState<string | null>(null)
+  const [pendente, iniciar] = useTransition()
+
+  function executar(fn: () => Promise<{ ok: boolean; erros?: string[] }>) {
+    setErro(null)
+    iniciar(async () => {
+      const r = await fn()
+      if (!r.ok) setErro(r.erros?.join(' ') ?? 'Não foi possível concluir.')
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={destino}
+          onChange={(e) => setDestino(e.target.value)}
+          aria-label="Aula de destino da reposição"
+          className={`${entradaClasse} max-w-xs`}
+        >
+          <option value="">Escolha a aula da reposição…</option>
+          {aulas.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.rotulo}
+            </option>
+          ))}
+        </select>
+
+        <Botao
+          type="button"
+          disabled={pendente || destino === ''}
+          onClick={() => executar(() => agendar(pendenciaId, Number(destino)))}
+        >
+          Agendar
+        </Botao>
+
+        <Botao
+          type="button"
+          aparencia="secundario"
+          disabled={pendente}
+          onClick={() => executar(() => desistir(pendenciaId))}
+        >
+          Desistiu
+        </Botao>
+      </div>
+
+      {erro && (
+        <p role="alert" className="rounded-campo bg-erro-suave px-3 py-2 text-sm text-erro">
+          {erro}
+        </p>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: Painel**
+
+`src/app/(app)/reposicoes/page.tsx`:
+```tsx
+import Link from 'next/link'
+import { aulasDisponiveis, listarPendencias } from '@/dados/reposicoes'
+import { exigirGestora } from '@/dados/sessao'
+import { Cartao } from '@/ui/Cartao'
+import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Selo } from '@/ui/Selo'
+import { AcoesPendencia } from './Acoes'
+
+const TOM: Record<string, 'ativo' | 'encerrado' | 'alerta' | 'neutro'> = {
+  Pendente: 'alerta',
+  Agendada: 'neutro',
+  Realizada: 'ativo',
+  Desistida: 'encerrado',
+}
+
+export default async function PaginaReposicoes() {
+  await exigirGestora()
+
+  const hoje = new Date().toISOString().slice(0, 10)
+  const [pendencias, aulas] = await Promise.all([listarPendencias(), aulasDisponiveis(hoje)])
+
+  const opcoes = aulas.map((a) => ({
+    id: a.id,
+    rotulo: `${new Date(a.data_hora_inicio).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })} — ${a.turma?.nome ?? ''}`.slice(0, 70),
+  }))
+
+  const emAberto = pendencias.filter((p) => p.status === 'Pendente' || p.status === 'Agendada')
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-3xl">Reposições</h1>
+        <p className="mt-1 text-tinta-suave">
+          {emAberto.length} em aberto de {pendencias.length} no total
+        </p>
+      </header>
+
+      {pendencias.length === 0 ? (
+        <EstadoVazio
+          titulo="Nenhuma reposição pendente"
+          descricao="Quando um aluno falta a uma aula, a reposição aparece aqui automaticamente para você agendar."
+        />
+      ) : (
+        <ul className="flex flex-col gap-4">
+          {pendencias.map((p) => (
+            <li key={p.id}>
+              <Cartao>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <Link
+                      href={`/cadastros/alunos/${p.aluno_id}`}
+                      className="font-medium text-destaque hover:underline"
+                    >
+                      {p.aluno?.nome}
+                    </Link>
+                    <p className="mt-1 text-sm text-tinta-suave">
+                      Faltou em {p.aula_origem?.turma?.nome} ·{' '}
+                      {p.aula_origem
+                        ? new Date(p.aula_origem.data_hora_inicio).toLocaleDateString('pt-BR')
+                        : '—'}
+                    </p>
+                  </div>
+                  <Selo tom={TOM[p.status]}>{p.status}</Selo>
+                </div>
+
+                {(p.status === 'Pendente' || p.status === 'Agendada') && (
+                  <div className="mt-4">
+                    <AcoesPendencia pendenciaId={p.id} aulas={opcoes} />
+                  </div>
+                )}
+              </Cartao>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 4: Verificar e commitar**
+
+Run: `npm run build && npx tsc --noEmit && npm test`
+
+```bash
+git add "src/app/(app)/reposicoes/"
+git commit -m "feat(reposicoes): painel de pendencias com agendamento e desistencia"
+```
+
+---
+
+### Task 16: Verificação final do Plano 2
+
+Esta tarefa é o que separa "compilou" de "funciona". Nenhuma delas é opcional.
+
+- [ ] **Step 1: Suite e tipos**
+
+```bash
+npm test
+npx tsc --noEmit
+npm run build
+```
+Expected: 10 arquivos / 79 testes, sem erro de tipo, build limpo.
+
+- [ ] **Step 2: Sincronizar a agenda**
+
+```bash
+npx tsx scripts/sincronizar.mjs 2026-08-01 2026-09-30
+node scripts/consultar.mjs aulas --count
+```
+Expected: aulas criadas para as 3 turmas do seed ao longo de dois meses.
+
+- [ ] **Step 3: Provar o ciclo completo de chamada contra o banco real**
+
+Crie um script temporário em `scripts/` (apague ao final) que, com a service role key:
+
+1. Pegue a primeira aula `Agendada` de uma turma que tenha alunos matriculados
+2. Insira um `presenca_tokens` para ela, com `expira_em` no futuro
+3. Faça `GET http://localhost:3000/p/presenca/<token>` **sem cookie nenhum** e confirme HTTP **200** e que o nome dos alunos aparece no HTML — é a prova de que a rota pública funciona sem login
+4. Confirme que `GET /p/presenca/token-invalido` responde 200 com a mensagem "Este link não é válido." (e não 500)
+5. Grave presenças diretamente via `presencas` marcando um aluno como ausente, insira a pendência correspondente e marque a aula como `Realizada`
+6. Consulte `pendencias_reposicao` e confirme que a pendência existe com status `Pendente`
+
+Reporte a saída real de cada passo.
+
+- [ ] **Step 4: Verificar as telas com sessão**
+
+Estenda `scripts/verificar-e2e.mjs` acrescentando ao array `CASOS`:
+```js
+  ['/agenda', ['aula'], 'agenda do mes'],
+  ['/reposicoes', ['Reposições'], 'painel de reposicoes'],
+```
+Run: `node scripts/verificar-e2e.mjs`
+Expected: **21 ok, 0 falha(s)**.
+
+- [ ] **Step 5: Verificar o isolamento do professor**
+
+O professor deve ver a agenda só das turmas dele, e não deve acessar `/reposicoes`.
+
+Run: um script comparando as duas sessões, como o usado no Plano 1.
+Expected: `/agenda` responde 200 para os dois, com menos aulas para o professor; `/reposicoes` redireciona o professor para `/`.
+
+- [ ] **Step 6: Commit final**
+
+```bash
+git add -A
+git commit -m "chore: verificacao final do Plano 2 (agenda, presencas, reposicoes)"
+```
+
+---
+
+## Cobertura do spec
+
+| Requisito | Tarefas |
+|---|---|
+| §4.2 `aulas` | 1 |
+| §4.2 `presencas`, `pendencias_reposicao` | 2 |
+| §4.3 tokens, notificações, logs | 2, 3 |
+| §4.4 RLS por papel | 1, 2, 16 |
+| §6 provedor de agenda e idempotência | 4, 8, 9, 10 |
+| RN 4.2 alerta de feriado sem decidir | 5, 14 |
+| RN 5.2 chamada em lote e pendência | 6, 11, 13 |
+| RN 5.4 reposição sem cobrança | 7, 12, 15 |
+| §5.5 formulário público sem login | 11, 13, 16 |
+| §7.3 rotas `/agenda`, `/reposicoes`, `/p/presenca/[token]` | 13, 14, 15 |
+
+**Fora de escopo deste plano:** cobranças, recebimentos, pagamentos a professores, painel inicial e o envio efetivo de notificações — vão para o Plano 3. O OAuth do Google Calendar fica implementado como plugue e desligado até haver credenciais.
 
 ## Cobertura do spec até aqui
 
