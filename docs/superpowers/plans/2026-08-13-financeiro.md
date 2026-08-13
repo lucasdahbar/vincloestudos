@@ -1059,9 +1059,1949 @@ git commit -m "feat(dominio): fechamento de repasse por presenca confirmada"
 
 ---
 
-## Continuação
+### Task 7: Camada de dados — cobranças
 
-As tarefas 7 a 14 cobrem a camada de dados (cobranças, recebimentos, pagamentos), as telas dos três módulos, o painel inicial e a verificação final. Serão escritas na sequência.
+**Files:**
+- Create: `src/dados/cobrancas.ts`
+
+- [ ] **Step 1: Implementar**
+
+`src/dados/cobrancas.ts`:
+```ts
+import 'server-only'
+import { clienteServidor } from './cliente'
+import { deNumeric, paraNumeric, somar, type Centavos } from '@/dominio/dinheiro'
+import { montarCobrancas, type AulaFaturavel } from '@/dominio/cobrancas/geracao'
+import { gerarTextoCobranca, type ItemDoTexto } from '@/dominio/cobrancas/texto'
+
+export interface CobrancaResumo {
+  id: number
+  responsavel_id: number
+  mes_referencia: string
+  valor_bruto: Centavos
+  valor_desconto: Centavos
+  valor_total: Centavos
+  status: string
+  texto_whatsapp: string | null
+  responsavel: { id: number; nome: string; telefone: string | null } | null
+  recebido: Centavos
+}
+
+/** Primeiro e último dia do mês, em ISO. */
+export function limitesDoMes(mes: string): { primeiro: string; ultimo: string } {
+  const [ano, m] = mes.split('-').map(Number)
+  const ultimoDia = new Date(ano, m, 0).getDate()
+  return { primeiro: `${mes}-01`, ultimo: `${mes}-${String(ultimoDia).padStart(2, '0')}` }
+}
+
+/**
+ * Levanta as aulas do mês com tudo que a regra de faturamento precisa decidir.
+ * O valor vem de `valor_servico_em`, resolvido para a data de cada aula — nunca
+ * do valor corrente do serviço, que pode ter mudado desde então.
+ */
+async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
+  const supabase = await clienteServidor()
+  const { primeiro, ultimo } = limitesDoMes(mes)
+
+  const { data: aulas, error } = await supabase
+    .from('aulas')
+    .select(`
+      id, data_hora_inicio, status, turma_id,
+      turma:turmas!turma_id (
+        id, nome, servico_id,
+        servico:servicos!servico_id (id, nome),
+        materia:materias!materia_id (nome),
+        ano_escolar:anos_escolares!ano_escolar_id (nome)
+      )
+    `)
+    .gte('data_hora_inicio', `${primeiro}T00:00:00`)
+    .lte('data_hora_inicio', `${ultimo}T23:59:59`)
+
+  if (error) throw new Error(`Falha ao carregar aulas: ${error.message}`)
+
+  const linhas = (aulas ?? []) as unknown as {
+    id: number
+    data_hora_inicio: string
+    status: 'Agendada' | 'Realizada' | 'Cancelada' | 'Feriado'
+    turma_id: number
+    turma: {
+      id: number
+      nome: string
+      servico_id: number
+      servico: { id: number; nome: string } | null
+      materia: { nome: string } | null
+      ano_escolar: { nome: string } | null
+    } | null
+  }[]
+
+  if (linhas.length === 0) return []
+
+  const [{ data: matriculas }, { data: cobradas }] = await Promise.all([
+    supabase
+      .from('matriculas')
+      .select('aluno_id, turma_id, status, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (id, nome, responsavel_id, responsavel:responsaveis!responsavel_id (id, nome))'),
+    supabase.from('itens_cobranca').select('aula_id'),
+  ])
+
+  const jaCobradas = new Set((cobradas ?? []).map((c) => c.aula_id))
+
+  const mats = (matriculas ?? []) as unknown as {
+    aluno_id: number
+    turma_id: number
+    status: string
+    flag_reposicao: boolean
+    data_inicio: string
+    data_fim: string | null
+    aluno: {
+      id: number
+      nome: string
+      responsavel_id: number
+      responsavel: { id: number; nome: string } | null
+    } | null
+  }[]
+
+  // Valor vigente por serviço na data de cada aula, resolvido uma vez por par.
+  const valores = new Map<string, Centavos>()
+  for (const aula of linhas) {
+    const dia = aula.data_hora_inicio.slice(0, 10)
+    const servicoId = aula.turma?.servico_id
+    if (!servicoId) continue
+    const chave = `${servicoId}|${dia}`
+    if (valores.has(chave)) continue
+    const { data } = await supabase.rpc('valor_servico_em', {
+      p_servico_id: servicoId,
+      p_data: dia,
+    })
+    valores.set(chave, deNumeric(data ?? '0'))
+  }
+
+  const faturaveis: AulaFaturavel[] = []
+
+  for (const aula of linhas) {
+    const dia = aula.data_hora_inicio.slice(0, 10)
+    const doTurma = mats.filter(
+      (m) =>
+        m.turma_id === aula.turma_id &&
+        m.data_inicio <= dia &&
+        (!m.data_fim || m.data_fim >= dia),
+    )
+
+    for (const m of doTurma) {
+      if (!m.aluno?.responsavel) continue
+      const partes = [
+        aula.turma?.materia?.nome,
+        aula.turma?.ano_escolar?.nome,
+        aula.turma?.servico?.nome,
+      ].filter(Boolean)
+
+      faturaveis.push({
+        aula_id: aula.id,
+        aluno_id: m.aluno_id,
+        aluno_nome: m.aluno.nome,
+        responsavel_id: m.aluno.responsavel.id,
+        responsavel_nome: m.aluno.responsavel.nome,
+        data: dia,
+        descricao: partes.join(' — '),
+        valor: valores.get(`${aula.turma?.servico_id}|${dia}`) ?? 0,
+        status_aula: aula.status,
+        matricula_ativa: m.status === 'Ativa',
+        matricula_reposicao: m.flag_reposicao,
+        ja_cobrada: jaCobradas.has(aula.id),
+      })
+    }
+  }
+
+  return faturaveis
+}
+
+/**
+ * Gera as cobranças do mês em Rascunho, para a gestora revisar.
+ * Reprocessar o mesmo mês não duplica item: aulas já cobradas são ignoradas na
+ * montagem, e `UNIQUE(itens_cobranca.aula_id)` fecha a porta no banco.
+ */
+export async function gerarCobrancasDoMes(
+  mes: string,
+): Promise<{ criadas: number; itens: number }> {
+  const supabase = await clienteServidor()
+  const montadas = montarCobrancas(await aulasDoMes(mes))
+  const { primeiro } = limitesDoMes(mes)
+
+  let criadas = 0
+  let itens = 0
+
+  for (const c of montadas) {
+    // Reaproveita o rascunho do mês se já existir; senão cria.
+    const { data: existente } = await supabase
+      .from('cobrancas')
+      .select('id, status')
+      .eq('responsavel_id', c.responsavel_id)
+      .eq('mes_referencia', primeiro)
+      .maybeSingle()
+
+    if (existente && existente.status !== 'Rascunho') continue
+
+    let cobrancaId = existente?.id
+    if (!cobrancaId) {
+      const { data, error } = await supabase
+        .from('cobrancas')
+        .insert({
+          responsavel_id: c.responsavel_id,
+          mes_referencia: primeiro,
+          valor_bruto: paraNumeric(c.valor_bruto),
+          valor_desconto: paraNumeric(c.valor_desconto),
+          valor_total: paraNumeric(c.valor_total),
+        })
+        .select('id')
+        .single()
+      if (error) throw new Error(`Falha ao criar cobrança: ${error.message}`)
+      cobrancaId = data.id
+      criadas++
+    }
+
+    const { error: erroItens } = await supabase.from('itens_cobranca').insert(
+      c.itens.map((i) => ({
+        cobranca_id: cobrancaId,
+        aluno_id: i.aluno_id,
+        aula_id: i.aula_id,
+        descricao: i.descricao,
+        valor_original: paraNumeric(i.valor_original),
+        desconto: paraNumeric(i.desconto),
+        valor_final: paraNumeric(i.valor_final),
+      })),
+    )
+    if (erroItens) throw new Error(`Falha ao gravar itens: ${erroItens.message}`)
+    itens += c.itens.length
+
+    await recalcularTotais(cobrancaId)
+  }
+
+  return { criadas, itens }
+}
+
+/** Recalcula os totais a partir dos itens. Chamar após qualquer ajuste. */
+export async function recalcularTotais(cobrancaId: number): Promise<void> {
+  const supabase = await clienteServidor()
+  const { data } = await supabase
+    .from('itens_cobranca')
+    .select('valor_original, desconto, valor_final')
+    .eq('cobranca_id', cobrancaId)
+
+  const bruto = somar(...(data ?? []).map((i) => deNumeric(i.valor_original)))
+  const desconto = somar(...(data ?? []).map((i) => deNumeric(i.desconto)))
+
+  await supabase
+    .from('cobrancas')
+    .update({
+      valor_bruto: paraNumeric(bruto),
+      valor_desconto: paraNumeric(desconto),
+      valor_total: paraNumeric(bruto - desconto),
+    })
+    .eq('id', cobrancaId)
+}
+
+export async function listarCobrancas(filtros: { mes?: string; status?: string } = {}) {
+  const supabase = await clienteServidor()
+  let consulta = supabase
+    .from('cobrancas')
+    .select('id, responsavel_id, mes_referencia, valor_bruto, valor_desconto, valor_total, status, texto_whatsapp, responsavel:responsaveis!responsavel_id (id, nome, telefone)')
+
+  if (filtros.mes) consulta = consulta.eq('mes_referencia', `${filtros.mes}-01`)
+  if (filtros.status) consulta = consulta.eq('status', filtros.status)
+
+  const { data, error } = await consulta.order('mes_referencia', { ascending: false })
+  if (error) throw new Error(`Falha ao listar cobranças: ${error.message}`)
+
+  const linhas = (data ?? []) as unknown as {
+    id: number
+    responsavel_id: number
+    mes_referencia: string
+    valor_bruto: string
+    valor_desconto: string
+    valor_total: string
+    status: string
+    texto_whatsapp: string | null
+    responsavel: { id: number; nome: string; telefone: string | null } | null
+  }[]
+
+  const { data: recebimentos } = await supabase.from('recebimentos').select('cobranca_id, valor_recebido')
+  const recebidoPor = new Map<number, Centavos>()
+  for (const r of recebimentos ?? []) {
+    recebidoPor.set(r.cobranca_id, somar(recebidoPor.get(r.cobranca_id) ?? 0, deNumeric(r.valor_recebido)))
+  }
+
+  return linhas.map((c) => ({
+    ...c,
+    valor_bruto: deNumeric(c.valor_bruto),
+    valor_desconto: deNumeric(c.valor_desconto),
+    valor_total: deNumeric(c.valor_total),
+    recebido: recebidoPor.get(c.id) ?? 0,
+  })) as CobrancaResumo[]
+}
+
+export async function obterCobranca(id: number) {
+  const supabase = await clienteServidor()
+  const { data: cobranca } = await supabase
+    .from('cobrancas')
+    .select('id, responsavel_id, mes_referencia, valor_bruto, valor_desconto, valor_total, status, texto_whatsapp, responsavel:responsaveis!responsavel_id (id, nome, telefone)')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (!cobranca) return null
+
+  const { data: itens } = await supabase
+    .from('itens_cobranca')
+    .select('id, aluno_id, aula_id, descricao, valor_original, desconto, valor_final, aluno:alunos!aluno_id (nome), aula:aulas!aula_id (data_hora_inicio)')
+    .eq('cobranca_id', id)
+
+  const c = cobranca as unknown as {
+    id: number
+    responsavel_id: number
+    mes_referencia: string
+    valor_bruto: string
+    valor_desconto: string
+    valor_total: string
+    status: string
+    texto_whatsapp: string | null
+    responsavel: { id: number; nome: string; telefone: string | null } | null
+  }
+
+  return {
+    ...c,
+    valor_bruto: deNumeric(c.valor_bruto),
+    valor_desconto: deNumeric(c.valor_desconto),
+    valor_total: deNumeric(c.valor_total),
+    itens: ((itens ?? []) as unknown as {
+      id: number
+      aluno_id: number
+      aula_id: number
+      descricao: string
+      valor_original: string
+      desconto: string
+      valor_final: string
+      aluno: { nome: string } | null
+      aula: { data_hora_inicio: string } | null
+    }[]).map((i) => ({
+      ...i,
+      valor_original: deNumeric(i.valor_original),
+      desconto: deNumeric(i.desconto),
+      valor_final: deNumeric(i.valor_final),
+      data: i.aula?.data_hora_inicio.slice(0, 10) ?? '',
+    })),
+  }
+}
+
+export async function ajustarDesconto(itemId: number, desconto: Centavos): Promise<void> {
+  const supabase = await clienteServidor()
+  const { data: item } = await supabase
+    .from('itens_cobranca')
+    .select('cobranca_id, valor_original')
+    .eq('id', itemId)
+    .maybeSingle()
+
+  if (!item) throw new Error('Item não encontrado.')
+
+  const original = deNumeric(item.valor_original)
+  if (desconto < 0 || desconto > original) {
+    throw new Error('O desconto não pode ser negativo nem maior que o valor da aula.')
+  }
+
+  await supabase
+    .from('itens_cobranca')
+    .update({ desconto: paraNumeric(desconto), valor_final: paraNumeric(original - desconto) })
+    .eq('id', itemId)
+
+  await recalcularTotais(item.cobranca_id)
+}
+
+/** Confirma a cobrança e gera o texto do WhatsApp (Operacionais 6.3). */
+export async function confirmarCobranca(id: number, usuario: string): Promise<void> {
+  const supabase = await clienteServidor()
+  const cobranca = await obterCobranca(id)
+  if (!cobranca) throw new Error('Cobrança não encontrada.')
+
+  const { data: conta } = await supabase
+    .from('contas')
+    .select('chave_pix')
+    .not('chave_pix', 'is', null)
+    .eq('ativo', true)
+    .limit(1)
+    .maybeSingle()
+
+  const [ano, mes] = cobranca.mes_referencia.split('-')
+  const itensTexto: ItemDoTexto[] = cobranca.itens.map((i) => ({
+    aluno_nome: i.aluno?.nome ?? 'Aluno',
+    contexto: i.descricao.split(' — ').slice(0, 2).join(' — '),
+    descricao: i.descricao.split(' — ').slice(-1)[0],
+    data: i.data,
+    valor_final: i.valor_final,
+  }))
+
+  const texto = gerarTextoCobranca({
+    responsavel_nome: cobranca.responsavel?.nome ?? '',
+    mes_referencia: cobranca.mes_referencia,
+    valor_total: cobranca.valor_total,
+    chave_pix: conta?.chave_pix ?? null,
+    vencimento: `${ano}-${mes}-05`,
+    itens: itensTexto,
+  })
+
+  await supabase
+    .from('cobrancas')
+    .update({ status: 'Confirmada', texto_whatsapp: texto })
+    .eq('id', id)
+
+  await supabase.from('logs_operacionais').insert({
+    acao: 'confirmar_cobranca',
+    entidade: 'cobrancas',
+    entidade_id: id,
+    usuario,
+    detalhe: { valor_total: cobranca.valor_total, itens: cobranca.itens.length },
+  })
+}
+
+export async function marcarComoEnviada(id: number): Promise<void> {
+  const supabase = await clienteServidor()
+  await supabase.from('cobrancas').update({ status: 'Enviada' }).eq('id', id)
+}
+```
+
+- [ ] **Step 2: Verificar e commitar**
+
+Run: `npx tsc --noEmit`
+Expected: sem erros. Se aparecer TS2352 em join, use `as unknown as Tipo[]`.
+
+```bash
+git add src/dados/cobrancas.ts
+git commit -m "feat(dados): geracao, ajuste e confirmacao de cobranca"
+```
+
+---
+
+### Task 8: Camada de dados — recebimentos e pagamentos
+
+**Files:**
+- Create: `src/dados/recebimentos.ts`, `src/dados/pagamentos.ts`
+
+- [ ] **Step 1: Recebimentos**
+
+`src/dados/recebimentos.ts`:
+```ts
+import 'server-only'
+import { clienteServidor } from './cliente'
+import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
+import { saldoEStatus, validarRecebimento, type StatusCobranca } from '@/dominio/recebimentos/quitacao'
+
+export async function registrarRecebimento(entrada: {
+  cobrancaId: number
+  valor: Centavos
+  data: string
+  contaId: number | null
+  formaPagamento: string | null
+  observacao: string | null
+  usuario: string
+}): Promise<{ ok: boolean; erros?: string[]; saldo?: Centavos }> {
+  const supabase = await clienteServidor()
+
+  const { data: cobranca } = await supabase
+    .from('cobrancas')
+    .select('id, valor_total, status')
+    .eq('id', entrada.cobrancaId)
+    .maybeSingle()
+
+  if (!cobranca) return { ok: false, erros: ['Cobrança não encontrada.'] }
+
+  const { data: anteriores } = await supabase
+    .from('recebimentos')
+    .select('valor_recebido')
+    .eq('cobranca_id', entrada.cobrancaId)
+
+  const total = deNumeric(cobranca.valor_total)
+  const jaRecebidos = (anteriores ?? []).map((r) => deNumeric(r.valor_recebido))
+  const { saldo } = saldoEStatus(total, jaRecebidos, cobranca.status as StatusCobranca)
+
+  const erros = validarRecebimento(entrada.valor, saldo, entrada.contaId)
+  if (erros.length > 0) return { ok: false, erros }
+
+  const { error } = await supabase.from('recebimentos').insert({
+    cobranca_id: entrada.cobrancaId,
+    valor_recebido: paraNumeric(entrada.valor),
+    data_recebimento: entrada.data,
+    conta_id: entrada.contaId,
+    forma_pagamento: entrada.formaPagamento,
+    observacao: entrada.observacao,
+    registrado_por: entrada.usuario,
+  })
+
+  if (error) return { ok: false, erros: [error.message] }
+
+  const novo = saldoEStatus(total, [...jaRecebidos, entrada.valor], cobranca.status as StatusCobranca)
+  await supabase.from('cobrancas').update({ status: novo.status }).eq('id', entrada.cobrancaId)
+
+  await supabase.from('logs_operacionais').insert({
+    acao: 'registrar_recebimento',
+    entidade: 'cobrancas',
+    entidade_id: entrada.cobrancaId,
+    usuario: entrada.usuario,
+    detalhe: { valor: entrada.valor, saldo_restante: novo.saldo, status: novo.status },
+  })
+
+  return { ok: true, saldo: novo.saldo }
+}
+
+export async function recebimentosDaCobranca(cobrancaId: number) {
+  const supabase = await clienteServidor()
+  const { data } = await supabase
+    .from('recebimentos')
+    .select('id, valor_recebido, data_recebimento, forma_pagamento, observacao, conta:contas!conta_id (nome)')
+    .eq('cobranca_id', cobrancaId)
+    .order('data_recebimento')
+
+  return ((data ?? []) as unknown as {
+    id: number
+    valor_recebido: string
+    data_recebimento: string
+    forma_pagamento: string | null
+    observacao: string | null
+    conta: { nome: string } | null
+  }[]).map((r) => ({ ...r, valor_recebido: deNumeric(r.valor_recebido) }))
+}
+```
+
+- [ ] **Step 2: Pagamentos**
+
+`src/dados/pagamentos.ts`:
+```ts
+import 'server-only'
+import { clienteServidor } from './cliente'
+import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
+import { calcularFechamento, type PresencaRemunerada } from '@/dominio/pagamentos/fechamento'
+
+/**
+ * Levanta as presenças confirmadas do professor no período, com o valor do
+ * serviço e o percentual VIGENTES NA DATA DE CADA AULA.
+ */
+export async function previaFechamento(professorId: number, de: string, ate: string) {
+  const supabase = await clienteServidor()
+
+  const { data: presencas } = await supabase
+    .from('presencas')
+    .select(`
+      id, presente, flag_reposicao, aluno_id,
+      aluno:alunos!aluno_id (nome),
+      aula:aulas!aula_id (
+        id, data_hora_inicio, turma_id,
+        turma:turmas!turma_id (id, nome, servico_id, professor_id)
+      )
+    `)
+    .eq('presente', true)
+
+  const linhas = ((presencas ?? []) as unknown as {
+    id: number
+    presente: boolean
+    flag_reposicao: boolean
+    aluno_id: number
+    aluno: { nome: string } | null
+    aula: {
+      id: number
+      data_hora_inicio: string
+      turma_id: number
+      turma: { id: number; nome: string; servico_id: number; professor_id: number } | null
+    } | null
+  }[]).filter((p) => {
+    const dia = p.aula?.data_hora_inicio.slice(0, 10) ?? ''
+    return p.aula?.turma?.professor_id === professorId && dia >= de && dia <= ate
+  })
+
+  const { data: jaPagas } = await supabase.from('itens_conta_pagar_professor').select('presenca_id')
+  const pagas = new Set((jaPagas ?? []).map((i) => i.presenca_id))
+
+  const remuneradas: PresencaRemunerada[] = []
+  for (const p of linhas) {
+    const dia = p.aula!.data_hora_inicio.slice(0, 10)
+    const [{ data: valor }, { data: percentual }] = await Promise.all([
+      supabase.rpc('valor_servico_em', { p_servico_id: p.aula!.turma!.servico_id, p_data: dia }),
+      supabase.rpc('percentual_professor_em', { p_professor_id: professorId, p_data: dia }),
+    ])
+
+    remuneradas.push({
+      presenca_id: p.id,
+      aluno_id: p.aluno_id,
+      aluno_nome: p.aluno?.nome ?? 'Aluno',
+      turma_id: p.aula!.turma!.id,
+      turma_nome: p.aula!.turma!.nome,
+      data_aula: dia,
+      presente: true,
+      flag_reposicao: p.flag_reposicao,
+      valor_servico: deNumeric(valor ?? '0'),
+      percentual: Number(percentual ?? 0),
+      ja_paga: pagas.has(p.id),
+    })
+  }
+
+  return calcularFechamento(remuneradas)
+}
+
+export async function gerarContaPagar(
+  professorId: number,
+  de: string,
+  ate: string,
+  usuario: string,
+): Promise<{ ok: boolean; erros?: string[]; id?: number; valor?: Centavos }> {
+  const supabase = await clienteServidor()
+  const fechamento = await previaFechamento(professorId, de, ate)
+
+  if (fechamento.itens.length === 0) {
+    return { ok: false, erros: ['Nenhuma presença confirmada e ainda não paga neste período.'] }
+  }
+
+  const { data: conta, error } = await supabase
+    .from('contas_pagar_professor')
+    .insert({
+      professor_id: professorId,
+      periodo_inicio: de,
+      periodo_fim: ate,
+      valor_total: paraNumeric(fechamento.valor_total),
+    })
+    .select('id')
+    .single()
+
+  if (error) return { ok: false, erros: [error.message] }
+
+  const { error: erroItens } = await supabase.from('itens_conta_pagar_professor').insert(
+    fechamento.itens.map((i) => ({
+      conta_pagar_id: conta.id,
+      presenca_id: i.presenca_id,
+      aluno_id: i.aluno_id,
+      turma_id: i.turma_id,
+      data_aula: i.data_aula,
+      valor_servico: paraNumeric(i.valor_servico),
+      percentual_aplicado: i.percentual_aplicado,
+      valor_professor: paraNumeric(i.valor_professor),
+    })),
+  )
+
+  if (erroItens) {
+    await supabase.from('contas_pagar_professor').delete().eq('id', conta.id)
+    return { ok: false, erros: [erroItens.message] }
+  }
+
+  await supabase.from('logs_operacionais').insert({
+    acao: 'gerar_conta_pagar',
+    entidade: 'contas_pagar_professor',
+    entidade_id: conta.id,
+    usuario,
+    detalhe: { professor_id: professorId, periodo: `${de} a ${ate}`, valor: fechamento.valor_total },
+  })
+
+  return { ok: true, id: conta.id, valor: fechamento.valor_total }
+}
+
+export async function listarContasPagar(filtros: { professorId?: number; status?: string } = {}) {
+  const supabase = await clienteServidor()
+  let consulta = supabase
+    .from('contas_pagar_professor')
+    .select('id, professor_id, periodo_inicio, periodo_fim, valor_total, status, data_pagamento, professor:professores!professor_id (id, nome)')
+
+  if (filtros.professorId) consulta = consulta.eq('professor_id', filtros.professorId)
+  if (filtros.status) consulta = consulta.eq('status', filtros.status)
+
+  const { data } = await consulta.order('periodo_inicio', { ascending: false })
+
+  return ((data ?? []) as unknown as {
+    id: number
+    professor_id: number
+    periodo_inicio: string
+    periodo_fim: string
+    valor_total: string
+    status: string
+    data_pagamento: string | null
+    professor: { id: number; nome: string } | null
+  }[]).map((c) => ({ ...c, valor_total: deNumeric(c.valor_total) }))
+}
+
+export async function darBaixaPagamento(
+  contaId: number,
+  data: string,
+  contaOrigemId: number,
+  usuario: string,
+): Promise<void> {
+  const supabase = await clienteServidor()
+  const { error } = await supabase
+    .from('contas_pagar_professor')
+    .update({ status: 'Pago', data_pagamento: data, conta_id: contaOrigemId })
+    .eq('id', contaId)
+
+  if (error) throw new Error(error.message)
+
+  await supabase.from('logs_operacionais').insert({
+    acao: 'pagar_professor',
+    entidade: 'contas_pagar_professor',
+    entidade_id: contaId,
+    usuario,
+    detalhe: { data_pagamento: data, conta_id: contaOrigemId },
+  })
+}
+
+/** Relatório detalhado do fechamento, para conferência do professor (§8.3). */
+export async function relatorioFechamento(contaId: number) {
+  const supabase = await clienteServidor()
+  const { data } = await supabase
+    .from('itens_conta_pagar_professor')
+    .select('id, data_aula, valor_servico, percentual_aplicado, valor_professor, aluno:alunos!aluno_id (nome), turma:turmas!turma_id (nome)')
+    .eq('conta_pagar_id', contaId)
+    .order('data_aula')
+
+  return ((data ?? []) as unknown as {
+    id: number
+    data_aula: string
+    valor_servico: string
+    percentual_aplicado: string
+    valor_professor: string
+    aluno: { nome: string } | null
+    turma: { nome: string } | null
+  }[]).map((i) => ({
+    ...i,
+    valor_servico: deNumeric(i.valor_servico),
+    valor_professor: deNumeric(i.valor_professor),
+    percentual_aplicado: Number(i.percentual_aplicado),
+  }))
+}
+```
+
+- [ ] **Step 3: Verificar e commitar**
+
+```bash
+npx tsc --noEmit
+git add src/dados/recebimentos.ts src/dados/pagamentos.ts
+git commit -m "feat(dados): recebimentos com saldo e fechamento de professor"
+```
+
+---
+
+### Task 9: Provar a idempotência da cobrança contra o banco real
+
+A garantia que mais importa deste plano. O teste unitário prova a regra; isto prova o sistema.
+
+- [ ] **Step 1: Gerar as cobranças de agosto**
+
+Crie um script temporário em `scripts/` (apague ao final) que use a service role key e:
+
+1. Conte `cobrancas` e `itens_cobranca` antes
+2. Chame a geração — como `gerarCobrancasDoMes` é `server-only`, replique a lógica no script ou exponha uma rota temporária; o mais simples é reproduzir a montagem usando `montarCobrancas` importado de `src/dominio/cobrancas/geracao.ts` via `npx tsx`
+3. Conte de novo
+4. **Rode a geração uma segunda vez** e conte outra vez
+
+Expected: a primeira execução cria N cobranças e M itens; **a segunda não cria nenhum item novo**, e as contagens ficam idênticas.
+
+- [ ] **Step 2: Provar a garantia estrutural do banco**
+
+Tente inserir manualmente um `itens_cobranca` com um `aula_id` que já está em outro item:
+
+```
+node scripts/consultar.mjs itens_cobranca "id,cobranca_id,aula_id,valor_final"
+```
+Depois, no script temporário, tente o insert duplicado e reporte o erro. **Deve falhar** com violação de constraint única em `aula_id`. A falha aqui é o comportamento correto — é a idempotência garantida pelo Postgres, não pela aplicação.
+
+- [ ] **Step 3: Conferir os valores**
+
+```bash
+node scripts/consultar.mjs cobrancas "id,responsavel_id,mes_referencia,valor_bruto,valor_total,status"
+```
+Expected: uma cobrança por responsável com aulas no mês, em `Rascunho`, com `valor_total` = soma dos itens. Confira à mão que o valor bate com (número de aulas × valor do serviço).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add -A
+git commit -m "chore: prova de idempotencia da geracao de cobranca"
+```
+
+---
+
+### Task 10: Telas de cobrança
+
+**Files:**
+- Create: `src/app/(app)/cobrancas/page.tsx`, `acoes.ts`, `PainelGeracao.tsx`, `[id]/page.tsx`, `[id]/EditorItens.tsx`
+
+- [ ] **Step 1: Ações**
+
+`src/app/(app)/cobrancas/acoes.ts`:
+```ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import {
+  ajustarDesconto,
+  confirmarCobranca,
+  gerarCobrancasDoMes,
+  marcarComoEnviada,
+} from '@/dados/cobrancas'
+import { exigirGestora } from '@/dados/sessao'
+import { deReal } from '@/dominio/dinheiro'
+
+export async function gerar(mes: string) {
+  await exigirGestora()
+  const r = await gerarCobrancasDoMes(mes)
+  revalidatePath('/cobrancas')
+  return r
+}
+
+export async function salvarDesconto(itemId: number, cobrancaId: number, valorTexto: string) {
+  await exigirGestora()
+  try {
+    await ajustarDesconto(itemId, deReal(valorTexto || '0'))
+    revalidatePath(`/cobrancas/${cobrancaId}`)
+    return { ok: true }
+  } catch (erro) {
+    return { ok: false, erro: erro instanceof Error ? erro.message : 'Falha ao ajustar.' }
+  }
+}
+
+export async function confirmar(cobrancaId: number) {
+  const sessao = await exigirGestora()
+  await confirmarCobranca(cobrancaId, sessao.nome)
+  revalidatePath(`/cobrancas/${cobrancaId}`)
+  revalidatePath('/cobrancas')
+}
+
+export async function marcarEnviada(cobrancaId: number) {
+  await exigirGestora()
+  await marcarComoEnviada(cobrancaId)
+  revalidatePath(`/cobrancas/${cobrancaId}`)
+}
+```
+
+- [ ] **Step 2: Painel de geração**
+
+`src/app/(app)/cobrancas/PainelGeracao.tsx`:
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useState, useTransition } from 'react'
+import { motion } from 'motion/react'
+import { gerar } from './acoes'
+import { Botao } from '@/ui/Botao'
+import { Campo, entradaClasse } from '@/ui/Campo'
+import { Cartao } from '@/ui/Cartao'
+
+export function PainelGeracao({ mesInicial }: { mesInicial: string }) {
+  const router = useRouter()
+  const [mes, setMes] = useState(mesInicial)
+  const [pendente, iniciar] = useTransition()
+  const [resultado, setResultado] = useState<string | null>(null)
+
+  return (
+    <Cartao className="flex flex-col gap-4">
+      <div>
+        <h2 className="text-lg">Gerar cobranças do mês</h2>
+        <p className="mt-1 text-sm text-tinta-suave">
+          Cria uma cobrança por responsável, juntando todos os filhos e todas as turmas. Fica em
+          rascunho para você revisar antes de confirmar. Rodar de novo não duplica nada.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <Campo etiqueta="Mês de referência">
+          <input
+            type="month"
+            value={mes}
+            onChange={(e) => setMes(e.target.value)}
+            className={`${entradaClasse} max-w-[12rem]`}
+          />
+        </Campo>
+
+        <Botao
+          type="button"
+          disabled={pendente || !mes}
+          onClick={() =>
+            iniciar(async () => {
+              const r = await gerar(mes)
+              setResultado(
+                r.itens === 0
+                  ? 'Nada novo a cobrar neste mês — tudo já estava cobrado.'
+                  : `${r.criadas} cobrança(s) criada(s) com ${r.itens} aula(s).`,
+              )
+              router.refresh()
+            })
+          }
+        >
+          {pendente ? 'Gerando…' : 'Gerar cobranças'}
+        </Botao>
+      </div>
+
+      {resultado && (
+        <motion.p
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-campo bg-apoio-suave px-4 py-3 text-apoio"
+        >
+          {resultado}
+        </motion.p>
+      )}
+    </Cartao>
+  )
+}
+```
+
+- [ ] **Step 3: Listagem**
+
+`src/app/(app)/cobrancas/page.tsx`:
+```tsx
+import Link from 'next/link'
+import { listarCobrancas } from '@/dados/cobrancas'
+import { exigirGestora } from '@/dados/sessao'
+import { formatarBRL } from '@/dominio/dinheiro'
+import { Cartao } from '@/ui/Cartao'
+import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Selo } from '@/ui/Selo'
+import { PainelGeracao } from './PainelGeracao'
+
+const TOM: Record<string, 'ativo' | 'encerrado' | 'alerta' | 'neutro'> = {
+  Rascunho: 'encerrado',
+  Confirmada: 'neutro',
+  Enviada: 'neutro',
+  Parcial: 'alerta',
+  Quitada: 'ativo',
+}
+
+export default async function PaginaCobrancas({
+  searchParams,
+}: {
+  searchParams: Promise<{ mes?: string }>
+}) {
+  await exigirGestora()
+  const { mes } = await searchParams
+  const agora = new Date()
+  const mesAtual = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`
+
+  const cobrancas = await listarCobrancas(mes ? { mes } : {})
+  const total = cobrancas.reduce((s, c) => s + c.valor_total, 0)
+  const recebido = cobrancas.reduce((s, c) => s + c.recebido, 0)
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-3xl">Cobranças</h1>
+        <p className="mt-1 text-tinta-suave">
+          {cobrancas.length} cobrança(s) · {formatarBRL(total)} no total ·{' '}
+          {formatarBRL(recebido)} recebido
+        </p>
+      </header>
+
+      <PainelGeracao mesInicial={mes ?? mesAtual} />
+
+      {cobrancas.length === 0 ? (
+        <EstadoVazio
+          titulo="Nenhuma cobrança ainda"
+          descricao="Escolha o mês acima e gere as cobranças. O sistema junta as aulas previstas de cada responsável, agrupando todos os filhos."
+        />
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {cobrancas.map((c) => (
+            <li key={c.id}>
+              <Link
+                href={`/cobrancas/${c.id}`}
+                className="block rounded-cartao border border-borda bg-superficie p-5 transition-all hover:-translate-y-0.5 hover:border-destaque/40"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{c.responsavel?.nome}</p>
+                    <p className="mt-1 text-sm text-tinta-suave">
+                      {c.mes_referencia.slice(0, 7).split('-').reverse().join('/')}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-titulo text-xl">{formatarBRL(c.valor_total)}</p>
+                    {c.recebido > 0 && c.recebido < c.valor_total && (
+                      <p className="text-sm text-alerta">
+                        falta {formatarBRL(c.valor_total - c.recebido)}
+                      </p>
+                    )}
+                    <div className="mt-1">
+                      <Selo tom={TOM[c.status]}>{c.status}</Selo>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 4: Detalhe com editor de descontos e texto do WhatsApp**
+
+`src/app/(app)/cobrancas/[id]/EditorItens.tsx`:
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useState, useTransition } from 'react'
+import { confirmar, marcarEnviada, salvarDesconto } from '../acoes'
+import { Botao } from '@/ui/Botao'
+import { entradaClasse } from '@/ui/Campo'
+import { formatarBRL } from '@/dominio/dinheiro'
+
+interface Item {
+  id: number
+  aluno_nome: string
+  descricao: string
+  data: string
+  valor_original: number
+  desconto: number
+  valor_final: number
+}
+
+export function EditorItens({
+  cobrancaId,
+  itens,
+  status,
+  texto,
+}: {
+  cobrancaId: number
+  itens: Item[]
+  status: string
+  texto: string | null
+}) {
+  const router = useRouter()
+  const [pendente, iniciar] = useTransition()
+  const [erro, setErro] = useState<string | null>(null)
+  const [copiado, setCopiado] = useState(false)
+  const editavel = status === 'Rascunho'
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="overflow-x-auto rounded-cartao border border-borda bg-superficie">
+        <table className="w-full min-w-[40rem] border-collapse text-left">
+          <thead>
+            <tr className="border-b border-borda bg-superficie-2/60 text-sm text-tinta-suave">
+              <th className="px-5 py-3 font-semibold">Aluno</th>
+              <th className="px-5 py-3 font-semibold">Aula</th>
+              <th className="px-5 py-3 font-semibold">Valor</th>
+              <th className="px-5 py-3 font-semibold">Desconto</th>
+              <th className="px-5 py-3 font-semibold">Final</th>
+            </tr>
+          </thead>
+          <tbody>
+            {itens.map((i) => (
+              <tr key={i.id} className="border-b border-borda/60 last:border-0">
+                <td className="px-5 py-3">{i.aluno_nome}</td>
+                <td className="px-5 py-3 text-sm text-tinta-suave">
+                  {i.data.split('-').reverse().join('/')} · {i.descricao}
+                </td>
+                <td className="px-5 py-3">{formatarBRL(i.valor_original)}</td>
+                <td className="px-5 py-3">
+                  {editavel ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      defaultValue={(i.desconto / 100).toFixed(2).replace('.', ',')}
+                      aria-label={`Desconto para ${i.aluno_nome}`}
+                      onBlur={(e) =>
+                        iniciar(async () => {
+                          const r = await salvarDesconto(i.id, cobrancaId, e.target.value)
+                          if (!r.ok) setErro(r.erro ?? 'Falha ao ajustar.')
+                          else router.refresh()
+                        })
+                      }
+                      className={`${entradaClasse} max-w-[7rem]`}
+                    />
+                  ) : (
+                    formatarBRL(i.desconto)
+                  )}
+                </td>
+                <td className="px-5 py-3 font-medium">{formatarBRL(i.valor_final)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {erro && (
+        <p role="alert" className="rounded-campo bg-erro-suave px-4 py-3 text-erro">
+          {erro}
+        </p>
+      )}
+
+      {editavel && (
+        <Botao
+          type="button"
+          disabled={pendente}
+          onClick={() =>
+            iniciar(async () => {
+              await confirmar(cobrancaId)
+              router.refresh()
+            })
+          }
+        >
+          Confirmar cobrança e gerar o texto
+        </Botao>
+      )}
+
+      {texto && (
+        <div className="flex flex-col gap-3">
+          <h2 className="text-lg">Texto para o WhatsApp</h2>
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-cartao border border-borda bg-superficie-2 p-5 font-mono text-sm">
+            {texto}
+          </pre>
+          <div className="flex flex-wrap gap-3">
+            <Botao
+              type="button"
+              onClick={async () => {
+                await navigator.clipboard.writeText(texto)
+                setCopiado(true)
+                setTimeout(() => setCopiado(false), 2500)
+              }}
+            >
+              {copiado ? 'Copiado!' : 'Copiar texto'}
+            </Botao>
+            {status === 'Confirmada' && (
+              <Botao
+                type="button"
+                aparencia="secundario"
+                disabled={pendente}
+                onClick={() =>
+                  iniciar(async () => {
+                    await marcarEnviada(cobrancaId)
+                    router.refresh()
+                  })
+                }
+              >
+                Já enviei pelo WhatsApp
+              </Botao>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+`src/app/(app)/cobrancas/[id]/page.tsx`:
+```tsx
+import Link from 'next/link'
+import { notFound } from 'next/navigation'
+import { obterCobranca } from '@/dados/cobrancas'
+import { recebimentosDaCobranca } from '@/dados/recebimentos'
+import { exigirGestora } from '@/dados/sessao'
+import { formatarBRL } from '@/dominio/dinheiro'
+import { BotaoLink } from '@/ui/Botao'
+import { Cartao } from '@/ui/Cartao'
+import { Selo } from '@/ui/Selo'
+import { EditorItens } from './EditorItens'
+
+export default async function PaginaCobranca({ params }: { params: Promise<{ id: string }> }) {
+  await exigirGestora()
+  const { id } = await params
+  const cobranca = await obterCobranca(Number(id))
+  if (!cobranca) notFound()
+
+  const recebimentos = await recebimentosDaCobranca(cobranca.id)
+  const recebido = recebimentos.reduce((s, r) => s + r.valor_recebido, 0)
+  const saldo = Math.max(0, cobranca.valor_total - recebido)
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl">{cobranca.responsavel?.nome}</h1>
+          <p className="mt-1 text-tinta-suave">
+            {cobranca.mes_referencia.slice(0, 7).split('-').reverse().join('/')}
+          </p>
+        </div>
+        <Selo>{cobranca.status}</Selo>
+      </header>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Cartao>
+          <p className="text-sm text-tinta-suave">Total</p>
+          <p className="font-titulo text-2xl">{formatarBRL(cobranca.valor_total)}</p>
+        </Cartao>
+        <Cartao>
+          <p className="text-sm text-tinta-suave">Recebido</p>
+          <p className="font-titulo text-2xl text-apoio">{formatarBRL(recebido)}</p>
+        </Cartao>
+        <Cartao>
+          <p className="text-sm text-tinta-suave">Em aberto</p>
+          <p className={`font-titulo text-2xl ${saldo > 0 ? 'text-alerta' : 'text-apoio'}`}>
+            {formatarBRL(saldo)}
+          </p>
+        </Cartao>
+      </div>
+
+      <EditorItens
+        cobrancaId={cobranca.id}
+        status={cobranca.status}
+        texto={cobranca.texto_whatsapp}
+        itens={cobranca.itens.map((i) => ({
+          id: i.id,
+          aluno_nome: i.aluno?.nome ?? 'Aluno',
+          descricao: i.descricao,
+          data: i.data,
+          valor_original: i.valor_original,
+          desconto: i.desconto,
+          valor_final: i.valor_final,
+        }))}
+      />
+
+      {saldo > 0 && cobranca.status !== 'Rascunho' && (
+        <BotaoLink href={`/recebimentos?cobranca=${cobranca.id}`}>Registrar recebimento</BotaoLink>
+      )}
+
+      {recebimentos.length > 0 && (
+        <Cartao>
+          <h2 className="mb-3 text-lg">Recebimentos</h2>
+          <ul className="divide-y divide-borda/60">
+            {recebimentos.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-3 py-3">
+                <span>
+                  {r.data_recebimento.split('-').reverse().join('/')}
+                  <span className="ml-2 text-sm text-tinta-suave">
+                    {r.forma_pagamento ?? ''} {r.conta?.nome ? `· ${r.conta.nome}` : ''}
+                  </span>
+                </span>
+                <span className="font-medium">{formatarBRL(r.valor_recebido)}</span>
+              </li>
+            ))}
+          </ul>
+        </Cartao>
+      )}
+
+      <Link href="/cobrancas" className="text-destaque hover:underline">
+        ← Voltar para as cobranças
+      </Link>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 5: Verificar e commitar**
+
+**Atenção:** `EditorItens.tsx` recebe apenas dados serializáveis (números e strings). Nunca passe a cobrança inteira do servidor com objetos ricos dentro.
+
+```bash
+npm run build && npx tsc --noEmit
+git add "src/app/(app)/cobrancas/"
+git commit -m "feat(cobrancas): geracao mensal, ajuste de desconto e texto do WhatsApp"
+```
+
+---
+
+### Task 11: Telas de recebimento e pagamento
+
+**Files:**
+- Create: `src/app/(app)/recebimentos/page.tsx`, `acoes.ts`, `FormularioBaixa.tsx`
+- Create: `src/app/(app)/pagamentos/page.tsx`, `acoes.ts`, `PainelFechamento.tsx`
+
+- [ ] **Step 1: Recebimentos — ação e formulário**
+
+`src/app/(app)/recebimentos/acoes.ts`:
+```ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { registrarRecebimento } from '@/dados/recebimentos'
+import { exigirGestora } from '@/dados/sessao'
+import { deReal } from '@/dominio/dinheiro'
+
+export async function darBaixa(entrada: {
+  cobrancaId: number
+  valorTexto: string
+  data: string
+  contaId: number | null
+  formaPagamento: string | null
+  observacao: string | null
+}) {
+  const sessao = await exigirGestora()
+
+  let valor: number
+  try {
+    valor = deReal(entrada.valorTexto)
+  } catch {
+    return { ok: false, erros: ['Valor inválido. Use o formato 1.234,56.'] }
+  }
+
+  const r = await registrarRecebimento({
+    cobrancaId: entrada.cobrancaId,
+    valor,
+    data: entrada.data,
+    contaId: entrada.contaId,
+    formaPagamento: entrada.formaPagamento,
+    observacao: entrada.observacao,
+    usuario: sessao.nome,
+  })
+
+  revalidatePath('/recebimentos')
+  revalidatePath(`/cobrancas/${entrada.cobrancaId}`)
+  return r
+}
+```
+
+`src/app/(app)/recebimentos/FormularioBaixa.tsx`:
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useState, useTransition } from 'react'
+import { darBaixa } from './acoes'
+import { Botao } from '@/ui/Botao'
+import { Campo, entradaClasse } from '@/ui/Campo'
+import { formatarBRL } from '@/dominio/dinheiro'
+
+const FORMAS = ['Pix', 'Dinheiro', 'Transferência', 'Cartão', 'Outros']
+
+export function FormularioBaixa({
+  cobrancaId,
+  responsavel,
+  saldo,
+  contas,
+}: {
+  cobrancaId: number
+  responsavel: string
+  saldo: number
+  contas: { id: number; nome: string }[]
+}) {
+  const router = useRouter()
+  const [pendente, iniciar] = useTransition()
+  const [erros, setErros] = useState<string[]>([])
+  // Pre-preenchido com o saldo, editavel para pagamento parcial (Operacionais 7.4).
+  const [valor, setValor] = useState((saldo / 100).toFixed(2).replace('.', ','))
+  const [data, setData] = useState(new Date().toISOString().slice(0, 10))
+  const [contaId, setContaId] = useState<number | null>(contas[0]?.id ?? null)
+  const [forma, setForma] = useState('Pix')
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        setErros([])
+        iniciar(async () => {
+          const r = await darBaixa({
+            cobrancaId,
+            valorTexto: valor,
+            data,
+            contaId,
+            formaPagamento: forma,
+            observacao: null,
+          })
+          if (r.ok) router.refresh()
+          else setErros(r.erros ?? ['Não foi possível registrar.'])
+        })
+      }}
+      className="flex flex-col gap-4"
+    >
+      <p className="text-sm text-tinta-suave">
+        {responsavel} · saldo em aberto de <strong>{formatarBRL(saldo)}</strong>
+      </p>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Campo etiqueta="Valor recebido" ajuda="Pode ser menor que o saldo, para pagamento parcial." obrigatorio>
+          <input value={valor} onChange={(e) => setValor(e.target.value)} inputMode="decimal" className={entradaClasse} />
+        </Campo>
+        <Campo etiqueta="Data" obrigatorio>
+          <input type="date" value={data} onChange={(e) => setData(e.target.value)} className={entradaClasse} />
+        </Campo>
+        <Campo etiqueta="Conta de destino" obrigatorio>
+          <select
+            value={contaId ?? ''}
+            onChange={(e) => setContaId(e.target.value ? Number(e.target.value) : null)}
+            className={entradaClasse}
+          >
+            <option value="">Selecione…</option>
+            {contas.map((c) => (
+              <option key={c.id} value={c.id}>{c.nome}</option>
+            ))}
+          </select>
+        </Campo>
+        <Campo etiqueta="Forma de pagamento">
+          <select value={forma} onChange={(e) => setForma(e.target.value)} className={entradaClasse}>
+            {FORMAS.map((f) => (
+              <option key={f} value={f}>{f}</option>
+            ))}
+          </select>
+        </Campo>
+      </div>
+
+      {erros.length > 0 && (
+        <ul role="alert" className="rounded-campo bg-erro-suave px-4 py-3 text-erro">
+          {erros.map((e) => (
+            <li key={e}>{e}</li>
+          ))}
+        </ul>
+      )}
+
+      <Botao type="submit" disabled={pendente}>
+        {pendente ? 'Registrando…' : 'Registrar recebimento'}
+      </Botao>
+    </form>
+  )
+}
+```
+
+`src/app/(app)/recebimentos/page.tsx`:
+```tsx
+import Link from 'next/link'
+import { listarCobrancas } from '@/dados/cobrancas'
+import { clienteServidor } from '@/dados/cliente'
+import { exigirGestora } from '@/dados/sessao'
+import { formatarBRL } from '@/dominio/dinheiro'
+import { Cartao } from '@/ui/Cartao'
+import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Selo } from '@/ui/Selo'
+import { FormularioBaixa } from './FormularioBaixa'
+
+export default async function PaginaRecebimentos({
+  searchParams,
+}: {
+  searchParams: Promise<{ cobranca?: string }>
+}) {
+  await exigirGestora()
+  const { cobranca } = await searchParams
+
+  const supabase = await clienteServidor()
+  const [todas, { data: contas }] = await Promise.all([
+    listarCobrancas(),
+    supabase.from('contas').select('id, nome').eq('ativo', true).order('nome'),
+  ])
+
+  const emAberto = todas.filter(
+    (c) => c.status !== 'Rascunho' && c.valor_total - c.recebido > 0,
+  )
+  const selecionada = cobranca ? emAberto.find((c) => c.id === Number(cobranca)) : undefined
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-3xl">Recebimentos</h1>
+        <p className="mt-1 text-tinta-suave">
+          {emAberto.length} cobrança(s) em aberto ·{' '}
+          {formatarBRL(emAberto.reduce((s, c) => s + (c.valor_total - c.recebido), 0))} a receber
+        </p>
+      </header>
+
+      {selecionada && (
+        <Cartao>
+          <h2 className="mb-3 text-lg">Registrar recebimento</h2>
+          <FormularioBaixa
+            cobrancaId={selecionada.id}
+            responsavel={selecionada.responsavel?.nome ?? ''}
+            saldo={selecionada.valor_total - selecionada.recebido}
+            contas={contas ?? []}
+          />
+        </Cartao>
+      )}
+
+      {emAberto.length === 0 ? (
+        <EstadoVazio
+          titulo="Nada em aberto"
+          descricao="Todas as cobranças confirmadas já foram quitadas. Cobranças em rascunho não aparecem aqui."
+        />
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {emAberto.map((c) => (
+            <li
+              key={c.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-cartao border border-borda bg-superficie p-5"
+            >
+              <div>
+                <Link href={`/cobrancas/${c.id}`} className="font-medium text-destaque hover:underline">
+                  {c.responsavel?.nome}
+                </Link>
+                <p className="mt-1 text-sm text-tinta-suave">
+                  {c.mes_referencia.slice(0, 7).split('-').reverse().join('/')} ·{' '}
+                  {formatarBRL(c.valor_total)} · recebido {formatarBRL(c.recebido)}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-titulo text-lg text-alerta">
+                  {formatarBRL(c.valor_total - c.recebido)}
+                </span>
+                <Selo tom={c.status === 'Parcial' ? 'alerta' : 'neutro'}>{c.status}</Selo>
+                <Link
+                  href={`/recebimentos?cobranca=${c.id}`}
+                  className="font-medium text-destaque hover:underline"
+                >
+                  Dar baixa
+                </Link>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Pagamentos**
+
+`src/app/(app)/pagamentos/acoes.ts`:
+```ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { darBaixaPagamento, gerarContaPagar, previaFechamento } from '@/dados/pagamentos'
+import { exigirGestora } from '@/dados/sessao'
+
+export async function calcular(professorId: number, de: string, ate: string) {
+  await exigirGestora()
+  const f = await previaFechamento(professorId, de, ate)
+  return {
+    valor_total: f.valor_total,
+    itens: f.itens.map((i) => ({
+      aluno_nome: i.aluno_nome,
+      turma_nome: i.turma_nome,
+      data_aula: i.data_aula,
+      valor_servico: i.valor_servico,
+      percentual_aplicado: i.percentual_aplicado,
+      valor_professor: i.valor_professor,
+    })),
+  }
+}
+
+export async function fechar(professorId: number, de: string, ate: string) {
+  const sessao = await exigirGestora()
+  const r = await gerarContaPagar(professorId, de, ate, sessao.nome)
+  revalidatePath('/pagamentos')
+  return r
+}
+
+export async function pagar(contaId: number, data: string, contaOrigemId: number) {
+  const sessao = await exigirGestora()
+  await darBaixaPagamento(contaId, data, contaOrigemId, sessao.nome)
+  revalidatePath('/pagamentos')
+}
+```
+
+`src/app/(app)/pagamentos/PainelFechamento.tsx`:
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useState, useTransition } from 'react'
+import { motion } from 'motion/react'
+import { calcular, fechar } from './acoes'
+import { Botao } from '@/ui/Botao'
+import { Campo, entradaClasse } from '@/ui/Campo'
+import { Cartao } from '@/ui/Cartao'
+import { formatarBRL } from '@/dominio/dinheiro'
+
+interface ItemPrevia {
+  aluno_nome: string
+  turma_nome: string
+  data_aula: string
+  valor_servico: number
+  percentual_aplicado: number
+  valor_professor: number
+}
+
+export function PainelFechamento({ professores }: { professores: { id: number; nome: string }[] }) {
+  const router = useRouter()
+  const hoje = new Date()
+  const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10)
+  const ultimo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).toISOString().slice(0, 10)
+
+  const [professorId, setProfessorId] = useState<number | null>(professores[0]?.id ?? null)
+  const [de, setDe] = useState(primeiro)
+  const [ate, setAte] = useState(ultimo)
+  const [previa, setPrevia] = useState<{ valor_total: number; itens: ItemPrevia[] } | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [pendente, iniciar] = useTransition()
+
+  return (
+    <Cartao className="flex flex-col gap-4">
+      <div>
+        <h2 className="text-lg">Fechar o período de um professor</h2>
+        <p className="mt-1 text-sm text-tinta-suave">
+          Soma o valor de cada aula com presença confirmada no período, aplicando o percentual de
+          repasse vigente na data da aula. Ausências e aulas sem chamada não entram.
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Campo etiqueta="Professor" obrigatorio>
+          <select
+            value={professorId ?? ''}
+            onChange={(e) => setProfessorId(e.target.value ? Number(e.target.value) : null)}
+            className={entradaClasse}
+          >
+            {professores.map((p) => (
+              <option key={p.id} value={p.id}>{p.nome}</option>
+            ))}
+          </select>
+        </Campo>
+        <Campo etiqueta="De" obrigatorio>
+          <input type="date" value={de} onChange={(e) => setDe(e.target.value)} className={entradaClasse} />
+        </Campo>
+        <Campo etiqueta="Até" obrigatorio>
+          <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={entradaClasse} />
+        </Campo>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <Botao
+          type="button"
+          aparencia="secundario"
+          disabled={pendente || professorId === null}
+          onClick={() =>
+            iniciar(async () => {
+              setErro(null)
+              setPrevia(await calcular(professorId!, de, ate))
+            })
+          }
+        >
+          {pendente ? 'Calculando…' : 'Calcular'}
+        </Botao>
+
+        {previa && previa.itens.length > 0 && (
+          <Botao
+            type="button"
+            disabled={pendente}
+            onClick={() =>
+              iniciar(async () => {
+                const r = await fechar(professorId!, de, ate)
+                if (r.ok) {
+                  setPrevia(null)
+                  router.refresh()
+                } else {
+                  setErro(r.erros?.join(' ') ?? 'Falha ao fechar.')
+                }
+              })
+            }
+          >
+            Gerar conta a pagar
+          </Botao>
+        )}
+      </div>
+
+      {erro && (
+        <p role="alert" className="rounded-campo bg-erro-suave px-4 py-3 text-erro">{erro}</p>
+      )}
+
+      {previa && (
+        <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
+          {previa.itens.length === 0 ? (
+            <p className="rounded-campo bg-superficie-2 px-4 py-3 text-tinta-suave">
+              Nenhuma presença confirmada e ainda não paga neste período.
+            </p>
+          ) : (
+            <>
+              <div className="overflow-x-auto rounded-cartao border border-borda">
+                <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-borda bg-superficie-2/60 text-tinta-suave">
+                      <th className="px-4 py-2 font-semibold">Data</th>
+                      <th className="px-4 py-2 font-semibold">Aluno</th>
+                      <th className="px-4 py-2 font-semibold">Turma</th>
+                      <th className="px-4 py-2 font-semibold">Aula</th>
+                      <th className="px-4 py-2 font-semibold">%</th>
+                      <th className="px-4 py-2 font-semibold">Professor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previa.itens.map((i, n) => (
+                      <tr key={n} className="border-b border-borda/60 last:border-0">
+                        <td className="px-4 py-2">{i.data_aula.split('-').reverse().join('/')}</td>
+                        <td className="px-4 py-2">{i.aluno_nome}</td>
+                        <td className="px-4 py-2 text-tinta-suave">{i.turma_nome.slice(0, 34)}</td>
+                        <td className="px-4 py-2">{formatarBRL(i.valor_servico)}</td>
+                        <td className="px-4 py-2">{i.percentual_aplicado}%</td>
+                        <td className="px-4 py-2 font-medium">{formatarBRL(i.valor_professor)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-right font-titulo text-2xl">
+                Total: {formatarBRL(previa.valor_total)}
+              </p>
+            </>
+          )}
+        </motion.div>
+      )}
+    </Cartao>
+  )
+}
+```
+
+`src/app/(app)/pagamentos/page.tsx`:
+```tsx
+import { clienteServidor } from '@/dados/cliente'
+import { listarContasPagar } from '@/dados/pagamentos'
+import { exigirGestora } from '@/dados/sessao'
+import { formatarBRL } from '@/dominio/dinheiro'
+import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Selo } from '@/ui/Selo'
+import { PainelFechamento } from './PainelFechamento'
+
+export default async function PaginaPagamentos() {
+  await exigirGestora()
+  const supabase = await clienteServidor()
+
+  const [{ data: professores }, contas] = await Promise.all([
+    supabase.from('professores').select('id, nome').eq('ativo', true).order('nome'),
+    listarContasPagar(),
+  ])
+
+  const pendentes = contas.filter((c) => c.status === 'Pendente')
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-3xl">Pagamentos a professores</h1>
+        <p className="mt-1 text-tinta-suave">
+          {pendentes.length} pendente(s) ·{' '}
+          {formatarBRL(pendentes.reduce((s, c) => s + c.valor_total, 0))} a pagar
+        </p>
+      </header>
+
+      <PainelFechamento professores={professores ?? []} />
+
+      {contas.length === 0 ? (
+        <EstadoVazio
+          titulo="Nenhum fechamento ainda"
+          descricao="Escolha o professor e o período acima, calcule e gere a conta a pagar."
+        />
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {contas.map((c) => (
+            <li
+              key={c.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-cartao border border-borda bg-superficie p-5"
+            >
+              <div>
+                <p className="font-medium">{c.professor?.nome}</p>
+                <p className="mt-1 text-sm text-tinta-suave">
+                  {c.periodo_inicio.split('-').reverse().join('/')} a{' '}
+                  {c.periodo_fim.split('-').reverse().join('/')}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-titulo text-lg">{formatarBRL(c.valor_total)}</span>
+                <Selo tom={c.status === 'Pago' ? 'ativo' : 'alerta'}>{c.status}</Selo>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: Navegação**
+
+Em `src/ui/NavLateral.tsx`, criar uma seção `'Financeiro'` antes de `'Cadastros'`, com:
+```ts
+      { rotulo: 'Cobranças', href: '/cobrancas', papeis: ['gestora'] },
+      { rotulo: 'Recebimentos', href: '/recebimentos', papeis: ['gestora'] },
+      { rotulo: 'Pagamentos', href: '/pagamentos', papeis: ['gestora'] },
+```
+
+- [ ] **Step 4: Verificar e commitar**
+
+```bash
+npm run build && npx tsc --noEmit && npm test
+git add -A
+git commit -m "feat(financeiro): telas de recebimento e pagamento a professores"
+```
+
+---
+
+### Task 12: Painel inicial
+
+**Files:**
+- Modify: `src/app/(app)/page.tsx`
+
+- [ ] **Step 1: Implementar**
+
+`src/app/(app)/page.tsx`:
+```tsx
+import Link from 'next/link'
+import { listarCobrancas } from '@/dados/cobrancas'
+import { listarAulas } from '@/dados/aulas'
+import { listarPendencias } from '@/dados/reposicoes'
+import { exigirSessao } from '@/dados/sessao'
+import { formatarBRL } from '@/dominio/dinheiro'
+import { Cartao } from '@/ui/Cartao'
+import { Selo } from '@/ui/Selo'
+
+export default async function PaginaInicial() {
+  const sessao = await exigirSessao()
+  const hoje = new Date().toISOString().slice(0, 10)
+  const ehGestora = sessao.papel === 'gestora'
+
+  const [aulasHoje, pendencias, cobrancas] = await Promise.all([
+    listarAulas({
+      de: hoje,
+      ate: hoje,
+      professorId: ehGestora ? undefined : (sessao.professorId ?? -1),
+    }),
+    ehGestora ? listarPendencias({ status: 'Pendente' }) : Promise.resolve([]),
+    ehGestora ? listarCobrancas() : Promise.resolve([]),
+  ])
+
+  const emAberto = cobrancas.filter((c) => c.status !== 'Rascunho' && c.valor_total - c.recebido > 0)
+  const aReceber = emAberto.reduce((s, c) => s + (c.valor_total - c.recebido), 0)
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h1 className="text-3xl">Olá, {sessao.nome}</h1>
+        <p className="mt-1 text-tinta-suave">
+          {new Date().toLocaleDateString('pt-BR', {
+            weekday: 'long',
+            day: '2-digit',
+            month: 'long',
+            year: 'numeric',
+          })}
+        </p>
+      </header>
+
+      <Cartao>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-lg">Aulas de hoje</h2>
+          <Link href="/agenda" className="text-sm text-destaque hover:underline">
+            ver agenda
+          </Link>
+        </div>
+
+        {aulasHoje.length === 0 ? (
+          <p className="text-tinta-suave">Nenhuma aula hoje.</p>
+        ) : (
+          <ul className="divide-y divide-borda/60">
+            {aulasHoje.map((a) => (
+              <li key={a.id} className="flex items-center justify-between gap-3 py-3">
+                <Link href={`/agenda/aulas/${a.id}`} className="hover:underline">
+                  <span className="font-medium">{a.data_hora_inicio.slice(11, 16)}</span>
+                  <span className="ml-3 text-tinta-suave">{a.turma?.nome}</span>
+                </Link>
+                <Selo tom={a.status === 'Realizada' ? 'ativo' : 'neutro'}>{a.status}</Selo>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Cartao>
+
+      {ehGestora && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Link href="/reposicoes">
+            <Cartao className="h-full transition-all hover:-translate-y-0.5 hover:border-destaque/40">
+              <p className="text-sm text-tinta-suave">Reposições a agendar</p>
+              <p className="mt-1 font-titulo text-3xl">{pendencias.length}</p>
+              {pendencias.length > 0 && (
+                <p className="mt-2 text-sm text-alerta">
+                  {pendencias
+                    .slice(0, 3)
+                    .map((p) => p.aluno?.nome)
+                    .join(', ')}
+                  {pendencias.length > 3 ? '…' : ''}
+                </p>
+              )}
+            </Cartao>
+          </Link>
+
+          <Link href="/recebimentos">
+            <Cartao className="h-full transition-all hover:-translate-y-0.5 hover:border-destaque/40">
+              <p className="text-sm text-tinta-suave">A receber</p>
+              <p className="mt-1 font-titulo text-3xl">{formatarBRL(aReceber)}</p>
+              <p className="mt-2 text-sm text-tinta-suave">
+                {emAberto.length} cobrança(s) em aberto
+              </p>
+            </Cartao>
+          </Link>
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Verificar e commitar**
+
+```bash
+npm run build && npx tsc --noEmit
+git add "src/app/(app)/page.tsx"
+git commit -m "feat(painel): aulas do dia, reposicoes pendentes e valor a receber"
+```
+
+---
+
+### Task 13: Verificação final do Plano 3
+
+- [ ] **Step 1: Suite, tipos e build**
+
+```bash
+npm test
+npx tsc --noEmit
+npm run build
+```
+Expected: 14 arquivos / 129 testes, sem erro de tipo, build limpo.
+
+- [ ] **Step 2: Estender o e2e**
+
+Em `scripts/verificar-e2e.mjs`, acrescentar ao array `CASOS`:
+```js
+  ['/cobrancas', ['Cobranças', 'Gerar cobranças'], 'cobrancas'],
+  ['/recebimentos', ['Recebimentos'], 'recebimentos'],
+  ['/pagamentos', ['Pagamentos a professores', 'Beatriz Lima'], 'pagamentos'],
+```
+Run: `node scripts/verificar-e2e.mjs`
+Expected: **25 ok, 0 falha(s)**.
+
+- [ ] **Step 3: Provar o ciclo financeiro completo contra o banco real**
+
+Crie um script temporário (apague ao final) que, com a service role key, prove nesta ordem e reporte a saída de cada passo:
+
+1. Gerar as cobranças de agosto/2026. Contar cobranças e itens.
+2. **Gerar de novo.** Confirmar que nenhum item novo foi criado e a contagem é idêntica.
+3. Tentar inserir um `itens_cobranca` com `aula_id` já usado. **Deve falhar** com violação de unicidade — é a idempotência garantida pelo Postgres.
+4. Confirmar uma cobrança e conferir que `texto_whatsapp` foi gerado, contendo `TOTAL:` e o nome do responsável.
+5. Registrar um recebimento **parcial** (metade do total) e conferir que o status virou `Parcial`.
+6. Registrar o restante e conferir que virou `Quitada`.
+7. Fechar o período de um professor e conferir que `valor_total` = soma de (valor do serviço × percentual) das presenças confirmadas.
+8. Tentar fechar o **mesmo período de novo**. Deve reportar que não há presença nova a pagar, ou falhar na unicidade de `presenca_id` — as duas são o comportamento correto.
+
+- [ ] **Step 4: Conferir a aritmética à mão**
+
+```bash
+node scripts/consultar.mjs cobrancas "responsavel_id,valor_bruto,valor_desconto,valor_total,status"
+node scripts/consultar.mjs itens_conta_pagar_professor "data_aula,valor_servico,percentual_aplicado,valor_professor"
+```
+Confira que `valor_total = valor_bruto − valor_desconto` em cada cobrança, e que `valor_professor = valor_servico × percentual_aplicado / 100` em cada item, sem centavo perdido.
+
+- [ ] **Step 5: Commit final**
+
+```bash
+git add -A
+git commit -m "chore: verificacao final do Plano 3 (financeiro)"
+```
+
+---
+
+## Cobertura do spec
+
+| Requisito | Tarefas |
+|---|---|
+| §4.2 cobranças, itens, recebimentos | 1 |
+| §4.2 contas a pagar + snapshot do fechamento | 2 |
+| §4.4 RLS financeiro exclusivo da gestora | 1, 2 |
+| §5.1 geração mensal consolidada e idempotente | 3, 7, 9 |
+| §6.4 texto para WhatsApp | 4, 7, 10 |
+| §5.4 quitação total e parcial | 5, 8, 11 |
+| §5.3 repasse com vigência histórica | 6, 8, 11 |
+| §3.3 precisão monetária | 3–6, 13 |
+| §7.1 assistentes passo a passo nos fluxos de dinheiro | 10, 11 |
+| §7.3 rotas `/cobrancas`, `/recebimentos`, `/pagamentos` | 10, 11 |
+| Painel inicial (§9, fase 9) | 12 |
+| RNF de logs | 7, 8 |
+
+**Fora de escopo:** portal do responsável, envio automático por API de WhatsApp, migração das planilhas existentes e o OAuth do Google Calendar ligado em produção.
 
 ## Cobertura do spec até aqui
 
