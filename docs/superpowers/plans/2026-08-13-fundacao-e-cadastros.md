@@ -304,14 +304,18 @@ const formatador = new Intl.NumberFormat('pt-BR', {
 })
 
 export function formatarBRL(centavos: Centavos): string {
-  return formatador.format(centavos / 100).replace(/ /g, ' ')
+  // O ICU insere um espaco nao-quebravel depois de "R$" -- U+00A0 em versoes
+  // antigas, U+202F nas atuais. \s cobre os dois sem depender de escape, e
+  // nao ha outro espaco possivel nesta string. Normalizar importa: o texto
+  // vai para o WhatsApp e e comparado em teste.
+  return formatador.format(centavos / 100).replace(/\s/g, ' ')
 }
 ```
 
 - [ ] **Step 4: Rodar e confirmar que passa**
 
 Run: `npm test -- dinheiro`
-Expected: PASS, 12 testes.
+Expected: PASS, 11 testes.
 
 - [ ] **Step 5: Commit**
 
@@ -843,7 +847,7 @@ export function avisoDeReposicao(flagReposicao: boolean): string | null {
 - [ ] **Step 4: Rodar e confirmar que passa**
 
 Run: `npm test`
-Expected: PASS, 4 arquivos, 35 testes.
+Expected: PASS, 4 arquivos, 34 testes.
 
 - [ ] **Step 5: Commit**
 
@@ -5350,7 +5354,7 @@ git commit -m "feat(cadastros): paineis de navegacao cruzada entre entidades"
 - [ ] **Step 1: Suite completa**
 
 Run: `npm test`
-Expected: PASS em todos os arquivos, 46 testes.
+Expected: PASS em todos os arquivos, 45 testes.
 
 - [ ] **Step 2: Tipos e build**
 
