@@ -2545,6 +2545,852 @@ git commit -m "feat(cadastros): definicao declarativa de entidade com schema der
 
 ---
 
+### Task 21: Repositório genérico
+
+**Files:**
+- Create: `src/dados/crud.ts`
+
+- [ ] **Step 1: Implementar**
+
+`src/dados/crud.ts`:
+```ts
+import 'server-only'
+import { clienteServidor } from './cliente'
+import type { DefinicaoCadastro } from '@/cadastros/tipos'
+
+export interface Registro {
+  id: number
+  [coluna: string]: unknown
+}
+
+/** Monta o `select` do PostgREST incluindo o rotulo de cada referencia. */
+function selectDe(definicao: DefinicaoCadastro): string {
+  const colunas = ['id', ...definicao.campos.map((c) => c.nome)]
+  const juncoes = definicao.campos
+    .filter((c) => c.tipo === 'referencia' && c.referencia)
+    .map((c) => `${c.nome}_ref:${c.referencia!.tabela}!${c.nome}(id, ${c.referencia!.rotulo})`)
+  return [...colunas, ...juncoes].join(', ')
+}
+
+export async function listar(
+  definicao: DefinicaoCadastro,
+  opcoes: { busca?: string; somenteAtivos?: boolean } = {},
+): Promise<Registro[]> {
+  const supabase = await clienteServidor()
+  let consulta = supabase.from(definicao.tabela).select(selectDe(definicao))
+
+  if (opcoes.busca && definicao.camposBuscaveis.length > 0) {
+    const termo = opcoes.busca.replace(/[%,()]/g, '')
+    const clausulas = definicao.camposBuscaveis.map((c) => `${c.nome}.ilike.%${termo}%`)
+    consulta = consulta.or(clausulas.join(','))
+  }
+
+  if (opcoes.somenteAtivos && definicao.campos.some((c) => c.nome === 'ativo')) {
+    consulta = consulta.eq('ativo', true)
+  }
+
+  const { data, error } = await consulta.order(definicao.ordenacao.coluna, {
+    ascending: definicao.ordenacao.ascendente ?? true,
+  })
+
+  if (error) throw new Error(`Falha ao listar ${definicao.rotulo.plural}: ${error.message}`)
+  return (data ?? []) as unknown as Registro[]
+}
+
+export async function obter(
+  definicao: DefinicaoCadastro,
+  id: number,
+): Promise<Registro | null> {
+  const supabase = await clienteServidor()
+  const { data, error } = await supabase
+    .from(definicao.tabela)
+    .select(selectDe(definicao))
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error) throw new Error(`Falha ao carregar ${definicao.rotulo.singular}: ${error.message}`)
+  return (data ?? null) as unknown as Registro | null
+}
+
+export async function criar(
+  definicao: DefinicaoCadastro,
+  valores: Record<string, unknown>,
+): Promise<number> {
+  const supabase = await clienteServidor()
+  const { data, error } = await supabase
+    .from(definicao.tabela)
+    .insert(valores)
+    .select('id')
+    .single()
+
+  if (error) throw new Error(traduzirErro(error.message, definicao))
+  return data.id as number
+}
+
+export async function atualizar(
+  definicao: DefinicaoCadastro,
+  id: number,
+  valores: Record<string, unknown>,
+): Promise<void> {
+  const supabase = await clienteServidor()
+  const { error } = await supabase.from(definicao.tabela).update(valores).eq('id', id)
+  if (error) throw new Error(traduzirErro(error.message, definicao))
+}
+
+/**
+ * Registros nunca sao removidos: cadastros sao referenciados por historico
+ * financeiro. Desativar preserva o passado e some das listas de escolha.
+ */
+export async function alternarAtivo(
+  definicao: DefinicaoCadastro,
+  id: number,
+  ativo: boolean,
+): Promise<void> {
+  await atualizar(definicao, id, { ativo })
+}
+
+/** Mensagens do Postgres nao servem para a gestora. Estas servem. */
+function traduzirErro(mensagem: string, definicao: DefinicaoCadastro): string {
+  if (mensagem.includes('duplicate key')) {
+    return `Já existe ${definicao.rotulo.genero === 'f' ? 'uma' : 'um'} ${definicao.rotulo.singular.toLowerCase()} com esses dados.`
+  }
+  if (mensagem.includes('violates foreign key')) {
+    return 'Um dos itens selecionados não existe mais. Recarregue a página e tente de novo.'
+  }
+  if (mensagem.includes('violates row-level security')) {
+    return 'Você não tem permissão para esta ação.'
+  }
+  return mensagem
+}
+```
+
+- [ ] **Step 2: Verificar a compilação**
+
+Run: `npx tsc --noEmit`
+Expected: sem erros.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/dados/crud.ts
+git commit -m "feat(dados): repositorio generico com traducao de erros"
+```
+
+---
+
+### Task 22: Formulário genérico
+
+**Files:**
+- Create: `src/cadastros/motor/CampoDinamico.tsx`, `src/cadastros/motor/Formulario.tsx`, `src/cadastros/motor/acoes.ts`
+
+- [ ] **Step 1: Renderizador de campo**
+
+`src/cadastros/motor/CampoDinamico.tsx`:
+```tsx
+'use client'
+
+import { Campo, entradaClasse } from '@/ui/Campo'
+import type { DefinicaoCampo } from '@/cadastros/tipos'
+
+export interface OpcaoReferencia {
+  id: number
+  rotulo: string
+}
+
+interface Props {
+  campo: DefinicaoCampo
+  valor: unknown
+  erro?: string
+  referencias: Record<string, OpcaoReferencia[]>
+  aoMudar: (nome: string, valor: unknown) => void
+}
+
+export function CampoDinamico({ campo, valor, erro, referencias, aoMudar }: Props) {
+  const obrigatorio = !campo.schema.isOptional() && !campo.schema.isNullable()
+
+  if (campo.tipo === 'booleano') {
+    return (
+      <label className="flex min-h-[44px] cursor-pointer items-center gap-3">
+        <input
+          type="checkbox"
+          checked={Boolean(valor)}
+          onChange={(e) => aoMudar(campo.nome, e.target.checked)}
+          className="size-5 accent-[--color-destaque]"
+        />
+        <span>
+          <span className="font-medium">{campo.etiqueta}</span>
+          {campo.ajuda && <span className="block text-sm text-tinta-suave">{campo.ajuda}</span>}
+        </span>
+      </label>
+    )
+  }
+
+  return (
+    <Campo etiqueta={campo.etiqueta} ajuda={campo.ajuda} erro={erro} obrigatorio={obrigatorio}>
+      {campo.tipo === 'texto-longo' ? (
+        <textarea
+          rows={3}
+          value={String(valor ?? '')}
+          onChange={(e) => aoMudar(campo.nome, e.target.value)}
+          className={entradaClasse}
+        />
+      ) : campo.tipo === 'selecao' ? (
+        <select
+          value={String(valor ?? '')}
+          onChange={(e) => aoMudar(campo.nome, e.target.value)}
+          className={entradaClasse}
+        >
+          <option value="">Selecione…</option>
+          {campo.opcoes?.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      ) : campo.tipo === 'referencia' ? (
+        <select
+          value={valor === null || valor === undefined ? '' : String(valor)}
+          onChange={(e) =>
+            aoMudar(campo.nome, e.target.value === '' ? null : Number(e.target.value))
+          }
+          className={entradaClasse}
+        >
+          <option value="">Selecione…</option>
+          {(referencias[campo.nome] ?? []).map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.rotulo}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type={
+            campo.tipo === 'data' ? 'date' : campo.tipo === 'numero' ? 'number' : 'text'
+          }
+          inputMode={
+            campo.tipo === 'dinheiro' || campo.tipo === 'percentual' ? 'decimal' : undefined
+          }
+          placeholder={
+            campo.tipo === 'dinheiro' ? '0,00' : campo.tipo === 'percentual' ? '60' : undefined
+          }
+          value={String(valor ?? '')}
+          onChange={(e) =>
+            aoMudar(
+              campo.nome,
+              campo.tipo === 'numero'
+                ? e.target.value === ''
+                  ? null
+                  : Number(e.target.value)
+                : e.target.value,
+            )
+          }
+          className={entradaClasse}
+        />
+      )}
+    </Campo>
+  )
+}
+```
+
+- [ ] **Step 2: Ações de servidor**
+
+`src/cadastros/motor/acoes.ts`:
+```ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { atualizar, criar } from '@/dados/crud'
+import { exigirGestora } from '@/dados/sessao'
+import { CADASTROS } from '@/cadastros/definicoes'
+import { deReal } from '@/dominio/dinheiro'
+
+export interface ResultadoSalvar {
+  ok: boolean
+  mensagem?: string
+  errosPorCampo?: Record<string, string>
+  id?: number
+}
+
+/** Converte os valores da UI para o formato aceito pelo banco. */
+function normalizar(rota: string, valores: Record<string, unknown>) {
+  const definicao = CADASTROS[rota]
+  const saida: Record<string, unknown> = {}
+
+  for (const campo of definicao.campos) {
+    const bruto = valores[campo.nome]
+
+    if (campo.tipo === 'dinheiro') {
+      saida[campo.nome] = (deReal(String(bruto ?? '0')) / 100).toFixed(2)
+    } else if (campo.tipo === 'percentual') {
+      saida[campo.nome] = Number(String(bruto ?? '0').replace(',', '.'))
+    } else if (typeof bruto === 'string' && bruto.trim() === '') {
+      saida[campo.nome] = campo.tipo === 'texto' || campo.tipo === 'texto-longo' ? null : null
+    } else {
+      saida[campo.nome] = bruto
+    }
+  }
+
+  return saida
+}
+
+export async function salvarCadastro(
+  rota: string,
+  id: number | null,
+  valores: Record<string, unknown>,
+): Promise<ResultadoSalvar> {
+  await exigirGestora()
+
+  const definicao = CADASTROS[rota]
+  if (!definicao) return { ok: false, mensagem: 'Cadastro desconhecido.' }
+
+  const validacao = definicao.schema.safeParse(valores)
+  if (!validacao.success) {
+    const errosPorCampo: Record<string, string> = {}
+    for (const issue of validacao.error.issues) {
+      const campo = String(issue.path[0] ?? '')
+      if (campo && !errosPorCampo[campo]) errosPorCampo[campo] = issue.message
+    }
+    return { ok: false, mensagem: 'Confira os campos destacados.', errosPorCampo }
+  }
+
+  try {
+    const dados = normalizar(rota, validacao.data as Record<string, unknown>)
+    const idFinal = id === null ? await criar(definicao, dados) : (await atualizar(definicao, id, dados), id)
+    revalidatePath(`/cadastros/${rota}`)
+    return { ok: true, id: idFinal }
+  } catch (erro) {
+    return { ok: false, mensagem: erro instanceof Error ? erro.message : 'Erro ao salvar.' }
+  }
+}
+
+export async function alternarAtivoCadastro(rota: string, id: number, ativo: boolean) {
+  await exigirGestora()
+  const definicao = CADASTROS[rota]
+  await atualizar(definicao, id, { ativo })
+  revalidatePath(`/cadastros/${rota}`)
+}
+```
+
+- [ ] **Step 3: Formulário**
+
+`src/cadastros/motor/Formulario.tsx`:
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useState, useTransition } from 'react'
+import { motion } from 'motion/react'
+import { CampoDinamico, type OpcaoReferencia } from './CampoDinamico'
+import { salvarCadastro } from './acoes'
+import { Botao } from '@/ui/Botao'
+import { Cartao } from '@/ui/Cartao'
+import { entrada } from '@/ui/animacoes'
+import { valoresIniciais, type DefinicaoCadastro } from '@/cadastros/tipos'
+
+interface Props {
+  definicao: DefinicaoCadastro
+  registro?: Record<string, unknown> & { id: number }
+  referencias: Record<string, OpcaoReferencia[]>
+}
+
+export function Formulario({ definicao, registro, referencias }: Props) {
+  const router = useRouter()
+  const [valores, setValores] = useState(() => valoresIniciais(definicao, registro))
+  const [erros, setErros] = useState<Record<string, string>>({})
+  const [mensagem, setMensagem] = useState<string | null>(null)
+  const [pendente, iniciar] = useTransition()
+
+  function mudar(nome: string, valor: unknown) {
+    setValores((atual) => ({ ...atual, [nome]: valor }))
+    setErros(({ [nome]: _removido, ...resto }) => resto)
+  }
+
+  function enviar(evento: React.FormEvent) {
+    evento.preventDefault()
+    setMensagem(null)
+
+    iniciar(async () => {
+      const resultado = await salvarCadastro(definicao.rota, registro?.id ?? null, valores)
+      if (resultado.ok) {
+        router.push(`/cadastros/${definicao.rota}`)
+        router.refresh()
+      } else {
+        setErros(resultado.errosPorCampo ?? {})
+        setMensagem(resultado.mensagem ?? 'Não foi possível salvar.')
+      }
+    })
+  }
+
+  return (
+    <motion.form
+      variants={entrada}
+      initial="oculto"
+      animate="visivel"
+      onSubmit={enviar}
+      className="max-w-2xl"
+    >
+      <Cartao className="flex flex-col gap-5">
+        {definicao.campos.map((campo) => (
+          <CampoDinamico
+            key={campo.nome}
+            campo={campo}
+            valor={valores[campo.nome]}
+            erro={erros[campo.nome]}
+            referencias={referencias}
+            aoMudar={mudar}
+          />
+        ))}
+      </Cartao>
+
+      {mensagem && (
+        <p role="alert" className="mt-4 rounded-[--radius-campo] bg-erro-suave px-4 py-3 text-erro">
+          {mensagem}
+        </p>
+      )}
+
+      <div className="mt-6 flex gap-3">
+        <Botao type="submit" disabled={pendente}>
+          {pendente ? 'Salvando…' : 'Salvar'}
+        </Botao>
+        <Botao type="button" aparencia="secundario" onClick={() => router.back()}>
+          Cancelar
+        </Botao>
+      </div>
+    </motion.form>
+  )
+}
+```
+
+- [ ] **Step 4: Commit** (a compilação só fecha após a Task 23, que cria `@/cadastros/definicoes`)
+
+```bash
+git add src/cadastros/motor/
+git commit -m "feat(cadastros): formulario generico com validacao por campo"
+```
+
+---
+
+### Task 23: Definições das dez entidades
+
+**Files:**
+- Create: `src/cadastros/definicoes/index.ts` e um arquivo por entidade
+
+- [ ] **Step 1: Cadastros simples**
+
+`src/cadastros/definicoes/simples.ts`:
+```ts
+import { z } from 'zod'
+import { defineCadastro } from '@/cadastros/tipos'
+import { ABRANGENCIAS_FERIADO, TIPOS_CONTA } from '@/dominio/tipos'
+
+const textoObrigatorio = (rotulo: string) =>
+  z.string().trim().min(1, `Informe ${rotulo}.`)
+
+export const materias = defineCadastro({
+  tabela: 'materias',
+  rota: 'materias',
+  rotulo: { singular: 'Matéria', plural: 'Matérias', genero: 'f' },
+  ordenacao: { coluna: 'nome' },
+  dicaVazio: 'Cadastre as matérias que sua equipe ensina, como Matemática ou Português.',
+  campos: [
+    {
+      nome: 'nome',
+      etiqueta: 'Nome da matéria',
+      tipo: 'texto',
+      schema: textoObrigatorio('o nome da matéria'),
+      naLista: true,
+      buscavel: true,
+    },
+    { nome: 'ativo', etiqueta: 'Ativa', tipo: 'booleano', schema: z.boolean(), padrao: true },
+  ],
+})
+
+export const anosEscolares = defineCadastro({
+  tabela: 'anos_escolares',
+  rota: 'anos-escolares',
+  rotulo: { singular: 'Ano escolar', plural: 'Anos escolares', genero: 'm' },
+  ordenacao: { coluna: 'ordem' },
+  dicaVazio: 'Cadastre os anos escolares atendidos, como "9º ano — Fundamental".',
+  campos: [
+    {
+      nome: 'nome',
+      etiqueta: 'Nome',
+      tipo: 'texto',
+      schema: textoObrigatorio('o nome do ano escolar'),
+      naLista: true,
+      buscavel: true,
+    },
+    {
+      nome: 'ordem',
+      etiqueta: 'Ordem de exibição',
+      tipo: 'numero',
+      ajuda: 'Define a sequência nas listas. O 1º ano vem antes do 9º.',
+      schema: z.number().int().min(0),
+      padrao: 0,
+      naLista: true,
+    },
+    { nome: 'ativo', etiqueta: 'Ativo', tipo: 'booleano', schema: z.boolean(), padrao: true },
+  ],
+})
+
+export const cidades = defineCadastro({
+  tabela: 'cidades',
+  rota: 'cidades',
+  rotulo: { singular: 'Cidade', plural: 'Cidades', genero: 'f' },
+  ordenacao: { coluna: 'nome' },
+  dicaVazio: 'Cadastre as cidades onde ficam as escolas e os responsáveis.',
+  campos: [
+    {
+      nome: 'nome',
+      etiqueta: 'Nome',
+      tipo: 'texto',
+      schema: textoObrigatorio('o nome da cidade'),
+      naLista: true,
+      buscavel: true,
+    },
+    {
+      nome: 'uf',
+      etiqueta: 'Estado (UF)',
+      tipo: 'texto',
+      schema: z.string().trim().length(2, 'Use a sigla de 2 letras, como SP.').nullable(),
+      naLista: true,
+    },
+  ],
+})
+
+export const contas = defineCadastro({
+  tabela: 'contas',
+  rota: 'contas',
+  rotulo: { singular: 'Conta', plural: 'Contas', genero: 'f' },
+  ordenacao: { coluna: 'nome' },
+  dicaVazio: 'Cadastre onde o dinheiro entra e sai: conta do banco, Pix, dinheiro em espécie.',
+  campos: [
+    {
+      nome: 'nome',
+      etiqueta: 'Nome da conta',
+      tipo: 'texto',
+      schema: textoObrigatorio('o nome da conta'),
+      naLista: true,
+      buscavel: true,
+    },
+    {
+      nome: 'tipo',
+      etiqueta: 'Tipo',
+      tipo: 'selecao',
+      opcoes: TIPOS_CONTA,
+      schema: z.enum(TIPOS_CONTA),
+      padrao: 'Banco',
+      naLista: true,
+    },
+    { nome: 'banco', etiqueta: 'Banco', tipo: 'texto', schema: z.string().nullable() },
+    {
+      nome: 'chave_pix',
+      etiqueta: 'Chave Pix',
+      tipo: 'texto',
+      ajuda: 'Aparece no texto de cobrança enviado aos responsáveis.',
+      schema: z.string().nullable(),
+    },
+    { nome: 'ativo', etiqueta: 'Ativa', tipo: 'booleano', schema: z.boolean(), padrao: true },
+  ],
+})
+
+export const feriados = defineCadastro({
+  tabela: 'feriados',
+  rota: 'feriados',
+  rotulo: { singular: 'Feriado', plural: 'Feriados', genero: 'm' },
+  ordenacao: { coluna: 'data' },
+  dicaVazio:
+    'Cadastre os feriados para o sistema avisar quando uma aula cair em um deles.',
+  campos: [
+    {
+      nome: 'data',
+      etiqueta: 'Data',
+      tipo: 'data',
+      schema: z.string().min(1, 'Informe a data.'),
+      naLista: true,
+    },
+    {
+      nome: 'nome',
+      etiqueta: 'Nome',
+      tipo: 'texto',
+      schema: textoObrigatorio('o nome do feriado'),
+      naLista: true,
+      buscavel: true,
+    },
+    {
+      nome: 'abrangencia',
+      etiqueta: 'Abrangência',
+      tipo: 'selecao',
+      opcoes: ABRANGENCIAS_FERIADO,
+      schema: z.enum(ABRANGENCIAS_FERIADO),
+      padrao: 'Nacional',
+      naLista: true,
+    },
+  ],
+})
+
+export const escolas = defineCadastro({
+  tabela: 'escolas',
+  rota: 'escolas',
+  rotulo: { singular: 'Escola', plural: 'Escolas', genero: 'f' },
+  ordenacao: { coluna: 'nome' },
+  dicaVazio: 'Cadastre as escolas dos seus alunos.',
+  campos: [
+    {
+      nome: 'nome',
+      etiqueta: 'Nome da escola',
+      tipo: 'texto',
+      schema: textoObrigatorio('o nome da escola'),
+      naLista: true,
+      buscavel: true,
+    },
+    {
+      nome: 'cidade_id',
+      etiqueta: 'Cidade',
+      tipo: 'referencia',
+      referencia: { tabela: 'cidades', rotulo: 'nome', rota: 'cidades' },
+      schema: z.number().int().nullable(),
+      naLista: true,
+    },
+    { nome: 'endereco', etiqueta: 'Endereço', tipo: 'texto', schema: z.string().nullable() },
+    { nome: 'telefone', etiqueta: 'Telefone', tipo: 'texto', schema: z.string().nullable() },
+    { nome: 'ativo', etiqueta: 'Ativa', tipo: 'booleano', schema: z.boolean(), padrao: true },
+  ],
+})
+
+export const servicos = defineCadastro({
+  tabela: 'servicos',
+  rota: 'servicos',
+  rotulo: { singular: 'Serviço', plural: 'Serviços', genero: 'm' },
+  ordenacao: { coluna: 'nome' },
+  dicaVazio:
+    'Cadastre o que você vende: aula regular, aulão de revisão, aula particular.',
+  campos: [
+    {
+      nome: 'nome',
+      etiqueta: 'Nome do serviço',
+      tipo: 'texto',
+      schema: textoObrigatorio('o nome do serviço'),
+      naLista: true,
+      buscavel: true,
+    },
+    {
+      nome: 'descricao',
+      etiqueta: 'Descrição',
+      tipo: 'texto-longo',
+      schema: z.string().nullable(),
+    },
+    {
+      nome: 'valor_padrao',
+      etiqueta: 'Valor por aula',
+      tipo: 'dinheiro',
+      ajuda: 'Usado nas cobranças e no cálculo do repasse ao professor.',
+      schema: z.string().min(1, 'Informe o valor por aula.'),
+      naLista: true,
+    },
+    {
+      nome: 'permite_materia',
+      etiqueta: 'Este serviço tem matéria',
+      tipo: 'booleano',
+      ajuda: 'Marque se as turmas deste serviço precisam indicar a matéria ensinada.',
+      schema: z.boolean(),
+      padrao: true,
+    },
+    {
+      nome: 'permite_escola',
+      etiqueta: 'Este serviço tem escola',
+      tipo: 'booleano',
+      ajuda: 'Marque se as turmas deste serviço são ligadas a uma escola específica.',
+      schema: z.boolean(),
+      padrao: true,
+    },
+    { nome: 'ativo', etiqueta: 'Ativo', tipo: 'booleano', schema: z.boolean(), padrao: true },
+  ],
+})
+```
+
+- [ ] **Step 2: Pessoas**
+
+`src/cadastros/definicoes/pessoas.ts`:
+```ts
+import { z } from 'zod'
+import { defineCadastro } from '@/cadastros/tipos'
+import { CANAIS_NOTIFICACAO, DESTINATARIOS_NOTIFICACAO } from '@/dominio/tipos'
+
+const nome = z.string().trim().min(1, 'Informe o nome.')
+const opcional = z.string().nullable()
+
+export const professores = defineCadastro({
+  tabela: 'professores',
+  rota: 'professores',
+  rotulo: { singular: 'Professor', plural: 'Professores', genero: 'm' },
+  ordenacao: { coluna: 'nome' },
+  dicaVazio: 'Cadastre os professores que dão as aulas.',
+  campos: [
+    { nome: 'nome', etiqueta: 'Nome', tipo: 'texto', schema: nome, naLista: true, buscavel: true },
+    {
+      nome: 'percentual_repasse',
+      etiqueta: 'Percentual de repasse (%)',
+      tipo: 'percentual',
+      ajuda:
+        'Quanto o professor recebe por aula, em porcentagem do valor do serviço. Ex.: 60. Alterar aqui não muda pagamentos já fechados.',
+      schema: z
+        .string()
+        .min(1, 'Informe o percentual.')
+        .refine((v) => {
+          const n = Number(v.replace(',', '.'))
+          return Number.isFinite(n) && n >= 0 && n <= 100
+        }, 'Use um número entre 0 e 100.'),
+      naLista: true,
+    },
+    { nome: 'telefone', etiqueta: 'Telefone', tipo: 'texto', schema: opcional, naLista: true },
+    { nome: 'email', etiqueta: 'E-mail', tipo: 'texto', schema: opcional, buscavel: true },
+    { nome: 'cpf', etiqueta: 'CPF', tipo: 'texto', schema: opcional },
+    {
+      nome: 'chave_pix',
+      etiqueta: 'Chave Pix',
+      tipo: 'texto',
+      ajuda: 'Para onde o pagamento do professor é enviado.',
+      schema: opcional,
+    },
+    { nome: 'ativo', etiqueta: 'Ativo', tipo: 'booleano', schema: z.boolean(), padrao: true },
+  ],
+})
+
+export const responsaveis = defineCadastro({
+  tabela: 'responsaveis',
+  rota: 'responsaveis',
+  rotulo: { singular: 'Responsável', plural: 'Responsáveis', genero: 'm' },
+  ordenacao: { coluna: 'nome' },
+  dicaVazio: 'Cadastre os pais e responsáveis. É para eles que as cobranças são emitidas.',
+  campos: [
+    { nome: 'nome', etiqueta: 'Nome', tipo: 'texto', schema: nome, naLista: true, buscavel: true },
+    {
+      nome: 'telefone',
+      etiqueta: 'Telefone (WhatsApp)',
+      tipo: 'texto',
+      ajuda: 'Número usado para enviar cobranças e avisos.',
+      schema: opcional,
+      naLista: true,
+      buscavel: true,
+    },
+    { nome: 'email', etiqueta: 'E-mail', tipo: 'texto', schema: opcional, buscavel: true },
+    { nome: 'cpf', etiqueta: 'CPF', tipo: 'texto', schema: opcional },
+    { nome: 'endereco', etiqueta: 'Endereço', tipo: 'texto', schema: opcional },
+    {
+      nome: 'cidade_id',
+      etiqueta: 'Cidade',
+      tipo: 'referencia',
+      referencia: { tabela: 'cidades', rotulo: 'nome', rota: 'cidades' },
+      schema: z.number().int().nullable(),
+    },
+    { nome: 'observacao', etiqueta: 'Observações', tipo: 'texto-longo', schema: opcional },
+    { nome: 'ativo', etiqueta: 'Ativo', tipo: 'booleano', schema: z.boolean(), padrao: true },
+  ],
+})
+
+export const alunos = defineCadastro({
+  tabela: 'alunos',
+  rota: 'alunos',
+  rotulo: { singular: 'Aluno', plural: 'Alunos', genero: 'm' },
+  ordenacao: { coluna: 'nome' },
+  dicaVazio:
+    'Cadastre os alunos. Cada aluno precisa de um responsável cadastrado antes.',
+  campos: [
+    { nome: 'nome', etiqueta: 'Nome', tipo: 'texto', schema: nome, naLista: true, buscavel: true },
+    {
+      nome: 'responsavel_id',
+      etiqueta: 'Responsável',
+      tipo: 'referencia',
+      ajuda: 'Quem recebe e paga as cobranças deste aluno.',
+      referencia: { tabela: 'responsaveis', rotulo: 'nome', rota: 'responsaveis' },
+      schema: z.number({ message: 'Selecione o responsável.' }).int(),
+      naLista: true,
+    },
+    {
+      nome: 'escola_id',
+      etiqueta: 'Escola',
+      tipo: 'referencia',
+      referencia: { tabela: 'escolas', rotulo: 'nome', rota: 'escolas' },
+      schema: z.number().int().nullable(),
+      naLista: true,
+    },
+    { nome: 'data_nascimento', etiqueta: 'Data de nascimento', tipo: 'data', schema: opcional },
+    { nome: 'telefone', etiqueta: 'Telefone', tipo: 'texto', schema: opcional },
+    { nome: 'email', etiqueta: 'E-mail', tipo: 'texto', schema: opcional, buscavel: true },
+    {
+      nome: 'destinatario_notificacao',
+      etiqueta: 'Quem recebe os avisos',
+      tipo: 'selecao',
+      ajuda: 'Para quem enviar o link das aulas online e as boas-vindas.',
+      opcoes: DESTINATARIOS_NOTIFICACAO,
+      schema: z.enum(DESTINATARIOS_NOTIFICACAO),
+      padrao: 'Responsável',
+    },
+    {
+      nome: 'canal_notificacao',
+      etiqueta: 'Por onde avisar',
+      tipo: 'selecao',
+      opcoes: CANAIS_NOTIFICACAO,
+      schema: z.enum(CANAIS_NOTIFICACAO),
+      padrao: 'WhatsApp',
+    },
+    { nome: 'observacao', etiqueta: 'Observações', tipo: 'texto-longo', schema: opcional },
+    { nome: 'ativo', etiqueta: 'Ativo', tipo: 'booleano', schema: z.boolean(), padrao: true },
+  ],
+})
+```
+
+**Nota:** `alunos` não tem campo de ano escolar. Isso é deliberado — Ajuste 3 do Adendo. O ano vem da Turma.
+
+- [ ] **Step 3: Índice**
+
+`src/cadastros/definicoes/index.ts`:
+```ts
+import type { DefinicaoCadastro } from '@/cadastros/tipos'
+import {
+  anosEscolares,
+  cidades,
+  contas,
+  escolas,
+  feriados,
+  materias,
+  servicos,
+} from './simples'
+import { alunos, professores, responsaveis } from './pessoas'
+
+export const CADASTROS: Record<string, DefinicaoCadastro> = Object.fromEntries(
+  [
+    responsaveis,
+    alunos,
+    professores,
+    escolas,
+    servicos,
+    materias,
+    anosEscolares,
+    cidades,
+    contas,
+    feriados,
+  ].map((d) => [d.rota, d]),
+)
+
+export const ROTAS_DE_CADASTRO = Object.keys(CADASTROS)
+```
+
+- [ ] **Step 4: Verificar**
+
+Run: `npx tsc --noEmit && npm test`
+Expected: sem erros de tipo; testes passando.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/cadastros/definicoes/
+git commit -m "feat(cadastros): definicoes das dez entidades base"
+```
+
+---
+
 ## Cobertura do spec neste plano
 
 | Requisito do spec | Tarefas |
