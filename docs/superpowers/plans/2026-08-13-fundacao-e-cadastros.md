@@ -2637,17 +2637,9 @@ export async function atualizar(
   if (error) throw new Error(traduzirErro(error.message, definicao))
 }
 
-/**
- * Registros nunca sao removidos: cadastros sao referenciados por historico
- * financeiro. Desativar preserva o passado e some das listas de escolha.
- */
-export async function alternarAtivo(
-  definicao: DefinicaoCadastro,
-  id: number,
-  ativo: boolean,
-): Promise<void> {
-  await atualizar(definicao, id, { ativo })
-}
+// Registros nunca sao removidos: cadastros sao referenciados por historico
+// financeiro. Desativar (campo `ativo`) preserva o passado e some das listas
+// de escolha. A alternancia usa `atualizar` direto, em `motor/acoes.ts`.
 
 /** Mensagens do Postgres nao servem para a gestora. Estas servem. */
 function traduzirErro(mensagem: string, definicao: DefinicaoCadastro): string {
@@ -3052,7 +3044,16 @@ export const cidades = defineCadastro({
       nome: 'uf',
       etiqueta: 'Estado (UF)',
       tipo: 'texto',
-      schema: z.string().trim().length(2, 'Use a sigla de 2 letras, como SP.').nullable(),
+      ajuda: 'Sigla de duas letras, como SP. Pode ficar em branco.',
+      // Campo vazio chega como '' e vira null em `normalizar`. Por isso o
+      // comprimento so e cobrado quando algo foi digitado.
+      schema: z
+        .string()
+        .nullable()
+        .refine(
+          (v) => v === null || v.trim() === '' || v.trim().length === 2,
+          'Use a sigla de 2 letras, como SP.',
+        ),
       naLista: true,
     },
   ],
@@ -3391,16 +3392,1987 @@ git commit -m "feat(cadastros): definicoes das dez entidades base"
 
 ---
 
+### Task 24: Formatação de células e tabela genérica
+
+**Files:**
+- Create: `src/cadastros/motor/formatar.ts`, `src/cadastros/motor/Tabela.tsx`
+- Test: `src/cadastros/motor/formatar.test.ts`
+
+- [ ] **Step 1: Escrever o teste que falha**
+
+`src/cadastros/motor/formatar.test.ts`:
+```ts
+import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
+import { formatarCelula } from './formatar'
+import type { DefinicaoCampo } from '@/cadastros/tipos'
+
+const campo = (tipo: DefinicaoCampo['tipo']): DefinicaoCampo => ({
+  nome: 'x',
+  etiqueta: 'X',
+  tipo,
+  schema: z.any(),
+})
+
+describe('formatarCelula', () => {
+  it('formata dinheiro vindo do numeric do Postgres', () => {
+    expect(formatarCelula(campo('dinheiro'), '105.00', {})).toBe('R$ 105,00')
+  })
+
+  it('formata percentual', () => {
+    expect(formatarCelula(campo('percentual'), '60.00', {})).toBe('60%')
+    expect(formatarCelula(campo('percentual'), '62.50', {})).toBe('62,5%')
+  })
+
+  it('formata data no padrao brasileiro', () => {
+    expect(formatarCelula(campo('data'), '2026-08-13', {})).toBe('13/08/2026')
+  })
+
+  it('formata booleano como Sim ou Nao', () => {
+    expect(formatarCelula(campo('booleano'), true, {})).toBe('Sim')
+    expect(formatarCelula(campo('booleano'), false, {})).toBe('Não')
+  })
+
+  it('resolve referencia pelo rotulo carregado no join', () => {
+    const c: DefinicaoCampo = {
+      ...campo('referencia'),
+      nome: 'cidade_id',
+      referencia: { tabela: 'cidades', rotulo: 'nome' },
+    }
+    expect(formatarCelula(c, 7, { cidade_id_ref: { id: 7, nome: 'Campinas' } })).toBe('Campinas')
+  })
+
+  it('mostra travessao para valor ausente', () => {
+    expect(formatarCelula(campo('texto'), null, {})).toBe('—')
+    expect(formatarCelula(campo('texto'), '', {})).toBe('—')
+    expect(formatarCelula(campo('dinheiro'), null, {})).toBe('—')
+  })
+})
+```
+
+- [ ] **Step 2: Rodar e confirmar a falha**
+
+Run: `npm test -- motor/formatar`
+Expected: FAIL — `Failed to resolve import "./formatar"`
+
+- [ ] **Step 3: Implementar**
+
+`src/cadastros/motor/formatar.ts`:
+```ts
+import { deNumeric, formatarBRL } from '@/dominio/dinheiro'
+import type { DefinicaoCampo } from '@/cadastros/tipos'
+
+const VAZIO = '—'
+
+export function formatarCelula(
+  campo: DefinicaoCampo,
+  valor: unknown,
+  registro: Record<string, unknown>,
+): string {
+  if (campo.tipo === 'booleano') return valor ? 'Sim' : 'Não'
+
+  if (campo.tipo === 'referencia') {
+    const juncao = registro[`${campo.nome}_ref`] as Record<string, unknown> | null | undefined
+    const rotulo = juncao?.[campo.referencia?.rotulo ?? 'nome']
+    return rotulo ? String(rotulo) : VAZIO
+  }
+
+  if (valor === null || valor === undefined || valor === '') return VAZIO
+
+  if (campo.tipo === 'dinheiro') return formatarBRL(deNumeric(String(valor)))
+
+  if (campo.tipo === 'percentual') {
+    const numero = Number(String(valor))
+    return `${numero.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
+  }
+
+  if (campo.tipo === 'data') {
+    const [ano, mes, dia] = String(valor).slice(0, 10).split('-')
+    return `${dia}/${mes}/${ano}`
+  }
+
+  return String(valor)
+}
+```
+
+- [ ] **Step 4: Rodar e confirmar que passa**
+
+Run: `npm test -- motor/formatar`
+Expected: PASS, 6 testes.
+
+- [ ] **Step 5: Tabela**
+
+`src/cadastros/motor/Tabela.tsx`:
+```tsx
+'use client'
+
+import Link from 'next/link'
+import { motion } from 'motion/react'
+import { formatarCelula } from './formatar'
+import { Selo } from '@/ui/Selo'
+import { containerEscalonado, itemEscalonado } from '@/ui/animacoes'
+import type { DefinicaoCadastro } from '@/cadastros/tipos'
+import type { Registro } from '@/dados/crud'
+
+export function Tabela({
+  definicao,
+  registros,
+}: {
+  definicao: DefinicaoCadastro
+  registros: Registro[]
+}) {
+  const temAtivo = definicao.campos.some((c) => c.nome === 'ativo')
+  const colunas = definicao.camposDaLista.filter((c) => c.nome !== 'ativo')
+
+  return (
+    <div className="overflow-x-auto rounded-[--radius-cartao] border border-borda bg-superficie">
+      <table className="w-full min-w-[36rem] border-collapse text-left">
+        <thead>
+          <tr className="border-b border-borda bg-superficie-2/60">
+            {colunas.map((campo) => (
+              <th key={campo.nome} className="px-5 py-3 text-sm font-semibold text-tinta-suave">
+                {campo.etiqueta}
+              </th>
+            ))}
+            {temAtivo && <th className="px-5 py-3 text-sm font-semibold text-tinta-suave">Situação</th>}
+            <th className="px-5 py-3">
+              <span className="sr-only">Ações</span>
+            </th>
+          </tr>
+        </thead>
+        <motion.tbody variants={containerEscalonado} initial="oculto" animate="visivel">
+          {registros.map((registro) => (
+            <motion.tr
+              key={registro.id}
+              variants={itemEscalonado}
+              className="border-b border-borda/60 transition-colors last:border-0 hover:bg-superficie-2/40"
+            >
+              {colunas.map((campo) => (
+                <td key={campo.nome} className="px-5 py-4">
+                  {formatarCelula(campo, registro[campo.nome], registro)}
+                </td>
+              ))}
+              {temAtivo && (
+                <td className="px-5 py-4">
+                  <Selo tom={registro.ativo ? 'ativo' : 'encerrado'}>
+                    {registro.ativo ? 'Ativo' : 'Inativo'}
+                  </Selo>
+                </td>
+              )}
+              <td className="px-5 py-4 text-right">
+                <Link
+                  href={`/cadastros/${definicao.rota}/${registro.id}`}
+                  className="font-medium text-destaque hover:text-destaque-forte hover:underline"
+                >
+                  Editar
+                </Link>
+              </td>
+            </motion.tr>
+          ))}
+        </motion.tbody>
+      </table>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/cadastros/motor/formatar.ts src/cadastros/motor/formatar.test.ts src/cadastros/motor/Tabela.tsx
+git commit -m "feat(cadastros): formatacao de celulas e tabela generica"
+```
+
+---
+
+### Task 25: Rotas dinâmicas dos cadastros
+
+Uma rota `[cadastro]` atende as dez entidades. `generateStaticParams` valida a rota; qualquer outra dá 404.
+
+**Files:**
+- Create: `src/app/(app)/cadastros/[cadastro]/page.tsx`, `.../novo/page.tsx`, `.../[id]/page.tsx`, `src/cadastros/motor/referencias.ts`, `src/ui/Busca.tsx`
+
+- [ ] **Step 1: Carregador de opções de referência**
+
+`src/cadastros/motor/referencias.ts`:
+```ts
+import 'server-only'
+import { clienteServidor } from '@/dados/cliente'
+import type { DefinicaoCadastro } from '@/cadastros/tipos'
+import type { OpcaoReferencia } from './CampoDinamico'
+
+/** Carrega as opcoes de cada campo `referencia`, so com registros ativos. */
+export async function carregarReferencias(
+  definicao: DefinicaoCadastro,
+): Promise<Record<string, OpcaoReferencia[]>> {
+  const supabase = await clienteServidor()
+  const referencias: Record<string, OpcaoReferencia[]> = {}
+
+  for (const campo of definicao.campos) {
+    if (campo.tipo !== 'referencia' || !campo.referencia) continue
+
+    const { data } = await supabase
+      .from(campo.referencia.tabela)
+      .select(`id, ${campo.referencia.rotulo}, ativo`)
+      .order(campo.referencia.rotulo)
+
+    referencias[campo.nome] = (data ?? [])
+      .filter((linha) => (linha as { ativo?: boolean }).ativo !== false)
+      .map((linha) => ({
+        id: (linha as { id: number }).id,
+        rotulo: String((linha as Record<string, unknown>)[campo.referencia!.rotulo]),
+      }))
+  }
+
+  return referencias
+}
+```
+
+**Nota:** o filtro de `ativo` é feito em memória porque nem toda tabela referenciada tem a coluna (`cidades` não tem). Filtrar no SQL quebraria nessas.
+
+- [ ] **Step 2: Campo de busca**
+
+`src/ui/Busca.tsx`:
+```tsx
+'use client'
+
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { entradaClasse } from './Campo'
+
+export function Busca({ placeholder }: { placeholder: string }) {
+  const router = useRouter()
+  const parametros = useSearchParams()
+  const [termo, setTermo] = useState(parametros.get('busca') ?? '')
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const novos = new URLSearchParams(parametros.toString())
+      if (termo) novos.set('busca', termo)
+      else novos.delete('busca')
+      router.replace(`?${novos.toString()}`)
+    }, 300)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [termo])
+
+  return (
+    <input
+      type="search"
+      value={termo}
+      onChange={(e) => setTermo(e.target.value)}
+      placeholder={placeholder}
+      aria-label={placeholder}
+      className={`${entradaClasse} max-w-sm`}
+    />
+  )
+}
+```
+
+- [ ] **Step 3: Listagem**
+
+`src/app/(app)/cadastros/[cadastro]/page.tsx`:
+```tsx
+import { notFound } from 'next/navigation'
+import { Suspense } from 'react'
+import { CADASTROS, ROTAS_DE_CADASTRO } from '@/cadastros/definicoes'
+import { Tabela } from '@/cadastros/motor/Tabela'
+import { listar } from '@/dados/crud'
+import { exigirGestora } from '@/dados/sessao'
+import { BotaoLink } from '@/ui/Botao'
+import { Busca } from '@/ui/Busca'
+import { EstadoVazio } from '@/ui/EstadoVazio'
+
+export function generateStaticParams() {
+  return ROTAS_DE_CADASTRO.map((cadastro) => ({ cadastro }))
+}
+
+export default async function PaginaListagem({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ cadastro: string }>
+  searchParams: Promise<{ busca?: string }>
+}) {
+  await exigirGestora()
+
+  const { cadastro } = await params
+  const { busca } = await searchParams
+  const definicao = CADASTROS[cadastro]
+  if (!definicao) notFound()
+
+  const registros = await listar(definicao, { busca })
+  const artigo = definicao.rotulo.genero === 'f' ? 'Nova' : 'Novo'
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl">{definicao.rotulo.plural}</h1>
+          <p className="mt-1 text-tinta-suave">
+            {registros.length} {registros.length === 1 ? 'registro' : 'registros'}
+          </p>
+        </div>
+        <BotaoLink href={`/cadastros/${cadastro}/novo`}>
+          + {artigo} {definicao.rotulo.singular.toLowerCase()}
+        </BotaoLink>
+      </header>
+
+      {definicao.camposBuscaveis.length > 0 && (
+        <Suspense>
+          <Busca placeholder={`Buscar ${definicao.rotulo.plural.toLowerCase()}…`} />
+        </Suspense>
+      )}
+
+      {registros.length === 0 ? (
+        <EstadoVazio
+          titulo={busca ? 'Nada encontrado' : `Nenhum registro ainda`}
+          descricao={
+            busca
+              ? 'Tente outro termo de busca.'
+              : (definicao.dicaVazio ?? `Comece cadastrando ${definicao.rotulo.singular.toLowerCase()}.`)
+          }
+          acao={
+            !busca && (
+              <BotaoLink href={`/cadastros/${cadastro}/novo`}>
+                + {artigo} {definicao.rotulo.singular.toLowerCase()}
+              </BotaoLink>
+            )
+          }
+        />
+      ) : (
+        <Tabela definicao={definicao} registros={registros} />
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 4: Criação**
+
+`src/app/(app)/cadastros/[cadastro]/novo/page.tsx`:
+```tsx
+import { notFound } from 'next/navigation'
+import { CADASTROS } from '@/cadastros/definicoes'
+import { Formulario } from '@/cadastros/motor/Formulario'
+import { carregarReferencias } from '@/cadastros/motor/referencias'
+import { exigirGestora } from '@/dados/sessao'
+
+export default async function PaginaNovo({
+  params,
+}: {
+  params: Promise<{ cadastro: string }>
+}) {
+  await exigirGestora()
+
+  const { cadastro } = await params
+  const definicao = CADASTROS[cadastro]
+  if (!definicao) notFound()
+
+  const referencias = await carregarReferencias(definicao)
+  const artigo = definicao.rotulo.genero === 'f' ? 'Nova' : 'Novo'
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-3xl">
+        {artigo} {definicao.rotulo.singular.toLowerCase()}
+      </h1>
+      <Formulario definicao={definicao} referencias={referencias} />
+    </div>
+  )
+}
+```
+
+- [ ] **Step 5: Edição**
+
+`src/app/(app)/cadastros/[cadastro]/[id]/page.tsx`:
+```tsx
+import { notFound } from 'next/navigation'
+import { CADASTROS } from '@/cadastros/definicoes'
+import { Formulario } from '@/cadastros/motor/Formulario'
+import { carregarReferencias } from '@/cadastros/motor/referencias'
+import { obter } from '@/dados/crud'
+import { exigirGestora } from '@/dados/sessao'
+
+export default async function PaginaEdicao({
+  params,
+}: {
+  params: Promise<{ cadastro: string; id: string }>
+}) {
+  await exigirGestora()
+
+  const { cadastro, id } = await params
+  const definicao = CADASTROS[cadastro]
+  if (!definicao) notFound()
+
+  const registro = await obter(definicao, Number(id))
+  if (!registro) notFound()
+
+  const referencias = await carregarReferencias(definicao)
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-3xl">{String(registro.nome ?? definicao.rotulo.singular)}</h1>
+      <Formulario
+        definicao={definicao}
+        registro={registro as Record<string, unknown> & { id: number }}
+        referencias={referencias}
+      />
+    </div>
+  )
+}
+```
+
+- [ ] **Step 6: Testar no navegador**
+
+Run: `npm run build && npm run dev`
+
+Percorrer, logado como gestora:
+1. `/cadastros/cidades` → estado vazio com a dica → criar "Campinas / SP".
+2. `/cadastros/escolas` → criar uma escola apontando para Campinas → a listagem mostra "Campinas" na coluna Cidade.
+3. `/cadastros/servicos` → criar "Aula regular" com valor `100,00`, ambos os "permite" marcados.
+4. `/cadastros/professores` → criar com repasse `60`.
+5. `/cadastros/responsaveis` e `/cadastros/alunos` → criar um responsável e um aluno vinculado.
+6. Editar qualquer registro e salvar.
+7. `/cadastros/inexistente` → 404.
+
+Expected: todos os passos funcionam; valores monetários aparecem como `R$ 100,00`.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A
+git commit -m "feat(cadastros): rotas dinamicas de listagem, criacao e edicao"
+```
+
+---
+
+### Task 26: Turmas — listagem e formulário
+
+Turma não usa o motor genérico: o nome é gerado ao vivo e os campos matéria/escola aparecem ou somem conforme o serviço escolhido.
+
+**Files:**
+- Create: `src/dados/turmas.ts`, `src/app/(app)/turmas/page.tsx`, `src/app/(app)/turmas/FormularioTurma.tsx`, `src/app/(app)/turmas/acoes.ts`, `src/app/(app)/turmas/nova/page.tsx`
+
+- [ ] **Step 1: Repositório**
+
+`src/dados/turmas.ts`:
+```ts
+import 'server-only'
+import { clienteServidor } from './cliente'
+
+const SELECT_TURMA = `
+  id, nome, modalidade, dias_semana, horario_inicio, horario_fim, status,
+  google_calendar_event_id,
+  servico_id, materia_id, escola_id, ano_escolar_id, professor_id,
+  servico:servicos!servico_id (id, nome, permite_materia, permite_escola, valor_padrao),
+  materia:materias!materia_id (id, nome),
+  escola:escolas!escola_id (id, nome),
+  ano_escolar:anos_escolares!ano_escolar_id (id, nome),
+  professor:professores!professor_id (id, nome)
+`
+
+export interface TurmaComRelacoes {
+  id: number
+  nome: string
+  modalidade: 'Presencial' | 'Online'
+  dias_semana: number[]
+  horario_inicio: string
+  horario_fim: string
+  status: 'Ativa' | 'Encerrada'
+  google_calendar_event_id: string | null
+  servico_id: number
+  materia_id: number | null
+  escola_id: number | null
+  ano_escolar_id: number
+  professor_id: number
+  servico: { id: number; nome: string; permite_materia: boolean; permite_escola: boolean } | null
+  materia: { id: number; nome: string } | null
+  escola: { id: number; nome: string } | null
+  ano_escolar: { id: number; nome: string } | null
+  professor: { id: number; nome: string } | null
+  alunos_matriculados?: number
+}
+
+export async function listarTurmas(filtros: {
+  professorId?: number
+  status?: string
+} = {}): Promise<TurmaComRelacoes[]> {
+  const supabase = await clienteServidor()
+  let consulta = supabase.from('turmas').select(SELECT_TURMA)
+
+  if (filtros.professorId) consulta = consulta.eq('professor_id', filtros.professorId)
+  if (filtros.status) consulta = consulta.eq('status', filtros.status)
+
+  const { data, error } = await consulta.order('nome')
+  if (error) throw new Error(`Falha ao listar turmas: ${error.message}`)
+
+  const turmas = (data ?? []) as unknown as TurmaComRelacoes[]
+
+  // Contagem de matriculas ativas e nao-reposicao, exibida na listagem.
+  const { data: contagens } = await supabase
+    .from('matriculas')
+    .select('turma_id')
+    .eq('status', 'Ativa')
+    .eq('flag_reposicao', false)
+
+  const porTurma = new Map<number, number>()
+  for (const linha of contagens ?? []) {
+    const id = (linha as { turma_id: number }).turma_id
+    porTurma.set(id, (porTurma.get(id) ?? 0) + 1)
+  }
+
+  return turmas.map((t) => ({ ...t, alunos_matriculados: porTurma.get(t.id) ?? 0 }))
+}
+
+export async function obterTurma(id: number): Promise<TurmaComRelacoes | null> {
+  const supabase = await clienteServidor()
+  const { data, error } = await supabase
+    .from('turmas')
+    .select(SELECT_TURMA)
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error) throw new Error(`Falha ao carregar turma: ${error.message}`)
+  return (data ?? null) as unknown as TurmaComRelacoes | null
+}
+
+export interface OpcoesDeTurma {
+  servicos: { id: number; nome: string; permite_materia: boolean; permite_escola: boolean }[]
+  materias: { id: number; nome: string }[]
+  escolas: { id: number; nome: string }[]
+  anosEscolares: { id: number; nome: string }[]
+  professores: { id: number; nome: string }[]
+}
+
+export async function opcoesDeTurma(): Promise<OpcoesDeTurma> {
+  const supabase = await clienteServidor()
+  const [servicos, materias, escolas, anos, professores] = await Promise.all([
+    supabase.from('servicos').select('id, nome, permite_materia, permite_escola').eq('ativo', true).order('nome'),
+    supabase.from('materias').select('id, nome').eq('ativo', true).order('nome'),
+    supabase.from('escolas').select('id, nome').eq('ativo', true).order('nome'),
+    supabase.from('anos_escolares').select('id, nome').eq('ativo', true).order('ordem'),
+    supabase.from('professores').select('id, nome').eq('ativo', true).order('nome'),
+  ])
+
+  return {
+    servicos: servicos.data ?? [],
+    materias: materias.data ?? [],
+    escolas: escolas.data ?? [],
+    anosEscolares: anos.data ?? [],
+    professores: professores.data ?? [],
+  }
+}
+```
+
+- [ ] **Step 2: Ação de salvar**
+
+`src/app/(app)/turmas/acoes.ts`:
+```ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { clienteServidor } from '@/dados/cliente'
+import { exigirGestora } from '@/dados/sessao'
+import { validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
+import { gerarNomeTurma } from '@/dominio/turmas/nome'
+
+export interface ResultadoTurma {
+  ok: boolean
+  erros?: string[]
+  id?: number
+}
+
+export async function salvarTurma(
+  id: number | null,
+  entrada: EntradaTurma,
+  nomesParaTitulo: {
+    materia: string | null
+    anoEscolar: string | null
+    escola: string | null
+    servico: string | null
+  },
+): Promise<ResultadoTurma> {
+  await exigirGestora()
+  const supabase = await clienteServidor()
+
+  const { data: servico } = await supabase
+    .from('servicos')
+    .select('permite_materia, permite_escola')
+    .eq('id', entrada.servico_id ?? -1)
+    .maybeSingle()
+
+  if (!servico) return { ok: false, erros: ['Selecione um serviço válido.'] }
+
+  const erros = validarTurma(entrada, servico)
+  if (erros.length > 0) return { ok: false, erros }
+
+  const registro = {
+    nome: gerarNomeTurma({ ...nomesParaTitulo, modalidade: entrada.modalidade }),
+    servico_id: entrada.servico_id,
+    materia_id: entrada.materia_id,
+    escola_id: entrada.escola_id,
+    ano_escolar_id: entrada.ano_escolar_id,
+    professor_id: entrada.professor_id,
+    modalidade: entrada.modalidade,
+    dias_semana: entrada.dias_semana,
+    horario_inicio: entrada.horario_inicio,
+    horario_fim: entrada.horario_fim,
+    status: entrada.status,
+  }
+
+  const resposta =
+    id === null
+      ? await supabase.from('turmas').insert(registro).select('id').single()
+      : await supabase.from('turmas').update(registro).eq('id', id).select('id').single()
+
+  if (resposta.error) return { ok: false, erros: [resposta.error.message] }
+
+  revalidatePath('/turmas')
+  return { ok: true, id: resposta.data.id }
+}
+
+export async function alternarStatusTurma(id: number, status: 'Ativa' | 'Encerrada') {
+  await exigirGestora()
+  const supabase = await clienteServidor()
+  const { error } = await supabase.from('turmas').update({ status }).eq('id', id)
+  if (error) throw new Error(error.message)
+  revalidatePath('/turmas')
+  revalidatePath(`/turmas/${id}`)
+}
+```
+
+- [ ] **Step 3: Formulário de turma**
+
+`src/app/(app)/turmas/FormularioTurma.tsx`:
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useMemo, useState, useTransition } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
+import { salvarTurma } from './acoes'
+import { gerarNomeTurma } from '@/dominio/turmas/nome'
+import { DIAS_SEMANA, MODALIDADES, type Modalidade } from '@/dominio/tipos'
+import type { EntradaTurma } from '@/dominio/turmas/regras'
+import type { OpcoesDeTurma, TurmaComRelacoes } from '@/dados/turmas'
+import { Botao } from '@/ui/Botao'
+import { Campo, entradaClasse } from '@/ui/Campo'
+import { Cartao } from '@/ui/Cartao'
+
+export function FormularioTurma({
+  opcoes,
+  turma,
+}: {
+  opcoes: OpcoesDeTurma
+  turma?: TurmaComRelacoes
+}) {
+  const router = useRouter()
+  const [pendente, iniciar] = useTransition()
+  const [erros, setErros] = useState<string[]>([])
+
+  const [estado, setEstado] = useState<EntradaTurma>(() => ({
+    servico_id: turma?.servico_id ?? null,
+    materia_id: turma?.materia_id ?? null,
+    escola_id: turma?.escola_id ?? null,
+    ano_escolar_id: turma?.ano_escolar_id ?? null,
+    professor_id: turma?.professor_id ?? null,
+    modalidade: turma?.modalidade ?? null,
+    dias_semana: turma?.dias_semana ?? [],
+    horario_inicio: turma?.horario_inicio?.slice(0, 5) ?? '',
+    horario_fim: turma?.horario_fim?.slice(0, 5) ?? '',
+    status: turma?.status ?? 'Ativa',
+  }))
+
+  const servico = opcoes.servicos.find((s) => s.id === estado.servico_id) ?? null
+
+  const nomes = useMemo(
+    () => ({
+      materia: opcoes.materias.find((m) => m.id === estado.materia_id)?.nome ?? null,
+      anoEscolar: opcoes.anosEscolares.find((a) => a.id === estado.ano_escolar_id)?.nome ?? null,
+      escola: opcoes.escolas.find((e) => e.id === estado.escola_id)?.nome ?? null,
+      servico: servico?.nome ?? null,
+    }),
+    [estado, opcoes, servico],
+  )
+
+  const nomeGerado = gerarNomeTurma({ ...nomes, modalidade: estado.modalidade })
+
+  /** Trocar de servico limpa os campos que o novo servico nao usa. */
+  function escolherServico(id: number | null) {
+    const novo = opcoes.servicos.find((s) => s.id === id) ?? null
+    setEstado((atual) => ({
+      ...atual,
+      servico_id: id,
+      materia_id: novo?.permite_materia ? atual.materia_id : null,
+      escola_id: novo?.permite_escola ? atual.escola_id : null,
+    }))
+  }
+
+  function alternarDia(dia: number) {
+    setEstado((atual) => ({
+      ...atual,
+      dias_semana: atual.dias_semana.includes(dia)
+        ? atual.dias_semana.filter((d) => d !== dia)
+        : [...atual.dias_semana, dia].sort((a, b) => a - b),
+    }))
+  }
+
+  function enviar(evento: React.FormEvent) {
+    evento.preventDefault()
+    setErros([])
+    iniciar(async () => {
+      const resultado = await salvarTurma(turma?.id ?? null, estado, nomes)
+      if (resultado.ok) {
+        router.push(`/turmas/${resultado.id}`)
+        router.refresh()
+      } else {
+        setErros(resultado.erros ?? ['Não foi possível salvar a turma.'])
+      }
+    })
+  }
+
+  return (
+    <form onSubmit={enviar} className="max-w-2xl">
+      <Cartao className="flex flex-col gap-5">
+        <div className="rounded-[--radius-campo] bg-superficie-2 px-4 py-3">
+          <span className="text-sm text-tinta-suave">Nome da turma (gerado automaticamente)</span>
+          <motion.p
+            key={nomeGerado}
+            initial={{ opacity: 0.4 }}
+            animate={{ opacity: 1 }}
+            className="mt-1 font-[family-name:--font-titulo] text-lg"
+          >
+            {nomeGerado || 'Preencha os campos abaixo…'}
+          </motion.p>
+        </div>
+
+        <Campo etiqueta="Serviço" obrigatorio>
+          <select
+            value={estado.servico_id ?? ''}
+            onChange={(e) => escolherServico(e.target.value ? Number(e.target.value) : null)}
+            className={entradaClasse}
+          >
+            <option value="">Selecione…</option>
+            {opcoes.servicos.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nome}
+              </option>
+            ))}
+          </select>
+        </Campo>
+
+        <AnimatePresence initial={false}>
+          {servico?.permite_materia && (
+            <motion.div
+              key="materia"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <Campo etiqueta="Matéria" obrigatorio>
+                <select
+                  value={estado.materia_id ?? ''}
+                  onChange={(e) =>
+                    setEstado((a) => ({
+                      ...a,
+                      materia_id: e.target.value ? Number(e.target.value) : null,
+                    }))
+                  }
+                  className={entradaClasse}
+                >
+                  <option value="">Selecione…</option>
+                  {opcoes.materias.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.nome}
+                    </option>
+                  ))}
+                </select>
+              </Campo>
+            </motion.div>
+          )}
+
+          {servico?.permite_escola && (
+            <motion.div
+              key="escola"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <Campo etiqueta="Escola" obrigatorio>
+                <select
+                  value={estado.escola_id ?? ''}
+                  onChange={(e) =>
+                    setEstado((a) => ({
+                      ...a,
+                      escola_id: e.target.value ? Number(e.target.value) : null,
+                    }))
+                  }
+                  className={entradaClasse}
+                >
+                  <option value="">Selecione…</option>
+                  {opcoes.escolas.map((e2) => (
+                    <option key={e2.id} value={e2.id}>
+                      {e2.nome}
+                    </option>
+                  ))}
+                </select>
+              </Campo>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <Campo etiqueta="Ano escolar" obrigatorio>
+          <select
+            value={estado.ano_escolar_id ?? ''}
+            onChange={(e) =>
+              setEstado((a) => ({
+                ...a,
+                ano_escolar_id: e.target.value ? Number(e.target.value) : null,
+              }))
+            }
+            className={entradaClasse}
+          >
+            <option value="">Selecione…</option>
+            {opcoes.anosEscolares.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.nome}
+              </option>
+            ))}
+          </select>
+        </Campo>
+
+        <Campo etiqueta="Professor responsável" obrigatorio>
+          <select
+            value={estado.professor_id ?? ''}
+            onChange={(e) =>
+              setEstado((a) => ({
+                ...a,
+                professor_id: e.target.value ? Number(e.target.value) : null,
+              }))
+            }
+            className={entradaClasse}
+          >
+            <option value="">Selecione…</option>
+            {opcoes.professores.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
+        </Campo>
+
+        <Campo etiqueta="Modalidade" obrigatorio>
+          <select
+            value={estado.modalidade ?? ''}
+            onChange={(e) =>
+              setEstado((a) => ({ ...a, modalidade: (e.target.value || null) as Modalidade }))
+            }
+            className={entradaClasse}
+          >
+            <option value="">Selecione…</option>
+            {MODALIDADES.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </Campo>
+
+        <Campo
+          etiqueta="Dias da semana"
+          ajuda="Em quais dias esta turma tem aula."
+          obrigatorio
+        >
+          <div className="flex flex-wrap gap-2">
+            {DIAS_SEMANA.map((dia) => {
+              const marcado = estado.dias_semana.includes(dia.valor)
+              return (
+                <button
+                  key={dia.valor}
+                  type="button"
+                  onClick={() => alternarDia(dia.valor)}
+                  aria-pressed={marcado}
+                  className={`min-h-[44px] min-w-[56px] rounded-[--radius-campo] border px-3 font-medium transition-all active:scale-95 ${
+                    marcado
+                      ? 'border-destaque bg-destaque text-white'
+                      : 'border-borda bg-superficie text-tinta-suave hover:border-destaque/40'
+                  }`}
+                >
+                  {dia.curto}
+                </button>
+              )
+            })}
+          </div>
+        </Campo>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Campo etiqueta="Início" obrigatorio>
+            <input
+              type="time"
+              value={estado.horario_inicio}
+              onChange={(e) => setEstado((a) => ({ ...a, horario_inicio: e.target.value }))}
+              className={entradaClasse}
+            />
+          </Campo>
+          <Campo etiqueta="Término" obrigatorio>
+            <input
+              type="time"
+              value={estado.horario_fim}
+              onChange={(e) => setEstado((a) => ({ ...a, horario_fim: e.target.value }))}
+              className={entradaClasse}
+            />
+          </Campo>
+        </div>
+      </Cartao>
+
+      {erros.length > 0 && (
+        <ul role="alert" className="mt-4 flex flex-col gap-1 rounded-[--radius-campo] bg-erro-suave px-4 py-3 text-erro">
+          {erros.map((erro) => (
+            <li key={erro}>{erro}</li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-6 flex gap-3">
+        <Botao type="submit" disabled={pendente}>
+          {pendente ? 'Salvando…' : 'Salvar turma'}
+        </Botao>
+        <Botao type="button" aparencia="secundario" onClick={() => router.back()}>
+          Cancelar
+        </Botao>
+      </div>
+    </form>
+  )
+}
+```
+
+- [ ] **Step 4: Páginas de listagem e criação**
+
+`src/app/(app)/turmas/nova/page.tsx`:
+```tsx
+import { opcoesDeTurma } from '@/dados/turmas'
+import { exigirGestora } from '@/dados/sessao'
+import { FormularioTurma } from '../FormularioTurma'
+
+export default async function PaginaNovaTurma() {
+  await exigirGestora()
+  const opcoes = await opcoesDeTurma()
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-3xl">Nova turma</h1>
+      <FormularioTurma opcoes={opcoes} />
+    </div>
+  )
+}
+```
+
+`src/app/(app)/turmas/page.tsx`:
+```tsx
+import Link from 'next/link'
+import { listarTurmas } from '@/dados/turmas'
+import { exigirSessao } from '@/dados/sessao'
+import { nomesDosDias } from '@/dominio/tipos'
+import { BotaoLink } from '@/ui/Botao'
+import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Selo } from '@/ui/Selo'
+
+export default async function PaginaTurmas() {
+  const sessao = await exigirSessao()
+  const turmas = await listarTurmas(
+    sessao.papel === 'professor' && sessao.professorId
+      ? { professorId: sessao.professorId }
+      : {},
+  )
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl">Turmas</h1>
+          <p className="mt-1 text-tinta-suave">
+            {turmas.length} {turmas.length === 1 ? 'turma' : 'turmas'}
+          </p>
+        </div>
+        {sessao.papel === 'gestora' && <BotaoLink href="/turmas/nova">+ Nova turma</BotaoLink>}
+      </header>
+
+      {turmas.length === 0 ? (
+        <EstadoVazio
+          titulo="Nenhuma turma ainda"
+          descricao="Uma turma junta serviço, matéria, ano escolar e professor com dias e horários fixos. É nela que os alunos são matriculados."
+          acao={sessao.papel === 'gestora' && <BotaoLink href="/turmas/nova">+ Nova turma</BotaoLink>}
+        />
+      ) : (
+        <ul className="grid gap-4 sm:grid-cols-2">
+          {turmas.map((turma) => (
+            <li key={turma.id}>
+              <Link
+                href={`/turmas/${turma.id}`}
+                className="block rounded-[--radius-cartao] border border-borda bg-superficie p-5 shadow-[--shadow-cartao] transition-all hover:-translate-y-0.5 hover:border-destaque/40"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="font-[family-name:--font-titulo] text-lg leading-snug">
+                    {turma.nome}
+                  </h2>
+                  <Selo tom={turma.status === 'Ativa' ? 'ativo' : 'encerrado'}>{turma.status}</Selo>
+                </div>
+                <dl className="mt-3 flex flex-col gap-1 text-sm text-tinta-suave">
+                  <div>{turma.professor?.nome}</div>
+                  <div>
+                    {nomesDosDias(turma.dias_semana)} · {turma.horario_inicio.slice(0, 5)} às{' '}
+                    {turma.horario_fim.slice(0, 5)}
+                  </div>
+                  <div>
+                    {turma.alunos_matriculados}{' '}
+                    {turma.alunos_matriculados === 1 ? 'aluno matriculado' : 'alunos matriculados'}
+                  </div>
+                </dl>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 5: Testar**
+
+Run: `npm run dev`, abrir `/turmas/nova`.
+Expected: escolher um serviço com "tem matéria" desmarcado faz o campo Matéria desaparecer com animação; o nome no topo se atualiza a cada campo preenchido; salvar leva ao detalhe.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/dados/turmas.ts "src/app/(app)/turmas/"
+git commit -m "feat(turmas): listagem e formulario com nome gerado e campos condicionais"
+```
+
+---
+
+### Task 27: Detalhe da turma e matrículas
+
+**Files:**
+- Create: `src/dados/matriculas.ts`, `src/app/(app)/turmas/[id]/page.tsx`, `src/app/(app)/turmas/[id]/editar/page.tsx`, `src/app/(app)/matriculas/acoes.ts`, `src/app/(app)/matriculas/FormularioMatricula.tsx`, `src/app/(app)/matriculas/page.tsx`, `src/app/(app)/matriculas/nova/page.tsx`
+
+- [ ] **Step 1: Repositório de matrículas**
+
+`src/dados/matriculas.ts`:
+```ts
+import 'server-only'
+import { clienteServidor } from './cliente'
+
+const SELECT_MATRICULA = `
+  id, data_inicio, data_fim, flag_reposicao, status, aluno_id, turma_id,
+  aluno:alunos!aluno_id (id, nome, ativo),
+  turma:turmas!turma_id (id, nome, status)
+`
+
+export interface MatriculaComRelacoes {
+  id: number
+  data_inicio: string
+  data_fim: string | null
+  flag_reposicao: boolean
+  status: 'Ativa' | 'Encerrada'
+  aluno_id: number
+  turma_id: number
+  aluno: { id: number; nome: string; ativo: boolean } | null
+  turma: { id: number; nome: string; status: string } | null
+}
+
+export async function listarMatriculas(filtros: {
+  alunoId?: number
+  turmaId?: number
+  status?: string
+} = {}): Promise<MatriculaComRelacoes[]> {
+  const supabase = await clienteServidor()
+  let consulta = supabase.from('matriculas').select(SELECT_MATRICULA)
+
+  if (filtros.alunoId) consulta = consulta.eq('aluno_id', filtros.alunoId)
+  if (filtros.turmaId) consulta = consulta.eq('turma_id', filtros.turmaId)
+  if (filtros.status) consulta = consulta.eq('status', filtros.status)
+
+  const { data, error } = await consulta.order('data_inicio', { ascending: false })
+  if (error) throw new Error(`Falha ao listar matrículas: ${error.message}`)
+  return (data ?? []) as unknown as MatriculaComRelacoes[]
+}
+```
+
+- [ ] **Step 2: Ação de matrícula**
+
+`src/app/(app)/matriculas/acoes.ts`:
+```ts
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { clienteServidor } from '@/dados/cliente'
+import { exigirGestora } from '@/dados/sessao'
+import { validarMatricula } from '@/dominio/matriculas/regras'
+
+export async function salvarMatricula(entrada: {
+  aluno_id: number | null
+  turma_id: number | null
+  data_inicio: string
+  data_fim: string | null
+  flag_reposicao: boolean
+}): Promise<{ ok: boolean; erros?: string[] }> {
+  await exigirGestora()
+  const supabase = await clienteServidor()
+
+  const [{ data: aluno }, { data: turma }] = await Promise.all([
+    supabase.from('alunos').select('ativo').eq('id', entrada.aluno_id ?? -1).maybeSingle(),
+    supabase.from('turmas').select('status').eq('id', entrada.turma_id ?? -1).maybeSingle(),
+  ])
+
+  if (!aluno) return { ok: false, erros: ['Selecione um aluno válido.'] }
+  if (!turma) return { ok: false, erros: ['Selecione uma turma válida.'] }
+
+  const erros = validarMatricula({ ...entrada, alunoAtivo: aluno.ativo }, turma)
+  if (erros.length > 0) return { ok: false, erros }
+
+  const { error } = await supabase.from('matriculas').insert({
+    aluno_id: entrada.aluno_id,
+    turma_id: entrada.turma_id,
+    data_inicio: entrada.data_inicio,
+    data_fim: entrada.data_fim,
+    flag_reposicao: entrada.flag_reposicao,
+  })
+
+  if (error) return { ok: false, erros: [error.message] }
+
+  revalidatePath('/matriculas')
+  revalidatePath(`/turmas/${entrada.turma_id}`)
+  return { ok: true }
+}
+
+export async function encerrarMatricula(id: number) {
+  await exigirGestora()
+  const supabase = await clienteServidor()
+  const { error } = await supabase
+    .from('matriculas')
+    .update({ status: 'Encerrada', data_fim: new Date().toISOString().slice(0, 10) })
+    .eq('id', id)
+  if (error) throw new Error(error.message)
+  revalidatePath('/matriculas')
+}
+```
+
+- [ ] **Step 3: Formulário de matrícula**
+
+`src/app/(app)/matriculas/FormularioMatricula.tsx`:
+```tsx
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useState, useTransition } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
+import { salvarMatricula } from './acoes'
+import { avisoDeReposicao } from '@/dominio/matriculas/regras'
+import { Botao } from '@/ui/Botao'
+import { Campo, entradaClasse } from '@/ui/Campo'
+import { Cartao } from '@/ui/Cartao'
+
+interface Opcao {
+  id: number
+  nome: string
+}
+
+export function FormularioMatricula({
+  alunos,
+  turmas,
+  alunoFixo,
+  turmaFixa,
+}: {
+  alunos: Opcao[]
+  turmas: Opcao[]
+  alunoFixo?: number
+  turmaFixa?: number
+}) {
+  const router = useRouter()
+  const [pendente, iniciar] = useTransition()
+  const [erros, setErros] = useState<string[]>([])
+  const hoje = new Date().toISOString().slice(0, 10)
+
+  const [estado, setEstado] = useState({
+    aluno_id: alunoFixo ?? null,
+    turma_id: turmaFixa ?? null,
+    data_inicio: hoje,
+    data_fim: null as string | null,
+    flag_reposicao: false,
+  })
+
+  const aviso = avisoDeReposicao(estado.flag_reposicao)
+
+  function enviar(evento: React.FormEvent) {
+    evento.preventDefault()
+    setErros([])
+    iniciar(async () => {
+      const resultado = await salvarMatricula(estado)
+      if (resultado.ok) {
+        router.push(turmaFixa ? `/turmas/${turmaFixa}` : '/matriculas')
+        router.refresh()
+      } else {
+        setErros(resultado.erros ?? ['Não foi possível matricular.'])
+      }
+    })
+  }
+
+  return (
+    <form onSubmit={enviar} className="max-w-2xl">
+      <Cartao className="flex flex-col gap-5">
+        {!alunoFixo && (
+          <Campo etiqueta="Aluno" obrigatorio>
+            <select
+              value={estado.aluno_id ?? ''}
+              onChange={(e) =>
+                setEstado((a) => ({ ...a, aluno_id: e.target.value ? Number(e.target.value) : null }))
+              }
+              className={entradaClasse}
+            >
+              <option value="">Selecione…</option>
+              {alunos.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.nome}
+                </option>
+              ))}
+            </select>
+          </Campo>
+        )}
+
+        {!turmaFixa && (
+          <Campo etiqueta="Turma" ajuda="Somente turmas ativas aceitam matrícula." obrigatorio>
+            <select
+              value={estado.turma_id ?? ''}
+              onChange={(e) =>
+                setEstado((a) => ({ ...a, turma_id: e.target.value ? Number(e.target.value) : null }))
+              }
+              className={entradaClasse}
+            >
+              <option value="">Selecione…</option>
+              {turmas.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nome}
+                </option>
+              ))}
+            </select>
+          </Campo>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Campo etiqueta="Data de início" obrigatorio>
+            <input
+              type="date"
+              value={estado.data_inicio}
+              onChange={(e) => setEstado((a) => ({ ...a, data_inicio: e.target.value }))}
+              className={entradaClasse}
+            />
+          </Campo>
+          <Campo etiqueta="Data de fim" ajuda="Deixe em branco para matrícula em aberto.">
+            <input
+              type="date"
+              value={estado.data_fim ?? ''}
+              onChange={(e) => setEstado((a) => ({ ...a, data_fim: e.target.value || null }))}
+              className={entradaClasse}
+            />
+          </Campo>
+        </div>
+
+        <label className="flex min-h-[44px] cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            checked={estado.flag_reposicao}
+            onChange={(e) => setEstado((a) => ({ ...a, flag_reposicao: e.target.checked }))}
+            className="size-5 accent-[--color-destaque]"
+          />
+          <span className="font-medium">Matrícula de reposição</span>
+        </label>
+
+        <AnimatePresence>
+          {aviso && (
+            <motion.p
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden rounded-[--radius-campo] bg-alerta-suave px-4 py-3 text-alerta"
+            >
+              {aviso}
+            </motion.p>
+          )}
+        </AnimatePresence>
+      </Cartao>
+
+      {erros.length > 0 && (
+        <ul role="alert" className="mt-4 flex flex-col gap-1 rounded-[--radius-campo] bg-erro-suave px-4 py-3 text-erro">
+          {erros.map((erro) => (
+            <li key={erro}>{erro}</li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-6 flex gap-3">
+        <Botao type="submit" disabled={pendente}>
+          {pendente ? 'Salvando…' : 'Matricular'}
+        </Botao>
+        <Botao type="button" aparencia="secundario" onClick={() => router.back()}>
+          Cancelar
+        </Botao>
+      </div>
+    </form>
+  )
+}
+```
+
+- [ ] **Step 4: Detalhe da turma com navegação cruzada**
+
+`src/app/(app)/turmas/[id]/page.tsx`:
+```tsx
+import Link from 'next/link'
+import { notFound } from 'next/navigation'
+import { obterTurma } from '@/dados/turmas'
+import { listarMatriculas } from '@/dados/matriculas'
+import { exigirSessao } from '@/dados/sessao'
+import { nomesDosDias } from '@/dominio/tipos'
+import { BotaoLink } from '@/ui/Botao'
+import { Cartao } from '@/ui/Cartao'
+import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Selo } from '@/ui/Selo'
+
+export default async function PaginaTurma({ params }: { params: Promise<{ id: string }> }) {
+  const sessao = await exigirSessao()
+  const { id } = await params
+  const turma = await obterTurma(Number(id))
+  if (!turma) notFound()
+
+  const matriculas = await listarMatriculas({ turmaId: turma.id, status: 'Ativa' })
+  const ehGestora = sessao.papel === 'gestora'
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl">{turma.nome}</h1>
+          <div className="mt-2 flex items-center gap-3">
+            <Selo tom={turma.status === 'Ativa' ? 'ativo' : 'encerrado'}>{turma.status}</Selo>
+            <span className="text-tinta-suave">
+              {nomesDosDias(turma.dias_semana)} · {turma.horario_inicio.slice(0, 5)} às{' '}
+              {turma.horario_fim.slice(0, 5)}
+            </span>
+          </div>
+        </div>
+        {ehGestora && (
+          <BotaoLink href={`/turmas/${turma.id}/editar`} aparencia="secundario">
+            Editar turma
+          </BotaoLink>
+        )}
+      </header>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Cartao>
+          <h2 className="mb-3 text-lg">Composição</h2>
+          <dl className="flex flex-col gap-2 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-tinta-suave">Professor</dt>
+              <dd>
+                <Link
+                  href={`/cadastros/professores/${turma.professor_id}`}
+                  className="font-medium text-destaque hover:underline"
+                >
+                  {turma.professor?.nome}
+                </Link>
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-tinta-suave">Serviço</dt>
+              <dd>{turma.servico?.nome}</dd>
+            </div>
+            {turma.materia && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-tinta-suave">Matéria</dt>
+                <dd>{turma.materia.nome}</dd>
+              </div>
+            )}
+            {turma.escola && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-tinta-suave">Escola</dt>
+                <dd>{turma.escola.nome}</dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-4">
+              <dt className="text-tinta-suave">Ano escolar</dt>
+              <dd>{turma.ano_escolar?.nome}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-tinta-suave">Modalidade</dt>
+              <dd>{turma.modalidade}</dd>
+            </div>
+          </dl>
+        </Cartao>
+
+        <Cartao>
+          <h2 className="mb-3 text-lg">Agenda</h2>
+          <p className="text-sm text-tinta-suave">
+            As aulas desta turma aparecem aqui a partir do Plano 2, quando a sincronização com a
+            agenda entra no ar.
+          </p>
+        </Cartao>
+      </div>
+
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl">Alunos matriculados</h2>
+          {ehGestora && turma.status === 'Ativa' && (
+            <BotaoLink href={`/matriculas/nova?turma=${turma.id}`} aparencia="secundario">
+              + Adicionar aluno
+            </BotaoLink>
+          )}
+        </div>
+
+        {matriculas.length === 0 ? (
+          <EstadoVazio
+            titulo="Nenhum aluno matriculado"
+            descricao="Matricule alunos para que eles passem a contar nas aulas e nas cobranças desta turma."
+            acao={
+              ehGestora &&
+              turma.status === 'Ativa' && (
+                <BotaoLink href={`/matriculas/nova?turma=${turma.id}`}>+ Adicionar aluno</BotaoLink>
+              )
+            }
+          />
+        ) : (
+          <ul className="divide-y divide-borda rounded-[--radius-cartao] border border-borda bg-superficie">
+            {matriculas.map((matricula) => (
+              <li key={matricula.id} className="flex items-center justify-between gap-4 px-5 py-4">
+                <Link
+                  href={`/cadastros/alunos/${matricula.aluno_id}`}
+                  className="font-medium text-destaque hover:underline"
+                >
+                  {matricula.aluno?.nome}
+                </Link>
+                {matricula.flag_reposicao && <Selo tom="alerta">Reposição</Selo>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 5: Páginas restantes**
+
+`src/app/(app)/turmas/[id]/editar/page.tsx`:
+```tsx
+import { notFound } from 'next/navigation'
+import { obterTurma, opcoesDeTurma } from '@/dados/turmas'
+import { exigirGestora } from '@/dados/sessao'
+import { FormularioTurma } from '../../FormularioTurma'
+
+export default async function PaginaEditarTurma({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  await exigirGestora()
+  const { id } = await params
+  const [turma, opcoes] = await Promise.all([obterTurma(Number(id)), opcoesDeTurma()])
+  if (!turma) notFound()
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-3xl">Editar turma</h1>
+      <FormularioTurma opcoes={opcoes} turma={turma} />
+    </div>
+  )
+}
+```
+
+`src/app/(app)/matriculas/nova/page.tsx`:
+```tsx
+import { clienteServidor } from '@/dados/cliente'
+import { exigirGestora } from '@/dados/sessao'
+import { FormularioMatricula } from '../FormularioMatricula'
+
+export default async function PaginaNovaMatricula({
+  searchParams,
+}: {
+  searchParams: Promise<{ turma?: string; aluno?: string }>
+}) {
+  await exigirGestora()
+  const { turma, aluno } = await searchParams
+  const supabase = await clienteServidor()
+
+  const [alunos, turmas] = await Promise.all([
+    supabase.from('alunos').select('id, nome').eq('ativo', true).order('nome'),
+    supabase.from('turmas').select('id, nome').eq('status', 'Ativa').order('nome'),
+  ])
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-3xl">Nova matrícula</h1>
+      <FormularioMatricula
+        alunos={alunos.data ?? []}
+        turmas={turmas.data ?? []}
+        turmaFixa={turma ? Number(turma) : undefined}
+        alunoFixo={aluno ? Number(aluno) : undefined}
+      />
+    </div>
+  )
+}
+```
+
+`src/app/(app)/matriculas/page.tsx`:
+```tsx
+import Link from 'next/link'
+import { listarMatriculas } from '@/dados/matriculas'
+import { exigirGestora } from '@/dados/sessao'
+import { BotaoLink } from '@/ui/Botao'
+import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Selo } from '@/ui/Selo'
+
+function dataBR(iso: string | null) {
+  if (!iso) return '—'
+  const [ano, mes, dia] = iso.slice(0, 10).split('-')
+  return `${dia}/${mes}/${ano}`
+}
+
+export default async function PaginaMatriculas() {
+  await exigirGestora()
+  const matriculas = await listarMatriculas()
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl">Matrículas</h1>
+          <p className="mt-1 text-tinta-suave">
+            {matriculas.length} {matriculas.length === 1 ? 'matrícula' : 'matrículas'}
+          </p>
+        </div>
+        <BotaoLink href="/matriculas/nova">+ Nova matrícula</BotaoLink>
+      </header>
+
+      {matriculas.length === 0 ? (
+        <EstadoVazio
+          titulo="Nenhuma matrícula ainda"
+          descricao="A matrícula liga um aluno a uma turma. É o que faz o aluno entrar nas aulas e nas cobranças."
+          acao={<BotaoLink href="/matriculas/nova">+ Nova matrícula</BotaoLink>}
+        />
+      ) : (
+        <div className="overflow-x-auto rounded-[--radius-cartao] border border-borda bg-superficie">
+          <table className="w-full min-w-[40rem] border-collapse text-left">
+            <thead>
+              <tr className="border-b border-borda bg-superficie-2/60 text-sm text-tinta-suave">
+                <th className="px-5 py-3 font-semibold">Aluno</th>
+                <th className="px-5 py-3 font-semibold">Turma</th>
+                <th className="px-5 py-3 font-semibold">Início</th>
+                <th className="px-5 py-3 font-semibold">Fim</th>
+                <th className="px-5 py-3 font-semibold">Situação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matriculas.map((m) => (
+                <tr key={m.id} className="border-b border-borda/60 last:border-0">
+                  <td className="px-5 py-4">
+                    <Link
+                      href={`/cadastros/alunos/${m.aluno_id}`}
+                      className="font-medium text-destaque hover:underline"
+                    >
+                      {m.aluno?.nome}
+                    </Link>
+                  </td>
+                  <td className="px-5 py-4">
+                    <Link href={`/turmas/${m.turma_id}`} className="hover:underline">
+                      {m.turma?.nome}
+                    </Link>
+                  </td>
+                  <td className="px-5 py-4">{dataBR(m.data_inicio)}</td>
+                  <td className="px-5 py-4">{dataBR(m.data_fim)}</td>
+                  <td className="px-5 py-4">
+                    <div className="flex gap-2">
+                      <Selo tom={m.status === 'Ativa' ? 'ativo' : 'encerrado'}>{m.status}</Selo>
+                      {m.flag_reposicao && <Selo tom="alerta">Reposição</Selo>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 6: Verificar**
+
+Run: `npm run build && npm test`
+Expected: build limpo; todos os testes passando.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A
+git commit -m "feat(matriculas): detalhe da turma, matricula e navegacao cruzada"
+```
+
+---
+
+### Task 28: Seed de demonstração
+
+**Files:**
+- Create: `supabase/seed.sql`
+
+- [ ] **Step 1: Escrever o seed**
+
+`supabase/seed.sql`:
+```sql
+-- Dados ficticios para a gestora explorar o sistema.
+-- Rodar com `npx supabase db reset`. Para comecar do zero em producao,
+-- basta nao aplicar este arquivo.
+
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+values (
+  '11111111-1111-1111-1111-111111111111',
+  '00000000-0000-0000-0000-000000000000',
+  'authenticated', 'authenticated',
+  'gestora@mesinharedonda.local',
+  crypt('mesinha123', gen_salt('bf')), now(), now(), now()
+);
+
+insert into public.cidades (nome, uf) values ('Campinas', 'SP'), ('Valinhos', 'SP');
+
+insert into public.escolas (nome, cidade_id, telefone) values
+  ('Colégio São José', 1, '(19) 3232-1010'),
+  ('Escola Nova Era', 1, '(19) 3232-2020');
+
+insert into public.anos_escolares (nome, ordem) values
+  ('6º ano — Fundamental', 6),
+  ('7º ano — Fundamental', 7),
+  ('8º ano — Fundamental', 8),
+  ('9º ano — Fundamental', 9),
+  ('1ª série — Médio', 10);
+
+insert into public.materias (nome) values
+  ('Matemática'), ('Português'), ('Física'), ('Química'), ('Inglês');
+
+insert into public.servicos (nome, valor_padrao, permite_materia, permite_escola) values
+  ('Aula regular', 100.00, true, true),
+  ('Aulão de revisão', 105.00, true, false),
+  ('Aula particular', 130.00, true, false);
+
+insert into public.contas (nome, tipo, banco, chave_pix) values
+  ('Conta principal', 'Banco', 'Nubank', 'mesinharedonda@email.com'),
+  ('Dinheiro em espécie', 'Dinheiro', null, null);
+
+insert into public.feriados (data, nome, abrangencia) values
+  ('2026-09-07', 'Independência do Brasil', 'Nacional'),
+  ('2026-10-12', 'Nossa Senhora Aparecida', 'Nacional'),
+  ('2026-11-02', 'Finados', 'Nacional'),
+  ('2026-11-15', 'Proclamação da República', 'Nacional');
+
+insert into public.professores (nome, percentual_repasse, telefone, email, chave_pix) values
+  ('Beatriz Lima', 60.00, '(19) 99811-1122', 'beatriz@exemplo.com', 'beatriz@exemplo.com'),
+  ('Carlos Menezes', 55.00, '(19) 99822-3344', 'carlos@exemplo.com', '(19) 99822-3344');
+
+insert into public.perfis (usuario_id, nome, papel)
+values ('11111111-1111-1111-1111-111111111111', 'Gestora', 'gestora');
+
+insert into public.responsaveis (nome, telefone, email, cidade_id) values
+  ('Ana Ribeiro', '(19) 99700-1111', 'ana@exemplo.com', 1),
+  ('Marcos Tavares', '(19) 99700-2222', 'marcos@exemplo.com', 1),
+  ('Juliana Prado', '(19) 99700-3333', 'juliana@exemplo.com', 2);
+
+insert into public.alunos (nome, responsavel_id, escola_id, destinatario_notificacao, canal_notificacao) values
+  ('João Ribeiro', 1, 1, 'Responsável', 'WhatsApp'),
+  ('Maria Ribeiro', 1, 1, 'Ambos', 'WhatsApp'),
+  ('Pedro Tavares', 2, 2, 'Responsável', 'E-mail'),
+  ('Laura Prado', 3, 1, 'Aluno', 'WhatsApp');
+
+-- Turmas. O nome segue a regra de concatenacao do Adendo 5.2.
+insert into public.turmas
+  (nome, servico_id, materia_id, escola_id, ano_escolar_id, professor_id, modalidade, dias_semana, horario_inicio, horario_fim)
+values
+  ('Matemática · 9º ano — Fundamental · Colégio São José · Aula regular · Presencial',
+   1, 1, 1, 4, 1, 'Presencial', '{2,4}', '15:00', '16:00'),
+  ('Português · 7º ano — Fundamental · Colégio São José · Aula regular · Presencial',
+   1, 2, 1, 2, 2, 'Presencial', '{3,5}', '14:00', '15:00'),
+  ('Física · 1ª série — Médio · Aula particular · Online',
+   3, 3, null, 5, 1, 'Online', '{1}', '18:00', '19:00');
+
+insert into public.matriculas (aluno_id, turma_id, data_inicio) values
+  (1, 1, '2026-08-01'),
+  (2, 2, '2026-08-01'),
+  (3, 1, '2026-08-03'),
+  (4, 3, '2026-08-05');
+```
+
+- [ ] **Step 2: Aplicar e conferir**
+
+Run:
+```bash
+npx supabase db reset && npx supabase db psql -c "
+select (select count(*) from public.turmas) as turmas,
+       (select count(*) from public.matriculas) as matriculas,
+       (select count(*) from public.servico_valor_historico) as historico_valor,
+       (select count(*) from public.professor_percentual_historico) as historico_repasse;
+"
+```
+Expected: `turmas = 3`, `matriculas = 4`, `historico_valor = 3`, `historico_repasse = 2` — os históricos são preenchidos pelos triggers da Task 11, sem nenhum insert explícito.
+
+- [ ] **Step 3: Conferir no navegador**
+
+Run: `npm run dev`, entrar com `gestora@mesinharedonda.local` / `mesinha123`.
+Expected: `/turmas` mostra três turmas com contagem de alunos; `/cadastros/alunos` mostra quatro alunos com responsável e escola resolvidos.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/seed.sql
+git commit -m "feat(banco): seed de demonstracao"
+```
+
+---
+
+### Task 29: Navegação cruzada nos cadastros
+
+Adendo §7 e Operacionais §9 exigem que cada tela liste as entidades relacionadas. O motor genérico não sabe disso, então cada relação vira um painel declarado por rota.
+
+**Files:**
+- Create: `src/cadastros/motor/Relacionados.tsx`
+- Modify: `src/app/(app)/cadastros/[cadastro]/[id]/page.tsx`
+
+- [ ] **Step 1: Painel de relacionados**
+
+`src/cadastros/motor/Relacionados.tsx`:
+```tsx
+import Link from 'next/link'
+import { clienteServidor } from '@/dados/cliente'
+import { BotaoLink } from '@/ui/Botao'
+import { Cartao } from '@/ui/Cartao'
+import { Selo } from '@/ui/Selo'
+
+interface Painel {
+  titulo: string
+  vazio: string
+  itens: { id: number; rotulo: string; href: string; selo?: string }[]
+  acao?: { rotulo: string; href: string }
+}
+
+/** Relacoes exigidas pelo Adendo secao 7 e pelos Operacionais secao 9. */
+export async function paineisDe(rota: string, id: number): Promise<Painel[]> {
+  const supabase = await clienteServidor()
+
+  if (rota === 'professores') {
+    const { data } = await supabase
+      .from('turmas')
+      .select('id, nome, status')
+      .eq('professor_id', id)
+      .order('nome')
+
+    return [
+      {
+        titulo: 'Turmas deste professor',
+        vazio: 'Este professor ainda não é responsável por nenhuma turma.',
+        acao: { rotulo: '+ Adicionar turma', href: '/turmas/nova' },
+        itens: (data ?? []).map((t) => ({
+          id: t.id,
+          rotulo: t.nome,
+          href: `/turmas/${t.id}`,
+          selo: t.status,
+        })),
+      },
+    ]
+  }
+
+  if (rota === 'alunos') {
+    const { data } = await supabase
+      .from('matriculas')
+      .select('id, status, flag_reposicao, turma:turmas!turma_id (id, nome)')
+      .eq('aluno_id', id)
+      .order('data_inicio', { ascending: false })
+
+    return [
+      {
+        titulo: 'Turmas e matrículas',
+        vazio: 'Este aluno ainda não está matriculado em nenhuma turma.',
+        acao: { rotulo: '+ Matricular em turma', href: `/matriculas/nova?aluno=${id}` },
+        itens: (data ?? []).map((m) => {
+          const turma = m.turma as unknown as { id: number; nome: string } | null
+          return {
+            id: m.id,
+            rotulo: turma?.nome ?? 'Turma removida',
+            href: `/turmas/${turma?.id}`,
+            selo: m.flag_reposicao ? 'Reposição' : m.status,
+          }
+        }),
+      },
+    ]
+  }
+
+  if (rota === 'responsaveis') {
+    const { data } = await supabase
+      .from('alunos')
+      .select('id, nome, ativo')
+      .eq('responsavel_id', id)
+      .order('nome')
+
+    return [
+      {
+        titulo: 'Alunos sob responsabilidade',
+        vazio: 'Nenhum aluno vinculado a este responsável ainda.',
+        itens: (data ?? []).map((a) => ({
+          id: a.id,
+          rotulo: a.nome,
+          href: `/cadastros/alunos/${a.id}`,
+          selo: a.ativo ? undefined : 'Inativo',
+        })),
+      },
+    ]
+  }
+
+  return []
+}
+
+export function PainelRelacionados({ painel }: { painel: Painel }) {
+  return (
+    <Cartao>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg">{painel.titulo}</h2>
+        {painel.acao && (
+          <BotaoLink href={painel.acao.href} aparencia="secundario" className="text-sm">
+            {painel.acao.rotulo}
+          </BotaoLink>
+        )}
+      </div>
+
+      {painel.itens.length === 0 ? (
+        <p className="text-tinta-suave">{painel.vazio}</p>
+      ) : (
+        <ul className="divide-y divide-borda/60">
+          {painel.itens.map((item) => (
+            <li key={item.id} className="flex items-center justify-between gap-3 py-3">
+              <Link href={item.href} className="font-medium text-destaque hover:underline">
+                {item.rotulo}
+              </Link>
+              {item.selo && (
+                <Selo tom={item.selo === 'Ativa' || item.selo === 'Ativo' ? 'ativo' : 'encerrado'}>
+                  {item.selo}
+                </Selo>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Cartao>
+  )
+}
+```
+
+- [ ] **Step 2: Ligar na página de edição**
+
+Em `src/app/(app)/cadastros/[cadastro]/[id]/page.tsx`, adicionar os imports:
+```tsx
+import { PainelRelacionados, paineisDe } from '@/cadastros/motor/Relacionados'
+```
+
+E, logo após a linha `const referencias = await carregarReferencias(definicao)`, acrescentar:
+```tsx
+  const paineis = await paineisDe(cadastro, Number(id))
+```
+
+Depois, substituir o `<Formulario … />` e o que vem depois por:
+```tsx
+      <Formulario
+        definicao={definicao}
+        registro={registro as Record<string, unknown> & { id: number }}
+        referencias={referencias}
+      />
+
+      {paineis.length > 0 && (
+        <div className="flex max-w-2xl flex-col gap-4">
+          {paineis.map((painel) => (
+            <PainelRelacionados key={painel.titulo} painel={painel} />
+          ))}
+        </div>
+      )}
+```
+
+- [ ] **Step 3: Testar**
+
+Run: `npm run dev`
+Expected: abrir um professor do seed mostra suas turmas; abrir "João Ribeiro" mostra a matrícula com link para a turma; abrir "Ana Ribeiro" lista João e Maria.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add -A
+git commit -m "feat(cadastros): paineis de navegacao cruzada entre entidades"
+```
+
+---
+
+### Task 30: Verificação final do Plano 1
+
+- [ ] **Step 1: Suite completa**
+
+Run: `npm test`
+Expected: PASS em todos os arquivos, 46 testes.
+
+- [ ] **Step 2: Tipos e build**
+
+Run: `npx tsc --noEmit && npm run lint && npm run build`
+Expected: sem erros em nenhum dos três.
+
+- [ ] **Step 3: Banco do zero**
+
+Run: `npx supabase db reset`
+Expected: todas as migrations e o seed aplicam sem erro.
+
+- [ ] **Step 4: Roteiro manual**
+
+Com `npm run dev`, logado como gestora:
+
+1. `/` mostra a saudação com o nome.
+2. `/cadastros/servicos` → editar "Aula regular" mudando o valor para `110,00` → salvar. Conferir com `npx supabase db psql -c "select valor, vigencia_inicio, vigencia_fim from public.servico_valor_historico where servico_id = 1 order by id"`: o histórico registra a troca.
+3. `/turmas/nova` → escolher "Aula particular" (permite escola = false) → o campo Escola não aparece; o nome no topo se monta ao vivo.
+4. Tentar salvar uma turma sem dia da semana → erro em português: "Escolha ao menos um dia da semana para ativar a turma."
+5. `/turmas/3` → "+ Adicionar aluno" → marcar "Matrícula de reposição" → o aviso amarelo aparece animado.
+6. Sair e tentar `/cadastros/alunos` sem sessão → redireciona para `/login`.
+
+- [ ] **Step 5: Commit final**
+
+```bash
+git add -A
+git commit -m "chore: verificacao final do Plano 1 (fundacao e cadastros)"
+```
+
+---
+
 ## Cobertura do spec neste plano
 
 | Requisito do spec | Tarefas |
 |---|---|
 | §3.1 Stack | 1, 2 |
-| §3.2 Camadas | 3–7 (domínio), 14 (dados) |
-| §3.3 Precisão monetária | 3 |
-| §4.1 Cadastros | 9, 10, 11 |
-| §4.1 Turmas | 12 |
-| §4.2 Matrículas | 12 |
-| §4.4 Perfis e RLS | 13 |
-| §5 Regras de negócio (turma, matrícula) | 5, 6, 7 |
-| §8 Testes de domínio | 3, 5, 6, 7 |
+| §3.2 Camadas | 3–7 (domínio), 14, 21 (dados) |
+| §3.3 Precisão monetária | 3, 24 |
+| §4.1 Cadastros | 9, 10, 11, 23, 25 |
+| §4.1 Turmas | 12, 26 |
+| §4.2 Matrículas | 12, 27 |
+| §4.3 Apoio (perfis) | 13 |
+| §4.4 Segurança e RLS | 13, 14, 18 |
+| §5 Regras (turma, matrícula) | 5, 6, 7, 26, 27 |
+| §7.1 Princípios de interface | 16 (estado vazio, alvos), 26–27 (avisos) |
+| §7.2 Linguagem visual | 15, 16, 17 |
+| §7.3 Rotas de cadastro e turmas | 19, 25, 26, 27 |
+| §8 Testes de domínio | 3, 5, 6, 7, 20, 24 |
+| §9 Fases 1–3 | plano inteiro |
+| Adendo §7 / Operacionais §9 (navegação cruzada) | 27, 29 |
+
+**Não coberto neste plano, por desenho:** Aulas, agenda, presenças, reposições, cobranças, recebimentos, pagamentos e o painel inicial. Vão para os Planos 2 e 3.
