@@ -1,0 +1,395 @@
+import 'server-only'
+import { clienteServidor } from './cliente'
+import { deNumeric, paraNumeric, somar, type Centavos } from '@/dominio/dinheiro'
+import { montarCobrancas, type AulaFaturavel } from '@/dominio/cobrancas/geracao'
+import { gerarTextoCobranca, type ItemDoTexto } from '@/dominio/cobrancas/texto'
+
+export interface CobrancaResumo {
+  id: number
+  responsavel_id: number
+  mes_referencia: string
+  valor_bruto: Centavos
+  valor_desconto: Centavos
+  valor_total: Centavos
+  status: string
+  texto_whatsapp: string | null
+  responsavel: { id: number; nome: string; telefone: string | null } | null
+  recebido: Centavos
+}
+
+/** Primeiro e último dia do mês, em ISO. */
+export function limitesDoMes(mes: string): { primeiro: string; ultimo: string } {
+  const [ano, m] = mes.split('-').map(Number)
+  const ultimoDia = new Date(ano, m, 0).getDate()
+  return { primeiro: `${mes}-01`, ultimo: `${mes}-${String(ultimoDia).padStart(2, '0')}` }
+}
+
+/**
+ * Levanta as aulas do mês com tudo que a regra de faturamento precisa decidir.
+ * O valor vem de `valor_servico_em`, resolvido para a data de cada aula — nunca
+ * do valor corrente do serviço, que pode ter mudado desde então.
+ */
+async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
+  const supabase = await clienteServidor()
+  const { primeiro, ultimo } = limitesDoMes(mes)
+
+  const { data: aulas, error } = await supabase
+    .from('aulas')
+    .select(`
+      id, data_hora_inicio, status, turma_id,
+      turma:turmas!turma_id (
+        id, nome, servico_id,
+        servico:servicos!servico_id (id, nome),
+        materia:materias!materia_id (nome),
+        ano_escolar:anos_escolares!ano_escolar_id (nome)
+      )
+    `)
+    .gte('data_hora_inicio', `${primeiro}T00:00:00`)
+    .lte('data_hora_inicio', `${ultimo}T23:59:59`)
+
+  if (error) throw new Error(`Falha ao carregar aulas: ${error.message}`)
+
+  const linhas = (aulas ?? []) as unknown as {
+    id: number
+    data_hora_inicio: string
+    status: 'Agendada' | 'Realizada' | 'Cancelada' | 'Feriado'
+    turma_id: number
+    turma: {
+      id: number
+      nome: string
+      servico_id: number
+      servico: { id: number; nome: string } | null
+      materia: { nome: string } | null
+      ano_escolar: { nome: string } | null
+    } | null
+  }[]
+
+  if (linhas.length === 0) return []
+
+  const [{ data: matriculas }, { data: cobradas }] = await Promise.all([
+    supabase
+      .from('matriculas')
+      .select('aluno_id, turma_id, status, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (id, nome, responsavel_id, responsavel:responsaveis!responsavel_id (id, nome))'),
+    supabase.from('itens_cobranca').select('aula_id'),
+  ])
+
+  const jaCobradas = new Set((cobradas ?? []).map((c) => c.aula_id))
+
+  const mats = (matriculas ?? []) as unknown as {
+    aluno_id: number
+    turma_id: number
+    status: string
+    flag_reposicao: boolean
+    data_inicio: string
+    data_fim: string | null
+    aluno: {
+      id: number
+      nome: string
+      responsavel_id: number
+      responsavel: { id: number; nome: string } | null
+    } | null
+  }[]
+
+  // Valor vigente por serviço na data de cada aula, resolvido uma vez por par.
+  const valores = new Map<string, Centavos>()
+  for (const aula of linhas) {
+    const dia = aula.data_hora_inicio.slice(0, 10)
+    const servicoId = aula.turma?.servico_id
+    if (!servicoId) continue
+    const chave = `${servicoId}|${dia}`
+    if (valores.has(chave)) continue
+    const { data } = await supabase.rpc('valor_servico_em', {
+      p_servico_id: servicoId,
+      p_data: dia,
+    })
+    valores.set(chave, deNumeric(data ?? '0'))
+  }
+
+  const faturaveis: AulaFaturavel[] = []
+
+  for (const aula of linhas) {
+    const dia = aula.data_hora_inicio.slice(0, 10)
+    const doTurma = mats.filter(
+      (m) =>
+        m.turma_id === aula.turma_id &&
+        m.data_inicio <= dia &&
+        (!m.data_fim || m.data_fim >= dia),
+    )
+
+    for (const m of doTurma) {
+      if (!m.aluno?.responsavel) continue
+      const partes = [
+        aula.turma?.materia?.nome,
+        aula.turma?.ano_escolar?.nome,
+        aula.turma?.servico?.nome,
+      ].filter(Boolean)
+
+      faturaveis.push({
+        aula_id: aula.id,
+        aluno_id: m.aluno_id,
+        aluno_nome: m.aluno.nome,
+        responsavel_id: m.aluno.responsavel.id,
+        responsavel_nome: m.aluno.responsavel.nome,
+        data: dia,
+        descricao: partes.join(' — '),
+        valor: valores.get(`${aula.turma?.servico_id}|${dia}`) ?? 0,
+        status_aula: aula.status,
+        matricula_ativa: m.status === 'Ativa',
+        matricula_reposicao: m.flag_reposicao,
+        ja_cobrada: jaCobradas.has(aula.id),
+      })
+    }
+  }
+
+  return faturaveis
+}
+
+/**
+ * Gera as cobranças do mês em Rascunho, para a gestora revisar.
+ * Reprocessar o mesmo mês não duplica item: aulas já cobradas são ignoradas na
+ * montagem, e `UNIQUE(itens_cobranca.aula_id)` fecha a porta no banco.
+ */
+export async function gerarCobrancasDoMes(
+  mes: string,
+): Promise<{ criadas: number; itens: number }> {
+  const supabase = await clienteServidor()
+  const montadas = montarCobrancas(await aulasDoMes(mes))
+  const { primeiro } = limitesDoMes(mes)
+
+  let criadas = 0
+  let itens = 0
+
+  for (const c of montadas) {
+    // Reaproveita o rascunho do mês se já existir; senão cria.
+    const { data: existente } = await supabase
+      .from('cobrancas')
+      .select('id, status')
+      .eq('responsavel_id', c.responsavel_id)
+      .eq('mes_referencia', primeiro)
+      .maybeSingle()
+
+    if (existente && existente.status !== 'Rascunho') continue
+
+    let cobrancaId = existente?.id
+    if (!cobrancaId) {
+      const { data, error } = await supabase
+        .from('cobrancas')
+        .insert({
+          responsavel_id: c.responsavel_id,
+          mes_referencia: primeiro,
+          valor_bruto: paraNumeric(c.valor_bruto),
+          valor_desconto: paraNumeric(c.valor_desconto),
+          valor_total: paraNumeric(c.valor_total),
+        })
+        .select('id')
+        .single()
+      if (error) throw new Error(`Falha ao criar cobrança: ${error.message}`)
+      cobrancaId = data.id
+      criadas++
+    }
+
+    const { error: erroItens } = await supabase.from('itens_cobranca').insert(
+      c.itens.map((i) => ({
+        cobranca_id: cobrancaId,
+        aluno_id: i.aluno_id,
+        aula_id: i.aula_id,
+        descricao: i.descricao,
+        valor_original: paraNumeric(i.valor_original),
+        desconto: paraNumeric(i.desconto),
+        valor_final: paraNumeric(i.valor_final),
+      })),
+    )
+    if (erroItens) throw new Error(`Falha ao gravar itens: ${erroItens.message}`)
+    itens += c.itens.length
+
+    await recalcularTotais(cobrancaId)
+  }
+
+  return { criadas, itens }
+}
+
+/** Recalcula os totais a partir dos itens. Chamar após qualquer ajuste. */
+export async function recalcularTotais(cobrancaId: number): Promise<void> {
+  const supabase = await clienteServidor()
+  const { data } = await supabase
+    .from('itens_cobranca')
+    .select('valor_original, desconto, valor_final')
+    .eq('cobranca_id', cobrancaId)
+
+  const bruto = somar(...(data ?? []).map((i) => deNumeric(i.valor_original)))
+  const desconto = somar(...(data ?? []).map((i) => deNumeric(i.desconto)))
+
+  await supabase
+    .from('cobrancas')
+    .update({
+      valor_bruto: paraNumeric(bruto),
+      valor_desconto: paraNumeric(desconto),
+      valor_total: paraNumeric(bruto - desconto),
+    })
+    .eq('id', cobrancaId)
+}
+
+export async function listarCobrancas(filtros: { mes?: string; status?: string } = {}) {
+  const supabase = await clienteServidor()
+  let consulta = supabase
+    .from('cobrancas')
+    .select('id, responsavel_id, mes_referencia, valor_bruto, valor_desconto, valor_total, status, texto_whatsapp, responsavel:responsaveis!responsavel_id (id, nome, telefone)')
+
+  if (filtros.mes) consulta = consulta.eq('mes_referencia', `${filtros.mes}-01`)
+  if (filtros.status) consulta = consulta.eq('status', filtros.status)
+
+  const { data, error } = await consulta.order('mes_referencia', { ascending: false })
+  if (error) throw new Error(`Falha ao listar cobranças: ${error.message}`)
+
+  const linhas = (data ?? []) as unknown as {
+    id: number
+    responsavel_id: number
+    mes_referencia: string
+    valor_bruto: string
+    valor_desconto: string
+    valor_total: string
+    status: string
+    texto_whatsapp: string | null
+    responsavel: { id: number; nome: string; telefone: string | null } | null
+  }[]
+
+  const { data: recebimentos } = await supabase.from('recebimentos').select('cobranca_id, valor_recebido')
+  const recebidoPor = new Map<number, Centavos>()
+  for (const r of recebimentos ?? []) {
+    recebidoPor.set(r.cobranca_id, somar(recebidoPor.get(r.cobranca_id) ?? 0, deNumeric(r.valor_recebido)))
+  }
+
+  return linhas.map((c) => ({
+    ...c,
+    valor_bruto: deNumeric(c.valor_bruto),
+    valor_desconto: deNumeric(c.valor_desconto),
+    valor_total: deNumeric(c.valor_total),
+    recebido: recebidoPor.get(c.id) ?? 0,
+  })) as CobrancaResumo[]
+}
+
+export async function obterCobranca(id: number) {
+  const supabase = await clienteServidor()
+  const { data: cobranca } = await supabase
+    .from('cobrancas')
+    .select('id, responsavel_id, mes_referencia, valor_bruto, valor_desconto, valor_total, status, texto_whatsapp, responsavel:responsaveis!responsavel_id (id, nome, telefone)')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (!cobranca) return null
+
+  const { data: itens } = await supabase
+    .from('itens_cobranca')
+    .select('id, aluno_id, aula_id, descricao, valor_original, desconto, valor_final, aluno:alunos!aluno_id (nome), aula:aulas!aula_id (data_hora_inicio)')
+    .eq('cobranca_id', id)
+
+  const c = cobranca as unknown as {
+    id: number
+    responsavel_id: number
+    mes_referencia: string
+    valor_bruto: string
+    valor_desconto: string
+    valor_total: string
+    status: string
+    texto_whatsapp: string | null
+    responsavel: { id: number; nome: string; telefone: string | null } | null
+  }
+
+  return {
+    ...c,
+    valor_bruto: deNumeric(c.valor_bruto),
+    valor_desconto: deNumeric(c.valor_desconto),
+    valor_total: deNumeric(c.valor_total),
+    itens: ((itens ?? []) as unknown as {
+      id: number
+      aluno_id: number
+      aula_id: number
+      descricao: string
+      valor_original: string
+      desconto: string
+      valor_final: string
+      aluno: { nome: string } | null
+      aula: { data_hora_inicio: string } | null
+    }[]).map((i) => ({
+      ...i,
+      valor_original: deNumeric(i.valor_original),
+      desconto: deNumeric(i.desconto),
+      valor_final: deNumeric(i.valor_final),
+      data: i.aula?.data_hora_inicio.slice(0, 10) ?? '',
+    })),
+  }
+}
+
+export async function ajustarDesconto(itemId: number, desconto: Centavos): Promise<void> {
+  const supabase = await clienteServidor()
+  const { data: item } = await supabase
+    .from('itens_cobranca')
+    .select('cobranca_id, valor_original')
+    .eq('id', itemId)
+    .maybeSingle()
+
+  if (!item) throw new Error('Item não encontrado.')
+
+  const original = deNumeric(item.valor_original)
+  if (desconto < 0 || desconto > original) {
+    throw new Error('O desconto não pode ser negativo nem maior que o valor da aula.')
+  }
+
+  await supabase
+    .from('itens_cobranca')
+    .update({ desconto: paraNumeric(desconto), valor_final: paraNumeric(original - desconto) })
+    .eq('id', itemId)
+
+  await recalcularTotais(item.cobranca_id)
+}
+
+/** Confirma a cobrança e gera o texto do WhatsApp (Operacionais 6.3). */
+export async function confirmarCobranca(id: number, usuario: string): Promise<void> {
+  const supabase = await clienteServidor()
+  const cobranca = await obterCobranca(id)
+  if (!cobranca) throw new Error('Cobrança não encontrada.')
+
+  const { data: conta } = await supabase
+    .from('contas')
+    .select('chave_pix')
+    .not('chave_pix', 'is', null)
+    .eq('ativo', true)
+    .limit(1)
+    .maybeSingle()
+
+  const [ano, mes] = cobranca.mes_referencia.split('-')
+  const itensTexto: ItemDoTexto[] = cobranca.itens.map((i) => ({
+    aluno_nome: i.aluno?.nome ?? 'Aluno',
+    contexto: i.descricao.split(' — ').slice(0, 2).join(' — '),
+    descricao: i.descricao.split(' — ').slice(-1)[0],
+    data: i.data,
+    valor_final: i.valor_final,
+  }))
+
+  const texto = gerarTextoCobranca({
+    responsavel_nome: cobranca.responsavel?.nome ?? '',
+    mes_referencia: cobranca.mes_referencia,
+    valor_total: cobranca.valor_total,
+    chave_pix: conta?.chave_pix ?? null,
+    vencimento: `${ano}-${mes}-05`,
+    itens: itensTexto,
+  })
+
+  await supabase
+    .from('cobrancas')
+    .update({ status: 'Confirmada', texto_whatsapp: texto })
+    .eq('id', id)
+
+  await supabase.from('logs_operacionais').insert({
+    acao: 'confirmar_cobranca',
+    entidade: 'cobrancas',
+    entidade_id: id,
+    usuario,
+    detalhe: { valor_total: cobranca.valor_total, itens: cobranca.itens.length },
+  })
+}
+
+export async function marcarComoEnviada(id: number): Promise<void> {
+  const supabase = await clienteServidor()
+  await supabase.from('cobrancas').update({ status: 'Enviada' }).eq('id', id)
+}
