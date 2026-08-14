@@ -66,7 +66,6 @@ const cookie = partes.join('; ')
 
 // 3. Buscar cada pagina protegida e conferir que o dado do banco aparece.
 const CASOS = [
-  ['/', ['Gestora'], 'painel inicial'],
   ['/cadastros/responsaveis', ['Ana Ribeiro', 'Marcos Tavares', 'Juliana Prado'], 'lista de responsaveis'],
   ['/cadastros/alunos', ['João Ribeiro', 'Maria Ribeiro', 'Colégio São José'], 'alunos com escola resolvida (join)'],
   ['/cadastros/professores', ['Beatriz Lima', 'Carlos Menezes', '60%'], 'professores com percentual formatado'],
@@ -87,6 +86,10 @@ const CASOS = [
   ['/agenda', ['agosto', 'Matemática'], 'agenda do mes com aulas materializadas'],
   ['/agenda?mes=2026-09', ['setembro'], 'agenda navegando por mes'],
   ['/reposicoes', ['Reposições'], 'painel de reposicoes'],
+  ['/cobrancas', ['Cobranças', 'Ana Ribeiro', 'R$'], 'cobrancas com dados reais'],
+  ['/recebimentos', ['Recebimentos'], 'recebimentos'],
+  ['/pagamentos', ['Pagamentos a professores', 'Beatriz Lima'], 'pagamentos'],
+  ['/', ['Olá', 'Aulas de hoje'], 'painel inicial'],
 ]
 
 let ok = 0
