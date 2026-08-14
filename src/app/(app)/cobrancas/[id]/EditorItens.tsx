@@ -36,8 +36,52 @@ export function EditorItens({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="overflow-x-auto rounded-cartao border border-borda bg-superficie">
-        <table className="w-full min-w-[40rem] border-collapse text-left">
+      {/* Celular: um cartao por item. A tabela de 40rem obrigaria a rolar de
+          lado para ver o valor final de cada aula. */}
+      <ul className="flex flex-col gap-3 sm:hidden">
+        {itens.map((i) => (
+          <li
+            key={i.id}
+            className="rounded-cartao border border-borda bg-superficie p-4 shadow-sutil"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span className="font-medium">{i.aluno_nome}</span>
+              <span className="font-medium">{formatarBRL(i.valor_final)}</span>
+            </div>
+            <p className="mt-1 text-sm text-tinta-suave">
+              {i.data.split('-').reverse().join('/')} · {i.descricao}
+            </p>
+            {editavel ? (
+              <label className="mt-3 flex items-center justify-between gap-3 text-sm">
+                <span className="text-tinta-suave">Desconto</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  defaultValue={(i.desconto / 100).toFixed(2).replace('.', ',')}
+                  aria-label={`Desconto para ${i.aluno_nome}`}
+                  onBlur={(e) =>
+                    iniciar(async () => {
+                      const r = await salvarDesconto(i.id, cobrancaId, e.target.value)
+                      if (!r.ok) setErro(r.erro ?? 'Falha ao ajustar.')
+                      else router.refresh()
+                    })
+                  }
+                  className={`${entradaClasse} max-w-[8rem]`}
+                />
+              </label>
+            ) : (
+              i.desconto > 0 && (
+                <p className="mt-1 text-sm text-tinta-tenue">
+                  desconto de {formatarBRL(i.desconto)}
+                </p>
+              )
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <div className="hidden overflow-x-auto rounded-cartao border border-borda bg-superficie shadow-sutil sm:block">
+        <table className="w-full border-collapse text-left">
           <thead>
             <tr className="border-b border-borda bg-superficie-2/60 text-sm text-tinta-suave">
               <th className="px-5 py-3 font-semibold">Aluno</th>

@@ -52,7 +52,73 @@ export function VisaoSemana({ inicioSemana, aulas, feriados, hoje, agora }: Prop
   const hojeNaSemana = dias.includes(hoje)
 
   return (
-    <div className="overflow-x-auto rounded-cartao border border-borda bg-superficie">
+    <>
+      {/* Celular: lista por dia. A grade de horas precisa de 44rem para os sete
+          dias caberem legiveis; numa tela de 375px isso vira rolagem lateral
+          constante. A lista entrega a mesma semana, so que legivel. */}
+      <div className="flex flex-col gap-4 sm:hidden">
+        {dias.map((dia) => {
+          const doDia = daSemana.filter((a) => a.data_hora_inicio.slice(0, 10) === dia)
+          if (doDia.length === 0 && !feriados[dia]) return null
+
+          return (
+            <section key={dia}>
+              <h2 className="rotulo-seco mb-2 flex flex-wrap items-center gap-2">
+                {new Date(`${dia}T12:00:00Z`).toLocaleDateString('pt-BR', {
+                  weekday: 'short',
+                  day: '2-digit',
+                  month: 'short',
+                  timeZone: 'UTC',
+                })}
+                {dia === hoje && (
+                  <span className="rounded-full bg-destaque px-2 py-0.5 text-xs font-semibold normal-case tracking-normal text-white">
+                    hoje
+                  </span>
+                )}
+                {feriados[dia] && (
+                  <span className="rounded bg-alerta-suave px-1.5 py-0.5 text-xs normal-case tracking-normal text-alerta">
+                    {feriados[dia]}
+                  </span>
+                )}
+              </h2>
+
+              {doDia.length === 0 ? (
+                <p className="text-sm text-tinta-tenue">Sem aula.</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {doDia
+                    .slice()
+                    .sort((a, b) => a.data_hora_inicio.localeCompare(b.data_hora_inicio))
+                    .map((aula) => (
+                      <li key={aula.id}>
+                        <Link
+                          href={`/agenda/aulas/${aula.id}`}
+                          className="flex items-center justify-between gap-3 rounded-cartao border border-borda bg-superficie px-4 py-3 shadow-sutil"
+                        >
+                          <span className="min-w-0">
+                            <span className="font-medium">
+                              {aula.data_hora_inicio.slice(11, 16)}–{aula.data_hora_fim.slice(11, 16)}
+                            </span>
+                            <span className="mt-0.5 block truncate text-sm text-tinta-suave">
+                              {aula.turma_nome}
+                            </span>
+                          </span>
+                          <span
+                            className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${ESTILO[aula.status].split(' hover:')[0]}`}
+                          >
+                            {aula.status}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </section>
+          )
+        })}
+      </div>
+
+    <div className="hidden overflow-x-auto rounded-cartao border border-borda bg-superficie shadow-sutil sm:block">
       <div className="min-w-[44rem]">
         {/* Cabecalho com os dias */}
         <div className="sticky top-0 z-10 grid grid-cols-[3.5rem_repeat(7,1fr)] border-b border-borda bg-superficie-2/80 backdrop-blur">
@@ -157,5 +223,6 @@ export function VisaoSemana({ inicioSemana, aulas, feriados, hoje, agora }: Prop
         </div>
       </div>
     </div>
+    </>
   )
 }

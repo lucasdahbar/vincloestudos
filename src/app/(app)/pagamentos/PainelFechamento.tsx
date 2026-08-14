@@ -109,8 +109,26 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
             </p>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-cartao border border-borda">
-                <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
+              {/* Celular: cartao por aula, com a conta do repasse legivel. */}
+              <ul className="flex flex-col gap-2 sm:hidden">
+                {previa.itens.map((i, n) => (
+                  <li key={n} className="rounded-campo border border-borda bg-superficie p-3 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="font-medium">{i.aluno_nome}</span>
+                      <span className="font-medium">{formatarBRL(i.valor_professor)}</span>
+                    </div>
+                    <p className="mt-1 text-tinta-suave">
+                      {i.data_aula.split('-').reverse().join('/')} · {i.turma_nome}
+                    </p>
+                    <p className="mt-0.5 text-tinta-tenue">
+                      {formatarBRL(i.valor_servico)} x {i.percentual_aplicado}%
+                    </p>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="hidden overflow-x-auto rounded-cartao border border-borda sm:block">
+                <table className="w-full border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-borda bg-superficie-2/60 text-tinta-suave">
                       <th className="px-4 py-2 font-semibold">Data</th>
