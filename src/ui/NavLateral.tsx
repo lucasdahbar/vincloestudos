@@ -22,6 +22,14 @@ const SECOES: Secao[] = [
     ],
   },
   {
+    titulo: 'Financeiro',
+    itens: [
+      { rotulo: 'Cobranças', href: '/cobrancas', papeis: ['gestora'] },
+      { rotulo: 'Recebimentos', href: '/recebimentos', papeis: ['gestora'] },
+      { rotulo: 'Pagamentos', href: '/pagamentos', papeis: ['gestora'] },
+    ],
+  },
+  {
     titulo: 'Cadastros',
     itens: [
       { rotulo: 'Responsáveis', href: '/cadastros/responsaveis', papeis: ['gestora'] },
