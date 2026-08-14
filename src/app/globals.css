@@ -1,60 +1,144 @@
 @import 'tailwindcss';
 
 @theme {
+  /* ── Superficies ──────────────────────────────────────────────────────────
+     Creme quente como base. A hierarquia de profundidade e feita por
+     luminosidade, nao por sombra pesada: o branco "flutua" sobre o creme. */
   --color-fundo: #fbf8f3;
   --color-superficie: #ffffff;
-  --color-superficie-2: #f4efe6;
-  --color-borda: #e5dccd;
+  --color-superficie-2: #f5f0e7;
+  --color-superficie-3: #ede5d8;
+
+  /* Bordas em dois niveis. A decorativa separa areas sem pesar; a de campo
+     atinge 3:1 contra o branco, como a WCAG 1.4.11 exige de componente de UI. */
+  --color-borda: #e6ddd0;
+  --color-borda-campo: #a39075;
+
+  /* ── Tinta ────────────────────────────────────────────────────────────────
+     Marrom-carvao em vez de preto puro: casa com o creme e cansa menos a
+     vista em uso prolongado. */
   --color-tinta: #2b2724;
   --color-tinta-suave: #6b6259;
-  --color-destaque: #c0603f;
-  --color-destaque-forte: #a34d2f;
-  --color-destaque-suave: #f7e9e3;
-  --color-apoio: #5c7a63;
-  --color-apoio-suave: #e8efe9;
-  --color-alerta: #b4571f;
-  --color-alerta-suave: #fbeee2;
-  --color-erro: #a32f2f;
-  --color-erro-suave: #f9e6e6;
+  --color-tinta-tenue: #8a8177;
 
+  /* ── Acentos ──────────────────────────────────────────────────────────────
+     Todos calculados para passar AA (4.5:1) tanto como cor de texto sobre o
+     fundo quanto como fundo de botao com texto branco. A versao anterior
+     falhava nos dois casos, inclusive no botao primario. */
+  --color-destaque: #b65735;
+  --color-destaque-forte: #973f22;
+  --color-destaque-suave: #f8ebe4;
+  --color-destaque-borda: #e8cdc0;
+
+  --color-apoio: #47765a;
+  --color-apoio-suave: #e7f0ea;
+  --color-apoio-borda: #c4dbcd;
+
+  --color-alerta: #a05a1c;
+  --color-alerta-suave: #fcefe0;
+  --color-alerta-borda: #f0d7b8;
+
+  --color-erro: #b23434;
+  --color-erro-suave: #fbe9e9;
+  --color-erro-borda: #f0c9c9;
+
+  /* ── Forma ────────────────────────────────────────────────────────────── */
+  --radius-sm: 0.5rem;
   --radius-campo: 0.75rem;
-  --radius-cartao: 1.25rem;
+  --radius-cartao: 1rem;
+  --radius-painel: 1.5rem;
 
-  --font-texto: var(--fonte-texto), system-ui, sans-serif;
-  --font-titulo: var(--fonte-titulo), Georgia, serif;
+  /* ── Tipografia ───────────────────────────────────────────────────────── */
+  --font-texto: var(--fonte-texto), ui-sans-serif, system-ui, sans-serif;
+  --font-titulo: var(--fonte-titulo), ui-serif, Georgia, serif;
 
-  --shadow-cartao: 0 1px 2px rgb(43 39 36 / 0.04), 0 8px 24px rgb(43 39 36 / 0.06);
+  --text-rotulo: 0.8125rem;
+  --text-rotulo--line-height: 1.4;
+  --text-rotulo--letter-spacing: 0.04em;
+
+  /* ── Elevacao ─────────────────────────────────────────────────────────────
+     Sombras tingidas de marrom, nao de cinza: sombra neutra sobre fundo
+     quente parece suja. Duas camadas — contato curto e difusao longa. */
+  --shadow-sutil: 0 1px 2px rgb(74 57 44 / 0.05), 0 1px 3px rgb(74 57 44 / 0.04);
+  --shadow-cartao: 0 1px 2px rgb(74 57 44 / 0.04), 0 6px 16px -4px rgb(74 57 44 / 0.07);
+  --shadow-elevado: 0 2px 4px rgb(74 57 44 / 0.05), 0 12px 28px -8px rgb(74 57 44 / 0.12);
+  --shadow-destaque: 0 1px 2px rgb(150 63 34 / 0.2), 0 4px 12px -2px rgb(150 63 34 / 0.25);
 }
 
 @layer base {
   html {
     background: var(--color-fundo);
     color: var(--color-tinta);
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
     font-family: var(--font-texto);
-    /* O sistema e usado por muitas horas seguidas: corpo maior que o padrao. */
+    /* O sistema e usado por horas seguidas: corpo maior que o padrao. */
     font-size: 1.0625rem;
     line-height: 1.6;
+    /* Numeros tabulares alinham colunas de dinheiro e horario. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
   }
 
-  h1, h2, h3 {
+  h1,
+  h2,
+  h3 {
     font-family: var(--font-titulo);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.018em;
+    line-height: 1.15;
+    text-wrap: balance;
   }
 
-  /* Foco sempre visivel: navegacao por teclado e um requisito de acessibilidade. */
+  h1 {
+    font-weight: 600;
+  }
+
+  /* Paragrafo nao deve passar de ~70 caracteres por linha. */
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Foco sempre visivel: navegacao por teclado e requisito de acessibilidade. */
   :focus-visible {
-    outline: 3px solid var(--color-destaque);
+    outline: 2px solid var(--color-destaque);
     outline-offset: 2px;
     border-radius: 4px;
   }
 
+  /* O anel de foco do campo substitui a borda, para nao "engordar" o layout. */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline-offset: 0;
+    outline-width: 2px;
+  }
+
+  ::selection {
+    background: var(--color-destaque-suave);
+    color: var(--color-destaque-forte);
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
+    *,
+    *::before,
+    *::after {
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
+  }
+}
+
+@layer components {
+  /* Cabecalho de secao: usado nas listas e no calendario. */
+  .rotulo-seco {
+    font-size: var(--text-rotulo);
+    line-height: var(--text-rotulo--line-height);
+    letter-spacing: var(--text-rotulo--letter-spacing);
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--color-tinta-tenue);
   }
 }

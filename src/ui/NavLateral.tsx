@@ -4,91 +4,54 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { motion } from 'motion/react'
 import type { Papel } from '@/dominio/tipos'
-
-interface Secao {
-  titulo: string
-  itens: { rotulo: string; href: string; papeis?: Papel[] }[]
-}
-
-const SECOES: Secao[] = [
-  {
-    titulo: 'Dia a dia',
-    itens: [
-      { rotulo: 'Início', href: '/' },
-      { rotulo: 'Agenda', href: '/agenda' },
-      { rotulo: 'Turmas', href: '/turmas' },
-      { rotulo: 'Matrículas', href: '/matriculas', papeis: ['gestora'] },
-      { rotulo: 'Reposições', href: '/reposicoes', papeis: ['gestora'] },
-    ],
-  },
-  {
-    titulo: 'Financeiro',
-    itens: [
-      { rotulo: 'Cobranças', href: '/cobrancas', papeis: ['gestora'] },
-      { rotulo: 'Recebimentos', href: '/recebimentos', papeis: ['gestora'] },
-      { rotulo: 'Pagamentos', href: '/pagamentos', papeis: ['gestora'] },
-    ],
-  },
-  {
-    titulo: 'Cadastros',
-    itens: [
-      { rotulo: 'Responsáveis', href: '/cadastros/responsaveis', papeis: ['gestora'] },
-      { rotulo: 'Alunos', href: '/cadastros/alunos', papeis: ['gestora'] },
-      { rotulo: 'Professores', href: '/cadastros/professores', papeis: ['gestora'] },
-      { rotulo: 'Escolas', href: '/cadastros/escolas', papeis: ['gestora'] },
-      { rotulo: 'Serviços', href: '/cadastros/servicos', papeis: ['gestora'] },
-      { rotulo: 'Matérias', href: '/cadastros/materias', papeis: ['gestora'] },
-      { rotulo: 'Anos escolares', href: '/cadastros/anos-escolares', papeis: ['gestora'] },
-      { rotulo: 'Cidades', href: '/cadastros/cidades', papeis: ['gestora'] },
-      { rotulo: 'Contas', href: '/cadastros/contas', papeis: ['gestora'] },
-      { rotulo: 'Feriados', href: '/cadastros/feriados', papeis: ['gestora'] },
-    ],
-  },
-]
+import { ehAtivo, visiveisPara } from './navegacao'
 
 export function NavLateral({ papel }: { papel: Papel }) {
   const caminho = usePathname()
+  const secoes = visiveisPara(papel)
 
   return (
-    <nav aria-label="Navegação principal" className="flex flex-col gap-6 p-4">
-      {SECOES.map((secao) => {
-        const visiveis = secao.itens.filter((i) => !i.papeis || i.papeis.includes(papel))
-        if (visiveis.length === 0) return null
-
-        return (
-          <div key={secao.titulo}>
-            <h2 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-tinta-suave">
-              {secao.titulo}
-            </h2>
-            <ul className="flex flex-col gap-0.5">
-              {visiveis.map((item) => {
-                const ativo =
-                  item.href === '/' ? caminho === '/' : caminho.startsWith(item.href)
-                return (
-                  <li key={item.href} className="relative">
-                    {ativo && (
-                      <motion.span
-                        layoutId="nav-ativo"
-                        className="absolute inset-0 rounded-campo bg-destaque-suave"
-                        transition={{ type: 'spring', stiffness: 400, damping: 32 }}
-                      />
-                    )}
-                    <Link
-                      href={item.href}
-                      aria-current={ativo ? 'page' : undefined}
-                      className={`relative flex min-h-[44px] items-center rounded-campo px-3 transition-colors ${
-                        ativo ? 'font-medium text-destaque-forte' : 'text-tinta-suave hover:text-tinta'
+    <nav aria-label="Navegação principal" className="flex flex-col gap-7 px-3 py-2">
+      {secoes.map((secao) => (
+        <div key={secao.titulo}>
+          <h2 className="rotulo-seco mb-2 px-3">{secao.titulo}</h2>
+          <ul className="flex flex-col gap-0.5">
+            {secao.itens.map((item) => {
+              const ativo = ehAtivo(item.href, caminho)
+              return (
+                <li key={item.href} className="relative">
+                  {ativo && (
+                    /* O realce desliza entre itens em vez de piscar: e a
+                       animacao que mais comunica "voce esta aqui". */
+                    <motion.span
+                      layoutId="nav-ativo"
+                      className="absolute inset-0 rounded-campo bg-superficie shadow-sutil"
+                      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                    />
+                  )}
+                  <Link
+                    href={item.href}
+                    aria-current={ativo ? 'page' : undefined}
+                    className={`relative flex min-h-[42px] items-center gap-2.5 rounded-campo px-3 text-[0.9375rem] transition-colors ${
+                      ativo
+                        ? 'font-semibold text-destaque-forte'
+                        : 'text-tinta-suave hover:text-tinta'
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`h-4 w-[3px] shrink-0 rounded-full transition-colors ${
+                        ativo ? 'bg-destaque' : 'bg-transparent'
                       }`}
-                    >
-                      {item.rotulo}
-                    </Link>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        )
-      })}
+                    />
+                    {item.rotulo}
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ))}
     </nav>
   )
 }
