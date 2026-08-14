@@ -50,7 +50,7 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
       </aside>
 
       {/* Cabecalho do celular: a lateral fica escondida abaixo de md. */}
-      <header className="fixed inset-x-0 top-0 z-20 flex items-center justify-between gap-3 border-b border-borda bg-fundo/90 px-5 py-3 backdrop-blur md:hidden">
+      <header className="fixed inset-x-0 top-0 z-20 flex items-center justify-between gap-3 border-b border-borda bg-fundo px-5 py-3 md:hidden">
         <p className="font-titulo text-lg tracking-[-0.02em]">
           Mesinha <span className="text-destaque">Redonda</span>
         </p>

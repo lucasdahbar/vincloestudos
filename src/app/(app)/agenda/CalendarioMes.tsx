@@ -171,11 +171,18 @@ export function CalendarioMes({ mes, aulas, feriados, hoje }: Props) {
                   <li key={aula.id}>
                     <Link
                       href={`/agenda/aulas/${aula.id}`}
-                      className="flex items-center justify-between gap-3 rounded-cartao border border-borda bg-superficie px-4 py-3"
+                      className="flex items-center justify-between gap-3 rounded-cartao border border-borda bg-superficie px-4 py-3 shadow-sutil"
                     >
-                      <span className="min-w-0">
-                        <span className="font-medium">{aula.data_hora_inicio.slice(11, 16)}</span>
-                        <span className="ml-2 truncate text-sm text-tinta-suave">
+                      {/* `truncate` nao funciona em elemento inline: overflow nao
+                          se aplica a caixa inline, e o span estica ate caber o
+                          texto inteiro. Um nome de turma longo empurrava o
+                          documento para 631px, o navegador encolhia a pagina
+                          para caber, e a barra de navegacao fixa saia da tela. */}
+                      <span className="flex min-w-0 items-baseline gap-2">
+                        <span className="shrink-0 font-medium">
+                          {aula.data_hora_inicio.slice(11, 16)}
+                        </span>
+                        <span className="min-w-0 truncate text-sm text-tinta-suave">
                           {aula.turma_nome}
                         </span>
                       </span>

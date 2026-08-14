@@ -94,7 +94,7 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
 
       <nav
         aria-label="Navegação principal"
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-borda bg-superficie/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-borda bg-superficie pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_12px_rgb(74_57_44/0.06)] md:hidden"
       >
         <ul className="mx-auto flex max-w-lg">
           {principais.map((item) => {
