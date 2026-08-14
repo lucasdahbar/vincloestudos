@@ -3,6 +3,7 @@ import Link from 'next/link'
 export interface AulaDoCalendario {
   id: number
   data_hora_inicio: string
+  data_hora_fim: string
   status: 'Agendada' | 'Realizada' | 'Cancelada' | 'Feriado'
   turma_nome: string
 }
