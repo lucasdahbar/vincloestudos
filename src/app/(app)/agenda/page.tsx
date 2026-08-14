@@ -1,26 +1,41 @@
 import Link from 'next/link'
 import { conflitosDeFeriado, listarAulas } from '@/dados/aulas'
+import { clienteServidor } from '@/dados/cliente'
 import { exigirSessao } from '@/dados/sessao'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
-import { Selo } from '@/ui/Selo'
+import { CalendarioMes, type AulaDoCalendario } from './CalendarioMes'
 
-/** Primeiro e último dia do mês informado (ou do mês corrente). */
-function intervaloDoMes(mes?: string) {
-  const base = mes ? new Date(`${mes}-01T00:00:00`) : new Date()
-  const de = new Date(base.getFullYear(), base.getMonth(), 1)
-  const ate = new Date(base.getFullYear(), base.getMonth() + 1, 0)
-  const iso = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  return { de: iso(de), ate: iso(ate), rotulo: base.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) }
+function iso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-const TOM: Record<string, 'ativo' | 'encerrado' | 'alerta' | 'neutro'> = {
-  Agendada: 'neutro',
-  Realizada: 'ativo',
-  Cancelada: 'encerrado',
-  Feriado: 'alerta',
+/** Mes pedido (ou o corrente), com os vizinhos para a navegacao. */
+function contexto(mes?: string) {
+  const base = mes ? new Date(`${mes}-01T12:00:00`) : new Date()
+  const ano = base.getFullYear()
+  const m = base.getMonth()
+
+  const anterior = new Date(ano, m - 1, 1)
+  const seguinte = new Date(ano, m + 1, 1)
+  const ultimo = new Date(ano, m + 1, 0)
+
+  return {
+    mes: `${ano}-${String(m + 1).padStart(2, '0')}`,
+    de: iso(new Date(ano, m, 1)),
+    ate: iso(ultimo),
+    rotulo: base.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+    anterior: `${anterior.getFullYear()}-${String(anterior.getMonth() + 1).padStart(2, '0')}`,
+    seguinte: `${seguinte.getFullYear()}-${String(seguinte.getMonth() + 1).padStart(2, '0')}`,
+  }
 }
+
+const LEGENDA = [
+  { rotulo: 'Agendada', classe: 'bg-destaque-suave text-destaque-forte' },
+  { rotulo: 'Realizada', classe: 'bg-apoio-suave text-apoio' },
+  { rotulo: 'Cancelada', classe: 'bg-superficie-2 text-tinta-suave' },
+  { rotulo: 'Feriado', classe: 'bg-alerta-suave text-alerta' },
+]
 
 export default async function PaginaAgenda({
   searchParams,
@@ -29,30 +44,65 @@ export default async function PaginaAgenda({
 }) {
   const sessao = await exigirSessao()
   const { mes } = await searchParams
-  const { de, ate, rotulo } = intervaloDoMes(mes)
+  const ctx = contexto(mes)
 
-  const [aulas, conflitos] = await Promise.all([
+  const supabase = await clienteServidor()
+  const [aulas, conflitos, { data: feriadosDoMes }] = await Promise.all([
     listarAulas({
-      de,
-      ate,
+      de: ctx.de,
+      ate: ctx.ate,
       professorId: sessao.papel === 'professor' ? (sessao.professorId ?? -1) : undefined,
     }),
-    sessao.papel === 'gestora' ? conflitosDeFeriado(de, ate) : Promise.resolve([]),
+    sessao.papel === 'gestora'
+      ? conflitosDeFeriado(ctx.de, ctx.ate)
+      : Promise.resolve([]),
+    supabase.from('feriados').select('data, nome').gte('data', ctx.de).lte('data', ctx.ate),
   ])
 
-  const porDia = new Map<string, typeof aulas>()
-  for (const aula of aulas) {
-    const dia = aula.data_hora_inicio.slice(0, 10)
-    porDia.set(dia, [...(porDia.get(dia) ?? []), aula])
-  }
+  // Apenas dados simples atravessam para o componente de calendario.
+  const paraCalendario: AulaDoCalendario[] = aulas.map((a) => ({
+    id: a.id,
+    data_hora_inicio: a.data_hora_inicio,
+    status: a.status,
+    turma_nome: a.turma?.nome ?? 'Turma',
+  }))
+
+  const feriados = Object.fromEntries(
+    (feriadosDoMes ?? []).map((f) => [f.data, f.nome as string]),
+  )
 
   return (
-    <div className="flex flex-col gap-6">
-      <header>
-        <h1 className="text-3xl capitalize">{rotulo}</h1>
-        <p className="mt-1 text-tinta-suave">
-          {aulas.length} {aulas.length === 1 ? 'aula' : 'aulas'} no mês
-        </p>
+    <div className="flex flex-col gap-5">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl capitalize">{ctx.rotulo}</h1>
+          <p className="mt-1 text-tinta-suave">
+            {aulas.length} {aulas.length === 1 ? 'aula' : 'aulas'} no mês
+          </p>
+        </div>
+
+        <nav aria-label="Navegar entre meses" className="flex items-center gap-1">
+          <Link
+            href={`/agenda?mes=${ctx.anterior}`}
+            aria-label="Mês anterior"
+            className="flex size-11 items-center justify-center rounded-campo border border-borda bg-superficie text-lg transition-colors hover:border-destaque/40 hover:text-destaque"
+          >
+            ‹
+          </Link>
+          <Link
+            href="/agenda"
+            className="flex min-h-[44px] items-center rounded-campo border border-borda bg-superficie px-4 font-medium transition-colors hover:border-destaque/40 hover:text-destaque"
+          >
+            Hoje
+          </Link>
+          <Link
+            href={`/agenda?mes=${ctx.seguinte}`}
+            aria-label="Próximo mês"
+            className="flex size-11 items-center justify-center rounded-campo border border-borda bg-superficie text-lg transition-colors hover:border-destaque/40 hover:text-destaque"
+          >
+            ›
+          </Link>
+        </nav>
       </header>
 
       {conflitos.length > 0 && (
@@ -77,43 +127,29 @@ export default async function PaginaAgenda({
         </Cartao>
       )}
 
+      {/* A grade aparece sempre, mesmo em mes sem aula: e um calendario, e o
+          mes vazio tambem e informacao (alem de mostrar os feriados). */}
+      <CalendarioMes
+        mes={ctx.mes}
+        aulas={paraCalendario}
+        feriados={feriados}
+        hoje={iso(new Date())}
+      />
+
       {aulas.length === 0 ? (
         <EstadoVazio
           titulo="Nenhuma aula neste mês"
-          descricao="As aulas são geradas a partir dos dias e horários cadastrados em cada turma. Rode a sincronização para materializá-las."
+          descricao="As aulas são geradas a partir dos dias e horários cadastrados em cada turma. Use as setas acima para procurar em outro mês."
         />
       ) : (
-        <div className="flex flex-col gap-5">
-          {[...porDia.entries()].map(([dia, doDia]) => (
-            <section key={dia}>
-              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-tinta-suave">
-                {new Date(`${dia}T12:00:00`).toLocaleDateString('pt-BR', {
-                  weekday: 'long',
-                  day: '2-digit',
-                  month: 'long',
-                })}
-              </h2>
-              <ul className="flex flex-col gap-2">
-                {doDia.map((aula) => (
-                  <li key={aula.id}>
-                    <Link
-                      href={`/agenda/aulas/${aula.id}`}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-cartao border border-borda bg-superficie px-5 py-4 transition-all hover:-translate-y-0.5 hover:border-destaque/40"
-                    >
-                      <span>
-                        <span className="font-medium">
-                          {aula.data_hora_inicio.slice(11, 16)}
-                        </span>
-                        <span className="ml-3 text-tinta-suave">{aula.turma?.nome}</span>
-                      </span>
-                      <Selo tom={TOM[aula.status]}>{aula.status}</Selo>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-tinta-suave">
+          {LEGENDA.map((l) => (
+            <li key={l.rotulo} className="flex items-center gap-1.5">
+              <span className={`inline-block size-3 rounded ${l.classe}`} />
+              {l.rotulo}
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   )
