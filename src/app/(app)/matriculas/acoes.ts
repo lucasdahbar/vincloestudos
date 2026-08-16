@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { clienteServidor } from '@/dados/cliente'
 import { exigirGestora } from '@/dados/sessao'
+import { enfileirarBoasVindas } from '@/dados/notificacoes'
 import { validarMatricula } from '@/dominio/matriculas/regras'
 
 export async function salvarMatricula(entrada: {
@@ -26,17 +27,30 @@ export async function salvarMatricula(entrada: {
   const erros = validarMatricula({ ...entrada, alunoAtivo: aluno.ativo }, turma)
   if (erros.length > 0) return { ok: false, erros }
 
-  const { error } = await supabase.from('matriculas').insert({
-    aluno_id: entrada.aluno_id,
-    turma_id: entrada.turma_id,
-    data_inicio: entrada.data_inicio,
-    data_fim: entrada.data_fim,
-    flag_reposicao: entrada.flag_reposicao,
-  })
+  const { data: criada, error } = await supabase
+    .from('matriculas')
+    .insert({
+      aluno_id: entrada.aluno_id,
+      turma_id: entrada.turma_id,
+      data_inicio: entrada.data_inicio,
+      data_fim: entrada.data_fim,
+      flag_reposicao: entrada.flag_reposicao,
+    })
+    .select('id')
+    .single()
 
   if (error) return { ok: false, erros: [error.message] }
 
+  // Boas-vindas com os dados da turma (Operacionais 4.5). Nao pode derrubar a
+  // matricula: se a fila falhar, o vinculo ja esta gravado e e o que importa.
+  try {
+    await enfileirarBoasVindas(criada.id)
+  } catch (e) {
+    console.error('falha ao enfileirar boas-vindas:', e)
+  }
+
   revalidatePath('/matriculas')
+  revalidatePath('/mensagens')
   revalidatePath(`/turmas/${entrada.turma_id}`)
   return { ok: true }
 }

@@ -23,6 +23,7 @@ export const SECOES: SecaoNav[] = [
       { rotulo: 'Turmas', href: '/turmas', principal: true },
       { rotulo: 'Matrículas', href: '/matriculas', papeis: ['gestora'] },
       { rotulo: 'Reposições', href: '/reposicoes', papeis: ['gestora'] },
+      { rotulo: 'Mensagens', href: '/mensagens', papeis: ['gestora'] },
     ],
   },
   {
