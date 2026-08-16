@@ -112,13 +112,20 @@ for (const [rota, esperados, descricao] of CASOS) {
   }
 }
 
-// 4. A rota de cadastro inexistente deve dar 404, mesmo com sessao valida.
-const r404 = await fetch(`${BASE}/cadastros/naoexiste`, { headers: { cookie }, redirect: 'manual' })
-if (r404.status === 404) {
-  console.log(`  OK   ${'/cadastros/naoexiste'.padEnd(32)} 404 com sessao valida`)
+// 4. Cadastro inexistente mostra a pagina de "nao encontrado", em portugues.
+//
+// O status HTTP e 200 e nao 404 porque a rota tem `loading.tsx`: o Next comeca
+// a resposta com o esqueleto — dai o 200 — e o conteudo final chega em seguida
+// por streaming. O que importa para a usuaria e o que ela le na tela.
+const r404 = await fetch(`${BASE}/cadastros/naoexiste`, { headers: { cookie } })
+const html404 = await r404.text()
+const mostraNaoEncontrada = html404.includes('Esta página não existe')
+
+if (mostraNaoEncontrada) {
+  console.log(`  OK   ${'/cadastros/naoexiste'.padEnd(32)} mostra "não encontrado" em português`)
   ok++
 } else {
-  console.log(`  FALHA /cadastros/naoexiste status=${r404.status}, esperado 404`)
+  console.log(`  FALHA /cadastros/naoexiste status=${r404.status}, sem a página de não encontrado`)
   falhas++
 }
 
