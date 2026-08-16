@@ -15,6 +15,34 @@ export interface AulaDoFormulario {
   alunos: { aluno_id: number; nome: string; flag_reposicao: boolean }[]
 }
 
+export interface TokenDaAula {
+  token: string
+  expira_em: string
+  usado_em: string | null
+}
+
+/**
+ * Token valido da aula, se ja houver um.
+ *
+ * Existe para o botao de gerar link nao criar um token novo a cada clique: a
+ * gestora costuma reabrir a tela varias vezes, e cada token novo invalidaria
+ * na pratica o link que ela ja mandou para o professor.
+ */
+export async function tokenDaAula(aulaId: number): Promise<TokenDaAula | null> {
+  const supabase = await clienteServidor()
+  const { data } = await supabase
+    .from('presenca_tokens')
+    .select('token, expira_em, usado_em')
+    .eq('aula_id', aulaId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!data) return null
+  if (new Date(data.expira_em) < new Date() && !data.usado_em) return null
+  return data
+}
+
 export async function gerarTokenPresenca(aulaId: number): Promise<string> {
   const supabase = await clienteServidor()
 

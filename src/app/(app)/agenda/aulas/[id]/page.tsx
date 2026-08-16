@@ -1,25 +1,45 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { matriculadosNaAula, obterAula } from '@/dados/aulas'
+import { tokenDaAula } from '@/dados/presencas'
+import { LinkDeChamada } from './LinkDeChamada'
 import { clienteServidor } from '@/dados/cliente'
 import { exigirSessao } from '@/dados/sessao'
 import { Cartao } from '@/ui/Cartao'
 import { Selo } from '@/ui/Selo'
 
 export default async function PaginaAula({ params }: { params: Promise<{ id: string }> }) {
-  await exigirSessao()
+  const sessao = await exigirSessao()
   const { id } = await params
   const aula = await obterAula(Number(id))
   if (!aula) notFound()
 
+  const ehGestora = sessao.papel === 'gestora'
+  const quando = new Date(aula.data_hora_inicio).toLocaleDateString('pt-BR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
   const supabase = await clienteServidor()
-  const [matriculados, { data: presencas }] = await Promise.all([
+  const [matriculados, { data: presencas }, token, { data: daTurma }] = await Promise.all([
     matriculadosNaAula(aula.id),
     supabase
       .from('presencas')
       .select('aluno_id, presente, observacao, aluno:alunos!aluno_id (nome)')
       .eq('aula_id', aula.id),
+    tokenDaAula(aula.id),
+    supabase
+      .from('turmas')
+      .select('professor:professores!professor_id (nome)')
+      .eq('id', aula.turma_id)
+      .maybeSingle(),
   ])
+
+  const professorNome =
+    (daTurma?.professor as unknown as { nome: string } | null)?.nome ?? null
 
   const registradas = (presencas ?? []) as unknown as {
     aluno_id: number
@@ -90,6 +110,17 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
           </>
         )}
       </Cartao>
+
+      {ehGestora && aula.status !== 'Cancelada' && (
+        <LinkDeChamada
+          aulaId={aula.id}
+          turmaNome={aula.turma?.nome ?? 'a turma'}
+          professorNome={professorNome}
+          quando={quando}
+          caminhoExistente={token && !token.usado_em ? `/p/presenca/${token.token}` : null}
+          jaConfirmada={Boolean(token?.usado_em)}
+        />
+      )}
 
       <Link href="/agenda" className="text-destaque hover:underline">
         ← Voltar para a agenda
