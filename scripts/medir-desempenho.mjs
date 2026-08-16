@@ -8,7 +8,15 @@
  * Uso: node scripts/medir-desempenho.mjs
  *      BASE=https://... node scripts/medir-desempenho.mjs
  */
+import { readFileSync } from 'node:fs'
 import { chromium, devices } from 'playwright'
+
+const env = Object.fromEntries(
+  readFileSync('.env.local', 'utf8')
+    .split(/\r?\n/)
+    .filter((l) => l.includes('='))
+    .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1).trim()]),
+)
 
 const BASE = process.env.BASE ?? 'http://localhost:3000'
 const VOLTAS = Number(process.env.VOLTAS ?? 2)
@@ -35,7 +43,7 @@ const pagina = await contexto.newPage()
 
 await pagina.goto(`${BASE}/login`, { waitUntil: 'networkidle' })
 await pagina.fill('input[name="email"]', 'gestora@mesinharedonda.app')
-await pagina.fill('input[name="senha"]', 'mesinha123')
+await pagina.fill('input[name="senha"]', env.SENHA_TESTE)
 await pagina.click('button[type="submit"]')
 await pagina.waitForURL((u) => !u.pathname.includes('login'), { timeout: 25000 })
 

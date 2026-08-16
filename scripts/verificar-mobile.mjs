@@ -15,6 +15,13 @@
 import { readFileSync } from 'node:fs'
 import { chromium, devices } from 'playwright'
 
+const env = Object.fromEntries(
+  readFileSync('.env.local', 'utf8')
+    .split(/\r?\n/)
+    .filter((l) => l.includes('='))
+    .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1).trim()]),
+)
+
 const LARGURA = Number(process.argv[2] ?? 390)
 const ALTURA = Number(process.argv[3] ?? 844)
 const BASE = process.env.BASE ?? 'http://localhost:3000'
@@ -49,7 +56,7 @@ pagina.on('pageerror', (e) => erros.push(e.message))
 
 await pagina.goto(`${BASE}/login`, { waitUntil: 'networkidle' })
 await pagina.fill('input[name="email"]', 'gestora@mesinharedonda.app')
-await pagina.fill('input[name="senha"]', 'mesinha123')
+await pagina.fill('input[name="senha"]', env.SENHA_TESTE)
 await pagina.click('button[type="submit"]')
 await pagina.waitForURL((u) => !u.pathname.includes('login'), { timeout: 20000 })
 

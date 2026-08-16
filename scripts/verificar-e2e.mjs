@@ -27,7 +27,7 @@ const resp = await fetch(`${url}/auth/v1/token?grant_type=password`, {
   headers: { apikey: anon, 'Content-Type': 'application/json' },
   body: JSON.stringify({
     email: 'gestora@mesinharedonda.app',
-    password: 'mesinha123',
+    password: env.SENHA_TESTE,
   }),
 })
 
