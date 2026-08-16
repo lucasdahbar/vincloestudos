@@ -102,6 +102,7 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
                         <li key={item.href}>
                           <Link
                             href={item.href}
+                            prefetch
                             aria-current={ehAtivo(item.href, caminho) ? 'page' : undefined}
                             className={`flex min-h-[52px] items-center rounded-campo border px-4 text-[0.9375rem] transition-colors ${
                               ehAtivo(item.href, caminho)
@@ -134,6 +135,7 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
               <li key={item.href} className="flex-1">
                 <Link
                   href={item.href}
+                  prefetch
                   aria-current={ativo ? 'page' : undefined}
                   className={`flex min-h-[56px] flex-col items-center justify-center gap-1 px-1 text-xs transition-colors ${
                     ativo ? 'font-semibold text-destaque-forte' : 'text-tinta-suave'

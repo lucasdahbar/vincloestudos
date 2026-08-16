@@ -1,6 +1,7 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
 import { deNumeric, paraNumeric, somar, type Centavos } from '@/dominio/dinheiro'
+import { carregarVigencias } from './vigencias'
 import { montarCobrancas, type AulaFaturavel } from '@/dominio/cobrancas/geracao'
 import { gerarTextoCobranca, type ItemDoTexto } from '@/dominio/cobrancas/texto'
 
@@ -90,20 +91,9 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
     } | null
   }[]
 
-  // Valor vigente por serviço na data de cada aula, resolvido uma vez por par.
-  const valores = new Map<string, Centavos>()
-  for (const aula of linhas) {
-    const dia = aula.data_hora_inicio.slice(0, 10)
-    const servicoId = aula.turma?.servico_id
-    if (!servicoId) continue
-    const chave = `${servicoId}|${dia}`
-    if (valores.has(chave)) continue
-    const { data } = await supabase.rpc('valor_servico_em', {
-      p_servico_id: servicoId,
-      p_data: dia,
-    })
-    valores.set(chave, deNumeric(data ?? '0'))
-  }
+  // Uma consulta so, resolvida em memoria. Antes era uma chamada RPC por par
+  // (servico, dia), em serie: dezenas de idas ao banco para fechar um mes.
+  const vigencias = await carregarVigencias()
 
   const faturaveis: AulaFaturavel[] = []
 
@@ -132,7 +122,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
         responsavel_nome: m.aluno.responsavel.nome,
         data: dia,
         descricao: partes.join(' — '),
-        valor: valores.get(`${aula.turma?.servico_id}|${dia}`) ?? 0,
+        valor: vigencias.valorServico(aula.turma?.servico_id ?? 0, dia),
         status_aula: aula.status,
         matricula_ativa: m.status === 'Ativa',
         matricula_reposicao: m.flag_reposicao,

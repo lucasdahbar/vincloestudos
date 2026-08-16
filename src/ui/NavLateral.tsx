@@ -31,6 +31,7 @@ export function NavLateral({ papel }: { papel: Papel }) {
                   )}
                   <Link
                     href={item.href}
+                    prefetch
                     aria-current={ativo ? 'page' : undefined}
                     className={`relative flex min-h-[42px] items-center gap-2.5 rounded-campo px-3 text-[0.9375rem] transition-colors ${
                       ativo

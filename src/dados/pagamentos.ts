@@ -1,6 +1,7 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
 import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
+import { carregarVigencias } from './vigencias'
 import { calcularFechamento, type PresencaRemunerada } from '@/dominio/pagamentos/fechamento'
 
 /**
@@ -42,15 +43,11 @@ export async function previaFechamento(professorId: number, de: string, ate: str
   const { data: jaPagas } = await supabase.from('itens_conta_pagar_professor').select('presenca_id')
   const pagas = new Set((jaPagas ?? []).map((i) => i.presenca_id))
 
-  const remuneradas: PresencaRemunerada[] = []
-  for (const p of linhas) {
-    const dia = p.aula!.data_hora_inicio.slice(0, 10)
-    const [{ data: valor }, { data: percentual }] = await Promise.all([
-      supabase.rpc('valor_servico_em', { p_servico_id: p.aula!.turma!.servico_id, p_data: dia }),
-      supabase.rpc('percentual_professor_em', { p_professor_id: professorId, p_data: dia }),
-    ])
+  const vigencias = await carregarVigencias()
 
-    remuneradas.push({
+  const remuneradas: PresencaRemunerada[] = linhas.map((p) => {
+    const dia = p.aula!.data_hora_inicio.slice(0, 10)
+    return {
       presenca_id: p.id,
       aluno_id: p.aluno_id,
       aluno_nome: p.aluno?.nome ?? 'Aluno',
@@ -59,11 +56,11 @@ export async function previaFechamento(professorId: number, de: string, ate: str
       data_aula: dia,
       presente: true,
       flag_reposicao: p.flag_reposicao,
-      valor_servico: deNumeric(valor ?? '0'),
-      percentual: Number(percentual ?? 0),
+      valor_servico: vigencias.valorServico(p.aula!.turma!.servico_id, dia),
+      percentual: vigencias.percentualProfessor(professorId, dia),
       ja_paga: pagas.has(p.id),
-    })
-  }
+    }
+  })
 
   return calcularFechamento(remuneradas)
 }
