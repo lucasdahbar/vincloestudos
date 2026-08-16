@@ -8,12 +8,15 @@ import type { Papel } from '@/dominio/tipos'
 import { ehAtivo, visiveisPara } from './navegacao'
 
 /**
- * Navegacao do celular. A lateral do desktop fica escondida abaixo de md, e
- * sem isto o sistema simplesmente nao tem como navegar no telefone — que e
- * onde a gestora mais usa.
+ * Navegacao do celular, em tres camadas de propósito redundante.
  *
- * Barra fixa embaixo com os destinos mais frequentes, e "Menu" abrindo a lista
- * completa. Alvos de 56px de altura, bem acima do minimo de 44.
+ * 1. Barra do topo, `sticky`. Fica no fluxo do documento, entao aparece mesmo
+ *    que `position: fixed` falhe — e ja falhou uma vez aqui, quando um texto
+ *    sem quebra fez o navegador encolher a pagina e jogar a barra de baixo
+ *    para fora da tela. Esta e a garantia: se tudo mais der errado, o botao
+ *    "Menu" continua no topo da pagina.
+ * 2. Gaveta com a lista completa, aberta pelo topo ou pela barra de baixo.
+ * 3. Barra de baixo, `fixed`, com os destinos frequentes ao alcance do polegar.
  */
 export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
   const caminho = usePathname()
@@ -21,7 +24,6 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
   const secoes = visiveisPara(papel)
   const principais = secoes.flatMap((s) => s.itens).filter((i) => i.principal)
 
-  // Fecha o menu ao navegar, e trava a rolagem do fundo enquanto aberto.
   useEffect(() => setAberto(false), [caminho])
   useEffect(() => {
     document.body.style.overflow = aberto ? 'hidden' : ''
@@ -30,8 +32,36 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
     }
   }, [aberto])
 
+  const rotuloAtual =
+    secoes.flatMap((s) => s.itens).find((i) => ehAtivo(i.href, caminho))?.rotulo ?? 'Menu'
+
   return (
     <>
+      {/* 1. Topo em fluxo: nao depende de fixed. */}
+      <header className="sticky top-0 z-20 border-b border-borda bg-fundo md:hidden">
+        <div className="flex items-center justify-between gap-2 px-4 py-2.5">
+          <button
+            type="button"
+            onClick={() => setAberto(true)}
+            aria-expanded={aberto}
+            aria-controls="menu-completo"
+            className="flex min-h-[44px] items-center gap-2.5 rounded-campo border border-borda bg-superficie px-3 font-medium shadow-sutil active:bg-superficie-2"
+          >
+            <span aria-hidden="true" className="flex flex-col gap-[3px]">
+              <span className="block h-[2px] w-4 rounded-full bg-tinta" />
+              <span className="block h-[2px] w-4 rounded-full bg-tinta" />
+              <span className="block h-[2px] w-4 rounded-full bg-tinta" />
+            </span>
+            <span className="max-w-[9rem] truncate text-[0.9375rem]">{rotuloAtual}</span>
+          </button>
+
+          <p className="font-titulo text-base tracking-[-0.02em]">
+            Mesinha <span className="text-destaque">Redonda</span>
+          </p>
+        </div>
+      </header>
+
+      {/* 2. Gaveta com todos os destinos. */}
       <AnimatePresence>
         {aberto && (
           <>
@@ -42,7 +72,7 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setAberto(false)}
-              className="fixed inset-0 z-40 bg-tinta/25 backdrop-blur-[2px] md:hidden"
+              className="fixed inset-0 z-40 bg-tinta/30 md:hidden"
             />
             <motion.div
               id="menu-completo"
@@ -50,7 +80,7 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', stiffness: 380, damping: 38 }}
-              className="fixed inset-x-0 bottom-0 z-50 max-h-[80dvh] overflow-y-auto rounded-t-painel border-t border-borda bg-superficie pb-[calc(env(safe-area-inset-bottom)+1rem)] md:hidden"
+              className="fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] overflow-y-auto rounded-t-painel border-t border-borda bg-superficie pb-[calc(env(safe-area-inset-bottom)+1rem)] md:hidden"
             >
               <div className="sticky top-0 flex items-center justify-between gap-3 border-b border-borda bg-superficie px-5 py-4">
                 <span className="font-titulo text-lg">{nome}</span>
@@ -92,6 +122,7 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
         )}
       </AnimatePresence>
 
+      {/* 3. Barra de baixo: atalho para o polegar. */}
       <nav
         aria-label="Navegação principal"
         className="fixed inset-x-0 bottom-0 z-30 border-t border-borda bg-superficie pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_12px_rgb(74_57_44/0.06)] md:hidden"
