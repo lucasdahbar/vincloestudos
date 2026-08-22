@@ -80,9 +80,9 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', stiffness: 380, damping: 38 }}
-              className="fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] overflow-y-auto rounded-t-painel border-t border-borda bg-superficie pb-[calc(env(safe-area-inset-bottom)+1rem)] md:hidden"
+              className="fixed inset-x-0 bottom-0 z-50 max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-painel border-t border-borda bg-superficie md:hidden"
             >
-              <div className="sticky top-0 flex items-center justify-between gap-3 border-b border-borda bg-superficie px-5 py-4">
+              <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-borda bg-superficie px-5 py-3">
                 <span className="font-titulo text-lg">{nome}</span>
                 <button
                   type="button"
@@ -93,7 +93,7 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
                 </button>
               </div>
 
-              <div className="flex flex-col gap-6 px-5 py-5">
+              <div className="flex flex-col gap-5 px-5 pb-2 pt-4">
                 {secoes.map((secao) => (
                   <div key={secao.titulo}>
                     <h2 className="rotulo-seco mb-2">{secao.titulo}</h2>
@@ -104,7 +104,7 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
                             href={item.href}
                             prefetch
                             aria-current={ehAtivo(item.href, caminho) ? 'page' : undefined}
-                            className={`flex min-h-[52px] items-center rounded-campo border px-4 text-[0.9375rem] transition-colors ${
+                            className={`flex min-h-[48px] items-center rounded-campo border px-3.5 text-[0.9375rem] transition-colors ${
                               ehAtivo(item.href, caminho)
                                 ? 'border-destaque-borda bg-destaque-suave font-semibold text-destaque-forte'
                                 : 'border-borda bg-superficie text-tinta'
@@ -118,6 +118,15 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
                   </div>
                 ))}
               </div>
+
+              {/* Diz que ha mais abaixo. Sem isto o ultimo item aparece
+                  cortado no meio e a tela parece quebrada — foi o que a
+                  gestora reportou. */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none sticky bottom-0 h-10 bg-gradient-to-t from-superficie via-superficie/85 to-transparent"
+              />
+              <div className="h-[env(safe-area-inset-bottom)]" />
             </motion.div>
           </>
         )}
