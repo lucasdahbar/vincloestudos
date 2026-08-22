@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { clienteServidor } from '@/dados/cliente'
+import { sincronizarAulas } from '@/dados/aulas'
 import { exigirGestora } from '@/dados/sessao'
 import { validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
@@ -57,7 +58,23 @@ export async function salvarTurma(
 
   if (resposta.error) return { ok: false, erros: [resposta.error.message] }
 
+  // Materializa as aulas na hora. Sem isto a turma nasce vazia: a gestora
+  // cadastra, abre a agenda e nao ve nada — parece que o sistema perdeu o
+  // cadastro. Foi o que aconteceu com duas turmas reais.
+  try {
+    const hoje = new Date()
+    const fim = new Date(hoje.getFullYear(), hoje.getMonth() + 4, 0)
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    await sincronizarAulas(iso(hoje), iso(fim))
+  } catch (e) {
+    // Nao derruba o salvamento: a turma ja esta gravada, e a agenda se
+    // recupera sozinha na proxima abertura.
+    console.error('falha ao materializar aulas da turma:', e)
+  }
+
   revalidatePath('/turmas')
+  revalidatePath('/agenda')
   return { ok: true, id: resposta.data.id }
 }
 

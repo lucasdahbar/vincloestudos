@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { conflitosDeFeriado, listarAulas } from '@/dados/aulas'
+import { after } from 'next/server'
+import { conflitosDeFeriado, listarAulas, sincronizarAulas } from '@/dados/aulas'
 import { clienteServidor } from '@/dados/cliente'
 import { exigirSessao } from '@/dados/sessao'
 import { Cartao } from '@/ui/Cartao'
@@ -88,6 +89,25 @@ export default async function PaginaAgenda({
   const hoje = iso(agoraData)
   // `mes` continua aceito para nao quebrar links antigos.
   const ctx = contexto(vista, params.data ?? params.mes, hoje)
+
+  // Sincronizacao sob demanda ao abrir a agenda (Operacionais 4.3), rodando
+  // DEPOIS que a resposta ja foi enviada.
+  //
+  // Sincronizar antes de renderizar custava 800ms — duas idas ao banco em
+  // serie — numa tela que a gestora abre o tempo todo. E sincronizar nunca foi
+  // pre-requisito para ver o mes: e manutencao. Com `after`, a pagina aparece
+  // na hora e o ajuste acontece em seguida; o que entrar aparece na proxima
+  // abertura. Turma recem-criada nao espera por isso: o proprio salvamento da
+  // turma ja materializa as aulas.
+  if (sessao.papel === 'gestora') {
+    after(async () => {
+      try {
+        await sincronizarAulas(ctx.de, ctx.ate)
+      } catch (e) {
+        console.error('falha ao sincronizar a agenda:', e)
+      }
+    })
+  }
 
   const supabase = await clienteServidor()
   const [aulas, conflitos, { data: feriadosDoPeriodo }] = await Promise.all([

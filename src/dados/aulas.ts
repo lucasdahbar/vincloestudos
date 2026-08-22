@@ -44,7 +44,15 @@ export async function sincronizarAulas(
 
   if (error) throw new Error(`Falha ao carregar turmas: ${error.message}`)
 
-  let criadas = 0
+  // Todas as ocorrencias de todas as turmas num unico upsert. Uma chamada por
+  // turma custava ~2s na abertura da agenda, com cinco turmas — cada uma
+  // pagando a latencia inteira ate o banco.
+  const linhas: {
+    turma_id: number
+    google_calendar_event_id: string
+    data_hora_inicio: string
+    data_hora_fim: string
+  }[] = []
 
   for (const turma of turmas ?? []) {
     const ocorrencias = await provedor.listarOcorrencias(
@@ -61,25 +69,41 @@ export async function sincronizarAulas(
       ate,
     )
 
-    if (ocorrencias.length === 0) continue
-
-    const linhas = ocorrencias.map((o) => ({
-      turma_id: turma.id,
-      google_calendar_event_id: o.google_calendar_event_id,
-      data_hora_inicio: `${o.data}T${o.horario_inicio}:00`,
-      data_hora_fim: `${o.data}T${o.horario_fim}:00`,
-    }))
-
-    const { data, error: erroUpsert } = await supabase
-      .from('aulas')
-      .upsert(linhas, { onConflict: 'google_calendar_event_id', ignoreDuplicates: true })
-      .select('id')
-
-    if (erroUpsert) throw new Error(`Falha ao sincronizar turma ${turma.id}: ${erroUpsert.message}`)
-    criadas += data?.length ?? 0
+    for (const o of ocorrencias) {
+      linhas.push({
+        turma_id: turma.id,
+        google_calendar_event_id: o.google_calendar_event_id,
+        data_hora_inicio: `${o.data}T${o.horario_inicio}:00`,
+        data_hora_fim: `${o.data}T${o.horario_fim}:00`,
+      })
+    }
   }
 
-  return { criadas, turmas: turmas?.length ?? 0 }
+  if (linhas.length === 0) return { criadas: 0, turmas: turmas?.length ?? 0 }
+
+  // Le antes de escrever. A agenda sincroniza a cada abertura, e no caso comum
+  // — nada mudou — um upsert gravaria dezenas de linhas so para o banco
+  // descarta-las. Uma leitura barata deixa o caso comum sem escrita nenhuma.
+  const { data: existentes } = await supabase
+    .from('aulas')
+    .select('google_calendar_event_id')
+    .in('google_calendar_event_id', linhas.map((l) => l.google_calendar_event_id))
+
+  const jaExistem = new Set((existentes ?? []).map((a) => a.google_calendar_event_id))
+  const faltando = linhas.filter((l) => !jaExistem.has(l.google_calendar_event_id))
+
+  if (faltando.length === 0) return { criadas: 0, turmas: turmas?.length ?? 0 }
+
+  // `ignoreDuplicates` protege da corrida entre duas abas abrindo a agenda ao
+  // mesmo tempo: aula com presenca registrada nunca e sobrescrita.
+  const { data, error: erroUpsert } = await supabase
+    .from('aulas')
+    .upsert(faltando, { onConflict: 'google_calendar_event_id', ignoreDuplicates: true })
+    .select('id')
+
+  if (erroUpsert) throw new Error(`Falha ao sincronizar aulas: ${erroUpsert.message}`)
+
+  return { criadas: data?.length ?? 0, turmas: turmas?.length ?? 0 }
 }
 
 export async function listarAulas(filtros: {
