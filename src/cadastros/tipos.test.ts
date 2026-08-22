@@ -44,3 +44,50 @@ describe('valoresIniciais', () => {
     })
   })
 })
+
+describe('valoresIniciais — formatação ao carregar (QA C5 e M1)', () => {
+  const comTipos = defineCadastro({
+    tabela: 't',
+    rota: 't',
+    rotulo: { singular: 'T', plural: 'Ts', genero: 'm' },
+    ordenacao: { coluna: 'id' },
+    campos: [
+      { nome: 'valor', etiqueta: 'Valor', tipo: 'dinheiro', schema: z.string() },
+      { nome: 'pct', etiqueta: 'Pct', tipo: 'percentual', schema: z.string() },
+      { nome: 'cpf', etiqueta: 'CPF', tipo: 'cpf', schema: z.string().nullable() },
+      { nome: 'tel', etiqueta: 'Tel', tipo: 'telefone', schema: z.string().nullable() },
+      { nome: 'cep', etiqueta: 'CEP', tipo: 'cep', schema: z.string().nullable() },
+      { nome: 'data', etiqueta: 'Data', tipo: 'data', schema: z.string().nullable() },
+    ],
+  })
+
+  it('converte dinheiro que vem como número do banco', () => {
+    // O bug C5: numeric(12,2) chega como number e o schema espera string,
+    // travando QUALQUER edição do serviço — inclusive só mudar o nome.
+    expect(valoresIniciais(comTipos, { valor: 105 }).valor).toBe('105,00')
+    expect(valoresIniciais(comTipos, { valor: '105.00' }).valor).toBe('105,00')
+    expect(valoresIniciais(comTipos, { valor: 1234.5 }).valor).toBe('1234,50')
+  })
+
+  it('converte percentual que vem como número', () => {
+    expect(valoresIniciais(comTipos, { pct: 60 }).pct).toBe('60')
+    expect(valoresIniciais(comTipos, { pct: '62.50' }).pct).toBe('62,5')
+  })
+
+  it('aplica máscara ao carregar, para o campo não abrir sem formato', () => {
+    expect(valoresIniciais(comTipos, { cpf: '52998224725' }).cpf).toBe('529.982.247-25')
+    expect(valoresIniciais(comTipos, { tel: '32984926111' }).tel).toBe('(32) 98492-6111')
+    expect(valoresIniciais(comTipos, { cep: '36570000' }).cep).toBe('36570-000')
+  })
+
+  it('corta o horário da data, para caber no input type=date', () => {
+    expect(valoresIniciais(comTipos, { data: '2026-08-04T00:00:00+00:00' }).data).toBe('2026-08-04')
+  })
+
+  it('trata nulo sem quebrar', () => {
+    const v = valoresIniciais(comTipos, { valor: null, cpf: null, tel: null, data: null })
+    expect(v.valor).toBe('')
+    expect(v.cpf).toBe('')
+    expect(v.data).toBe('')
+  })
+})

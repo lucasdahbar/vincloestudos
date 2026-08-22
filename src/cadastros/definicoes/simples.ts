@@ -55,41 +55,6 @@ export const anosEscolares = defineCadastro({
   ],
 })
 
-export const cidades = defineCadastro({
-  tabela: 'cidades',
-  rota: 'cidades',
-  rotulo: { singular: 'Cidade', plural: 'Cidades', genero: 'f' },
-  ordenacao: { coluna: 'nome' },
-  dicaVazio: 'Cadastre as cidades onde ficam as escolas e os responsáveis.',
-  campos: [
-    {
-      nome: 'nome',
-      etiqueta: 'Nome',
-      tipo: 'texto',
-      schema: textoObrigatorio('o nome da cidade'),
-      obrigatorio: true,
-      naLista: true,
-      buscavel: true,
-    },
-    {
-      nome: 'uf',
-      etiqueta: 'Estado (UF)',
-      tipo: 'texto',
-      ajuda: 'Sigla de duas letras, como SP. Pode ficar em branco.',
-      // Campo vazio chega como '' e vira null em `normalizar`. Por isso o
-      // comprimento so e cobrado quando algo foi digitado.
-      schema: z
-        .string()
-        .nullable()
-        .refine(
-          (v) => v === null || v.trim() === '' || v.trim().length === 2,
-          'Use a sigla de 2 letras, como SP.',
-        ),
-      naLista: true,
-    },
-  ],
-})
-
 export const contas = defineCadastro({
   tabela: 'contas',
   rota: 'contas',
@@ -183,15 +148,36 @@ export const escolas = defineCadastro({
       buscavel: true,
     },
     {
-      nome: 'cidade_id',
-      etiqueta: 'Cidade',
-      tipo: 'referencia',
-      referencia: { tabela: 'cidades', rotulo: 'nome', rota: 'cidades' },
-      schema: z.number().int().nullable(),
-      naLista: true,
+      nome: 'cep',
+      etiqueta: 'CEP',
+      tipo: 'cep',
+      ajuda: 'Ao sair do campo, o endereço é preenchido sozinho.',
+      schema: z.string().nullable(),
     },
-    { nome: 'endereco', etiqueta: 'Endereço', tipo: 'texto', schema: z.string().nullable() },
-    { nome: 'telefone', etiqueta: 'Telefone', tipo: 'texto', schema: z.string().nullable() },
+    { nome: 'endereco', etiqueta: 'Logradouro', tipo: 'texto', schema: z.string().nullable() },
+    { nome: 'numero', etiqueta: 'Número', tipo: 'texto', schema: z.string().nullable() },
+    {
+      nome: 'complemento',
+      etiqueta: 'Complemento',
+      tipo: 'texto',
+      ajuda: 'Ex.: Apto 301, Sala 2.',
+      schema: z.string().nullable(),
+    },
+    { nome: 'bairro', etiqueta: 'Bairro', tipo: 'texto', schema: z.string().nullable() },
+    { nome: 'cidade', etiqueta: 'Cidade', tipo: 'texto', schema: z.string().nullable(), naLista: true },
+    {
+      nome: 'estado',
+      etiqueta: 'Estado (UF)',
+      tipo: 'texto',
+      schema: z
+        .string()
+        .nullable()
+        .refine(
+          (v) => v === null || v.trim() === '' || /^[A-Za-z]{2}$/.test(v.trim()),
+          'Use a sigla de 2 letras, como MG.',
+        ),
+    },
+    { nome: 'telefone', etiqueta: 'Telefone', tipo: 'telefone', schema: z.string().nullable() },
     { nome: 'ativo', etiqueta: 'Ativa', tipo: 'booleano', schema: z.boolean(), padrao: true },
   ],
 })

@@ -1,9 +1,24 @@
 import { z } from 'zod'
 import { defineCadastro } from '@/cadastros/tipos'
+import { cpfValido } from '@/dominio/documentos/formato'
 import { CANAIS_NOTIFICACAO, DESTINATARIOS_NOTIFICACAO } from '@/dominio/tipos'
 
 const nome = z.string().trim().min(1, 'Informe o nome.')
 const opcional = z.string().nullable()
+
+/** Campo opcional, mas se preenchido tem que ser valido (Secoes 4.3 e 5.3). */
+const cpfOpcional = z
+  .string()
+  .nullable()
+  .refine((v) => !v || v.trim() === '' || cpfValido(v), 'CPF inválido')
+
+const emailOpcional = z
+  .string()
+  .nullable()
+  .refine(
+    (v) => !v || v.trim() === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()),
+    'E-mail inválido',
+  )
 
 export const professores = defineCadastro({
   tabela: 'professores',
@@ -37,9 +52,9 @@ export const professores = defineCadastro({
       obrigatorio: true,
       naLista: true,
     },
-    { nome: 'telefone', etiqueta: 'Telefone', tipo: 'texto', schema: opcional, naLista: true },
-    { nome: 'email', etiqueta: 'E-mail', tipo: 'texto', schema: opcional, buscavel: true },
-    { nome: 'cpf', etiqueta: 'CPF', tipo: 'texto', schema: opcional },
+    { nome: 'telefone', etiqueta: 'Telefone', tipo: 'telefone', schema: opcional, naLista: true },
+    { nome: 'email', etiqueta: 'E-mail', tipo: 'texto', schema: emailOpcional, buscavel: true },
+    { nome: 'cpf', etiqueta: 'CPF', tipo: 'cpf', schema: cpfOpcional },
     {
       nome: 'chave_pix',
       etiqueta: 'Chave Pix',
@@ -70,21 +85,43 @@ export const responsaveis = defineCadastro({
     {
       nome: 'telefone',
       etiqueta: 'Telefone (WhatsApp)',
-      tipo: 'texto',
+      tipo: 'telefone',
       ajuda: 'Número usado para enviar cobranças e avisos.',
       schema: opcional,
       naLista: true,
       buscavel: true,
     },
     { nome: 'email', etiqueta: 'E-mail', tipo: 'texto', schema: opcional, buscavel: true },
-    { nome: 'cpf', etiqueta: 'CPF', tipo: 'texto', schema: opcional },
-    { nome: 'endereco', etiqueta: 'Endereço', tipo: 'texto', schema: opcional },
+    { nome: 'cpf', etiqueta: 'CPF', tipo: 'cpf', schema: cpfOpcional },
     {
-      nome: 'cidade_id',
-      etiqueta: 'Cidade',
-      tipo: 'referencia',
-      referencia: { tabela: 'cidades', rotulo: 'nome', rota: 'cidades' },
-      schema: z.number().int().nullable(),
+      nome: 'cep',
+      etiqueta: 'CEP',
+      tipo: 'cep',
+      ajuda: 'Ao sair do campo, o endereço é preenchido sozinho.',
+      schema: z.string().nullable(),
+    },
+    { nome: 'endereco', etiqueta: 'Logradouro', tipo: 'texto', schema: z.string().nullable() },
+    { nome: 'numero', etiqueta: 'Número', tipo: 'texto', schema: z.string().nullable() },
+    {
+      nome: 'complemento',
+      etiqueta: 'Complemento',
+      tipo: 'texto',
+      ajuda: 'Ex.: Apto 301, Sala 2.',
+      schema: z.string().nullable(),
+    },
+    { nome: 'bairro', etiqueta: 'Bairro', tipo: 'texto', schema: z.string().nullable() },
+    { nome: 'cidade', etiqueta: 'Cidade', tipo: 'texto', schema: z.string().nullable(), naLista: true },
+    {
+      nome: 'estado',
+      etiqueta: 'Estado (UF)',
+      tipo: 'texto',
+      schema: z
+        .string()
+        .nullable()
+        .refine(
+          (v) => v === null || v.trim() === '' || /^[A-Za-z]{2}$/.test(v.trim()),
+          'Use a sigla de 2 letras, como MG.',
+        ),
     },
     { nome: 'observacao', etiqueta: 'Observações', tipo: 'texto-longo', schema: opcional },
     { nome: 'ativo', etiqueta: 'Ativo', tipo: 'booleano', schema: z.boolean(), padrao: true },

@@ -1,4 +1,9 @@
 /**
+ * ATENCAO: o banco tem os dados REAIS da gestora, nao mais o seed. Por isso as
+ * verificacoes conferem a ESTRUTURA da tela (titulos, rotulos, colunas) e nao
+ * nomes de registro — que mudam conforme ela usa o sistema. E nunca rode
+ * `scripts/semear.mjs` contra este banco: ele apaga os dados dela.
+ *
  * Verificacao ponta a ponta: faz login de verdade, monta o cookie de sessao no
  * formato que o @supabase/ssr espera, e busca as paginas protegidas conferindo
  * que o conteudo real do banco aparece no HTML renderizado.
@@ -66,29 +71,28 @@ const cookie = partes.join('; ')
 
 // 3. Buscar cada pagina protegida e conferir que o dado do banco aparece.
 const CASOS = [
-  ['/cadastros/responsaveis', ['Ana Ribeiro', 'Marcos Tavares', 'Juliana Prado'], 'lista de responsaveis'],
-  ['/cadastros/alunos', ['João Ribeiro', 'Maria Ribeiro', 'Colégio São José'], 'alunos com escola resolvida (join)'],
-  ['/cadastros/professores', ['Beatriz Lima', 'Carlos Menezes', '60%'], 'professores com percentual formatado'],
-  ['/cadastros/servicos', ['Aula regular', 'R$', '100,00'], 'servicos com dinheiro formatado'],
-  ['/cadastros/feriados', ['Independência do Brasil', '07/09/2026'], 'feriados com data em DD/MM/AAAA'],
-  ['/cadastros/cidades', ['Campinas', 'Valinhos'], 'cidades'],
-  ['/cadastros/contas', ['Conta principal', 'Nubank'], 'contas'],
-  ['/cadastros/materias', ['Matemática', 'Português'], 'materias'],
-  ['/cadastros/anos-escolares', ['9º ano'], 'anos escolares'],
-  ['/cadastros/escolas', ['Colégio São José', 'Campinas'], 'escolas com cidade resolvida'],
-  ['/turmas', ['Matemática', '9º ano', 'Beatriz Lima', 'aluno'], 'turmas com professor e contagem'],
-  ['/matriculas', ['João Ribeiro', 'Ativa'], 'matriculas'],
-  ['/cadastros/professores/2', ['Beatriz Lima', 'Turmas deste professor'], 'NAVEGACAO CRUZADA: turmas do professor'],
-  ['/cadastros/alunos/2', ['João Ribeiro', 'Turmas e matrículas'], 'NAVEGACAO CRUZADA: matriculas do aluno'],
-  ['/cadastros/responsaveis/2', ['Ana Ribeiro', 'Alunos sob responsabilidade', 'Maria Ribeiro'], 'NAVEGACAO CRUZADA: filhos do responsavel'],
-  ['/turmas/nova', ['Nome da turma', 'gerado automaticamente', 'Serviço'], 'formulario de turma'],
-  ['/matriculas/nova', ['Matrícula de reposição'], 'formulario de matricula'],
-  ['/agenda', ['agosto', 'Matemática'], 'agenda do mes com aulas materializadas'],
-  ['/agenda?mes=2026-09', ['setembro'], 'agenda navegando por mes'],
-  ['/reposicoes', ['Reposições'], 'painel de reposicoes'],
-  ['/cobrancas', ['Cobranças', 'Ana Ribeiro', 'R$'], 'cobrancas com dados reais'],
+  ['/cadastros/responsaveis', ['Responsáveis', 'Nov'], 'lista de responsáveis'],
+  ['/cadastros/alunos', ['Alunos', 'Responsável'], 'alunos com a coluna de responsável'],
+  ['/cadastros/professores', ['Professores', '%'], 'professores com percentual'],
+  ['/cadastros/servicos', ['Serviços', 'R$'], 'serviços com valor em reais'],
+  ['/cadastros/feriados', ['Feriados'], 'feriados'],
+  ['/cadastros/contas', ['Contas'], 'contas'],
+  ['/cadastros/materias', ['Matérias'], 'matérias'],
+  ['/cadastros/anos-escolares', ['Anos escolares'], 'anos escolares'],
+  ['/cadastros/escolas', ['Escolas'], 'escolas'],
+  ['/cadastros/responsaveis/novo', ['CEP', 'Logradouro', 'Bairro', 'Estado (UF)'], 'endereço por CEP (QA M3/M4)'],
+  ['/cadastros/escolas/novo', ['CEP', 'Bairro'], 'escola com endereço por CEP (QA C1)'],
+  ['/turmas', ['Turmas'], 'turmas'],
+  ['/matriculas', ['Matrículas'], 'matrículas'],
+  ['/turmas/nova', ['Nome da turma', 'gerado automaticamente', 'Serviço'], 'formulário de turma'],
+  ['/matriculas/nova', ['Matrícula de reposição'], 'formulário de matrícula'],
+  ['/agenda', ['Dom', 'Seg', 'Ter'], 'agenda em calendário'],
+  ['/agenda?vista=semana', ['Semana', 'Mês'], 'agenda por semana'],
+  ['/reposicoes', ['Reposições'], 'painel de reposições'],
+  ['/cobrancas', ['Cobranças', 'Gerar cobranças'], 'cobranças'],
   ['/recebimentos', ['Recebimentos'], 'recebimentos'],
-  ['/pagamentos', ['Pagamentos a professores', 'Beatriz Lima'], 'pagamentos'],
+  ['/pagamentos', ['Pagamentos a professores'], 'pagamentos'],
+  ['/mensagens', ['Mensagens a enviar'], 'fila de mensagens'],
   ['/', ['Olá', 'Aulas de hoje'], 'painel inicial'],
 ]
 

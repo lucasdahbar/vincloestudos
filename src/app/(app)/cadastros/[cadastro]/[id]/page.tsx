@@ -3,6 +3,7 @@ import { CADASTROS } from '@/cadastros/definicoes'
 import { Formulario } from '@/cadastros/motor/Formulario'
 import { carregarReferencias } from '@/cadastros/motor/referencias'
 import { PainelRelacionados, paineisDe } from '@/cadastros/motor/Relacionados'
+import { BotaoExcluir } from '@/cadastros/motor/BotaoExcluir'
 import { paraCliente } from '@/cadastros/tipos'
 import { obter } from '@/dados/crud'
 import { exigirGestora } from '@/dados/sessao'
@@ -32,6 +33,24 @@ export default async function PaginaEdicao({
         registro={registro as Record<string, unknown> & { id: number }}
         referencias={referencias}
       />
+
+      {/* LGPD Art. 18: so as entidades que guardam dado pessoal de pessoa
+          fisica (Secoes 4.4, 5.5, 5.7, 6.3 e 6.5). */}
+      {['professores', 'responsaveis', 'alunos'].includes(cadastro) && (
+        <div className="max-w-2xl border-t border-borda pt-6">
+          <h2 className="text-lg">Excluir este cadastro</h2>
+          <p className="mb-4 mt-1 text-sm text-tinta-suave">
+            Se houver histórico financeiro ou de aulas, os dados pessoais são apagados e o
+            histórico é preservado. Você vê o que vai acontecer antes de confirmar.
+          </p>
+          <BotaoExcluir
+            entidade={cadastro}
+            id={Number(id)}
+            nome={String(registro.nome ?? 'este cadastro')}
+            rota={cadastro}
+          />
+        </div>
+      )}
 
       {paineis.length > 0 && (
         <div className="flex max-w-2xl flex-col gap-4">

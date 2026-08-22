@@ -1,7 +1,12 @@
 import { z } from 'zod'
+import { aplicarMascara } from '@/dominio/documentos/formato'
 
 export type TipoCampo =
   | 'texto'
+  | 'cpf'
+  | 'cnpj'
+  | 'telefone'
+  | 'cep'
   | 'texto-longo'
   | 'numero'
   | 'dinheiro'
@@ -100,6 +105,10 @@ export function paraCliente(definicao: DefinicaoCadastro): CadastroCliente {
 
 const VAZIO_POR_TIPO: Record<TipoCampo, unknown> = {
   texto: '',
+  cpf: '',
+  cnpj: '',
+  telefone: '',
+  cep: '',
   'texto-longo': '',
   numero: null,
   dinheiro: '',
@@ -110,6 +119,38 @@ const VAZIO_POR_TIPO: Record<TipoCampo, unknown> = {
   referencia: null,
 }
 
+/**
+ * Converte o valor cru do banco para o que o campo do formulario espera.
+ *
+ * Sem isto, `numeric` chega como number e o schema Zod de dinheiro — que e
+ * string, porque a gestora digita "1.234,56" — rejeita com "expected string,
+ * received number". O efeito era travar QUALQUER edicao do registro, mesmo
+ * mudando so o nome, ja que a validacao roda no formulario inteiro.
+ *
+ * Tambem aplica a mascara na carga: o campo tem que ABRIR formatado, nao so
+ * ficar formatado depois que a gestora digitar por cima.
+ */
+export function paraFormulario(tipo: TipoCampo, valor: unknown): unknown {
+  if (valor === null || valor === undefined) return VAZIO_POR_TIPO[tipo]
+
+  switch (tipo) {
+    case 'dinheiro':
+      return Number(valor).toFixed(2).replace('.', ',')
+    case 'percentual':
+      // Sem zeros a direita: "60", nao "60,00".
+      return String(Number(valor)).replace('.', ',')
+    case 'cpf':
+    case 'cnpj':
+    case 'telefone':
+    case 'cep':
+      return aplicarMascara(tipo, String(valor))
+    case 'data':
+      return String(valor).slice(0, 10)
+    default:
+      return valor
+  }
+}
+
 export function valoresIniciais(
   definicao: CadastroCliente,
   registro?: Record<string, unknown>,
@@ -117,7 +158,7 @@ export function valoresIniciais(
   const valores: Record<string, unknown> = {}
   for (const campo of definicao.campos) {
     if (registro && campo.nome in registro) {
-      valores[campo.nome] = registro[campo.nome]
+      valores[campo.nome] = paraFormulario(campo.tipo, registro[campo.nome])
     } else if ('padrao' in campo) {
       valores[campo.nome] = campo.padrao
     } else {

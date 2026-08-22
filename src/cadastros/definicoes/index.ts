@@ -1,7 +1,6 @@
 import type { DefinicaoCadastro } from '@/cadastros/tipos'
 import {
   anosEscolares,
-  cidades,
   contas,
   escolas,
   feriados,
@@ -19,8 +18,7 @@ export const CADASTROS: Record<string, DefinicaoCadastro> = Object.fromEntries(
     servicos,
     materias,
     anosEscolares,
-    cidades,
-    contas,
+      contas,
     feriados,
   ].map((d) => [d.rota, d]),
 )

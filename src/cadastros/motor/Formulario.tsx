@@ -23,6 +23,12 @@ export function Formulario({ definicao, registro, referencias }: Props) {
   const [mensagem, setMensagem] = useState<string | null>(null)
   const [pendente, iniciar] = useTransition()
 
+  /** Preenche varios campos de uma vez: usado pelo retorno da busca de CEP. */
+  function preencherVarios(novos: Record<string, unknown>) {
+    setValores((atual) => ({ ...atual, ...novos }))
+    setErros({})
+  }
+
   function mudar(nome: string, valor: unknown) {
     setValores((atual) => ({ ...atual, [nome]: valor }))
     setErros(({ [nome]: _removido, ...resto }) => resto)
@@ -61,6 +67,7 @@ export function Formulario({ definicao, registro, referencias }: Props) {
             erro={erros[campo.nome]}
             referencias={referencias}
             aoMudar={mudar}
+            aoPreencher={preencherVarios}
           />
         ))}
       </Cartao>

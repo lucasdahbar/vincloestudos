@@ -204,5 +204,18 @@ async function semear() {
   }
 }
 
+// TRAVA: este banco tem os dados reais da gestora. Apagar por engano custaria
+// o cadastro inteiro dela. So roda com --eu-sei-o-que-estou-fazendo.
+if (!process.argv.includes('--eu-sei-o-que-estou-fazendo')) {
+  console.error(
+    'Recusado: este script APAGA todos os dados de negocio.
+' +
+      'O banco de producao tem os cadastros reais da gestora.
+' +
+      'Se e mesmo isso que voce quer, rode com --eu-sei-o-que-estou-fazendo',
+  )
+  process.exit(1)
+}
+
 await limpar()
 if (!process.argv.includes('--limpar')) await semear()

@@ -71,3 +71,22 @@ export async function alternarAtivoCadastro(rota: string, id: number, ativo: boo
   await atualizar(definicao, id, { ativo })
   revalidatePath(`/cadastros/${rota}`)
 }
+
+/** Previa da exclusao: diz o que vai acontecer antes de acontecer (LGPD). */
+export async function consultarExclusao(entidade: string, id: number) {
+  await exigirGestora()
+  const { previaExclusao } = await import('@/dados/lgpd')
+  return previaExclusao(entidade as 'professores' | 'responsaveis' | 'alunos', id)
+}
+
+export async function excluirCadastro(entidade: string, id: number) {
+  const sessao = await exigirGestora()
+  const { executarExclusao } = await import('@/dados/lgpd')
+  const r = await executarExclusao(
+    entidade as 'professores' | 'responsaveis' | 'alunos',
+    id,
+    sessao.nome,
+  )
+  revalidatePath(`/cadastros`, 'layout')
+  return r
+}
