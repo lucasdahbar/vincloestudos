@@ -8,6 +8,7 @@ import { exigirGestora } from '@/dados/sessao'
 import { BotaoLink } from '@/ui/Botao'
 import { Busca } from '@/ui/Busca'
 import { EstadoVazio } from '@/ui/EstadoVazio'
+import { ImportarFeriados } from './ImportarFeriados'
 
 export function generateStaticParams() {
   return ROTAS_DE_CADASTRO.map((cadastro) => ({ cadastro }))
@@ -43,6 +44,9 @@ export default async function PaginaListagem({
           + {artigo} {definicao.rotulo.singular.toLowerCase()}
         </BotaoLink>
       </header>
+
+      {/* Feriado nacional vem de fonte publica; o resto continua manual. */}
+      {cadastro === 'feriados' && <ImportarFeriados anoAtual={new Date().getFullYear()} />}
 
       {definicao.camposBuscaveis.length > 0 && (
         <Suspense>

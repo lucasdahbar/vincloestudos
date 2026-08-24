@@ -91,7 +91,7 @@ export const responsaveis = defineCadastro({
       naLista: true,
       buscavel: true,
     },
-    { nome: 'email', etiqueta: 'E-mail', tipo: 'texto', schema: opcional, buscavel: true },
+    { nome: 'email', etiqueta: 'E-mail', tipo: 'texto', schema: emailOpcional, buscavel: true },
     { nome: 'cpf', etiqueta: 'CPF', tipo: 'cpf', schema: cpfOpcional },
     {
       nome: 'cep',
@@ -164,8 +164,8 @@ export const alunos = defineCadastro({
       naLista: true,
     },
     { nome: 'data_nascimento', etiqueta: 'Data de nascimento', tipo: 'data', schema: opcional },
-    { nome: 'telefone', etiqueta: 'Telefone', tipo: 'texto', schema: opcional },
-    { nome: 'email', etiqueta: 'E-mail', tipo: 'texto', schema: opcional, buscavel: true },
+    { nome: 'telefone', etiqueta: 'Telefone', tipo: 'telefone', schema: opcional },
+    { nome: 'email', etiqueta: 'E-mail', tipo: 'texto', schema: emailOpcional, buscavel: true },
     {
       nome: 'destinatario_notificacao',
       etiqueta: 'Quem recebe os avisos',
