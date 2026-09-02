@@ -18,6 +18,8 @@ const turmaValida: EntradaTurma = {
   ano_escolar_id: 4,
   professor_id: 5,
   modalidade: 'Presencial',
+  tipo_recorrencia: 'Recorrente',
+  data_unica: null,
   dias_semana: [2, 4],
   horario_inicio: '15:00',
   horario_fim: '16:00',

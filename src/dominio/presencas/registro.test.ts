@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { montarRegistro, type MatriculadoNaAula, type RespostaChamada } from './registro'
+import { montarRegistro, semPendenciaDeReposicao, type MatriculadoNaAula, type RespostaChamada } from './registro'
 
 const matriculados: MatriculadoNaAula[] = [
   { aluno_id: 1, nome: 'João Ribeiro', flag_reposicao: false },
@@ -90,5 +90,35 @@ describe('montarRegistro', () => {
     const r = montarRegistro({ aulaId: 10, professorId: 5, matriculados: [], respostas: [] })
     expect(r.presencas).toEqual([])
     expect(r.novoStatusAula).toBe('Realizada')
+  })
+})
+
+// R3 (Rodada 2)
+describe('semPendenciaDeReposicao', () => {
+  const turma = [
+    { aluno_id: 1, nome: 'Ana', flag_reposicao: false },
+    { aluno_id: 2, nome: 'Bruno', flag_reposicao: false },
+    { aluno_id: 3, nome: 'Carla', flag_reposicao: false },
+  ]
+
+  it('tira da lista quem já avisou que não vem', () => {
+    const lista = semPendenciaDeReposicao(turma, [{ aluno_id: 2 }])
+    expect(lista.map((a) => a.nome)).toEqual(['Ana', 'Carla'])
+  })
+
+  it('sem pendências, a lista não muda', () => {
+    expect(semPendenciaDeReposicao(turma, [])).toEqual(turma)
+  })
+
+  it('pendência de outro aluno não afeta os demais', () => {
+    expect(semPendenciaDeReposicao(turma, [{ aluno_id: 99 }])).toHaveLength(3)
+  })
+
+  it('a chamada montada a partir da lista filtrada não gera presença de quem saiu', () => {
+    // Sem isso o professor marcaria falta para quem já está em Reposições, e a
+    // pendência viraria duas.
+    const lista = semPendenciaDeReposicao(turma, [{ aluno_id: 2 }])
+    const r = montarRegistro({ aulaId: 10, professorId: 1, matriculados: lista, respostas: [] })
+    expect(r.presencas.map((p) => p.aluno_id)).toEqual([1, 3])
   })
 })

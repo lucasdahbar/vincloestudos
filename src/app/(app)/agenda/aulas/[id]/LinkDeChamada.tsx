@@ -11,6 +11,8 @@ interface Props {
   aulaId: number
   turmaNome: string
   professorNome: string | null
+  /** Telefone do professor, para o botao do WhatsApp (R4). */
+  professorTelefone: string | null
   quando: string
   /** Caminho do link ja existente, se houver. */
   caminhoExistente: string | null
@@ -28,6 +30,7 @@ export function LinkDeChamada({
   aulaId,
   turmaNome,
   professorNome,
+  professorTelefone,
   quando,
   caminhoExistente,
   jaConfirmada,
@@ -45,6 +48,14 @@ export function LinkDeChamada({
     `Segue o link para registrar a presença da aula de ${turmaNome}, ${quando}:\n\n` +
     `${urlCompleta}\n\n` +
     `É só marcar quem veio e tocar em "Confirmar presenças". O link vale por 48 horas.`
+
+  // R4: abrir direto a conversa, no mesmo padrao da tela de Mensagens. Copiar
+  // e colar exige trocar de aplicativo e achar o contato a mao.
+  const numero = (professorTelefone ?? '').replace(/\D/g, '')
+  const whatsapp =
+    numero && urlCompleta
+      ? `https://wa.me/${numero.startsWith('55') ? numero : `55${numero}`}?text=${encodeURIComponent(mensagem)}`
+      : null
 
   async function copiar(texto: string, qual: 'link' | 'mensagem') {
     await navigator.clipboard.writeText(texto)
@@ -105,13 +116,27 @@ export function LinkDeChamada({
           </p>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <Botao onClick={() => copiar(mensagem, 'mensagem')}>
-              {copiado === 'mensagem' ? 'Copiado!' : 'Copiar mensagem para o WhatsApp'}
+            {whatsapp && (
+              <Botao onClick={() => window.open(whatsapp, '_blank', 'noopener,noreferrer')}>
+                Abrir no WhatsApp
+              </Botao>
+            )}
+            <Botao
+              aparencia={whatsapp ? 'secundario' : 'primario'}
+              onClick={() => copiar(mensagem, 'mensagem')}
+            >
+              {copiado === 'mensagem' ? 'Copiado!' : 'Copiar mensagem'}
             </Botao>
             <Botao aparencia="secundario" onClick={() => copiar(urlCompleta, 'link')}>
               {copiado === 'link' ? 'Copiado!' : 'Copiar só o link'}
             </Botao>
           </div>
+
+          {!whatsapp && (
+            <p className="mt-2 text-sm text-tinta-suave">
+              Cadastre o telefone do professor para enviar direto pelo WhatsApp.
+            </p>
+          )}
 
           <details className="mt-4">
             <summary className="cursor-pointer text-sm text-tinta-suave">

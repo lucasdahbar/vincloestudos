@@ -4,6 +4,10 @@ export type Modalidade = (typeof MODALIDADES)[number]
 export const STATUS_TURMA = ['Ativa', 'Encerrada'] as const
 export type StatusTurma = (typeof STATUS_TURMA)[number]
 
+/** T1: a turma se repete toda semana ou acontece uma vez so. */
+export const TIPOS_RECORRENCIA = ['Recorrente', 'Único'] as const
+export type TipoRecorrencia = (typeof TIPOS_RECORRENCIA)[number]
+
 export const STATUS_MATRICULA = ['Ativa', 'Encerrada'] as const
 export type StatusMatricula = (typeof STATUS_MATRICULA)[number]
 
@@ -15,6 +19,10 @@ export type CanalNotificacao = (typeof CANAIS_NOTIFICACAO)[number]
 
 export const TIPOS_CONTA = ['Banco', 'Dinheiro', 'Carteira digital'] as const
 export type TipoConta = (typeof TIPOS_CONTA)[number]
+
+/** P3/P4: de onde saiu o dinheiro que pagou o professor. */
+export const ORIGENS_BAIXA = ['Conta própria', 'Pago por responsável', 'Outro'] as const
+export type OrigemBaixa = (typeof ORIGENS_BAIXA)[number]
 
 export const ABRANGENCIAS_FERIADO = ['Nacional', 'Estadual', 'Municipal'] as const
 export type AbrangenciaFeriado = (typeof ABRANGENCIAS_FERIADO)[number]

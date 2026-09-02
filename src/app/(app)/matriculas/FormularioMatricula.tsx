@@ -14,16 +14,28 @@ interface Opcao {
   nome: string
 }
 
+/** T3: quando `matricula` vem preenchida, o formulario edita em vez de criar. */
+export interface MatriculaExistente {
+  id: number
+  aluno_id: number
+  turma_id: number
+  data_inicio: string
+  data_fim: string | null
+  flag_reposicao: boolean
+}
+
 export function FormularioMatricula({
   alunos,
   turmas,
   alunoFixo,
   turmaFixa,
+  matricula,
 }: {
   alunos: Opcao[]
   turmas: Opcao[]
   alunoFixo?: number
   turmaFixa?: number
+  matricula?: MatriculaExistente
 }) {
   const router = useRouter()
   const [pendente, iniciar] = useTransition()
@@ -31,11 +43,11 @@ export function FormularioMatricula({
   const hoje = new Date().toISOString().slice(0, 10)
 
   const [estado, setEstado] = useState({
-    aluno_id: alunoFixo ?? null,
-    turma_id: turmaFixa ?? null,
-    data_inicio: hoje,
-    data_fim: null as string | null,
-    flag_reposicao: false,
+    aluno_id: matricula?.aluno_id ?? alunoFixo ?? null,
+    turma_id: matricula?.turma_id ?? turmaFixa ?? null,
+    data_inicio: matricula?.data_inicio ?? hoje,
+    data_fim: matricula?.data_fim ?? (null as string | null),
+    flag_reposicao: matricula?.flag_reposicao ?? false,
   })
 
   const aviso = avisoDeReposicao(estado.flag_reposicao)
@@ -44,9 +56,11 @@ export function FormularioMatricula({
     evento.preventDefault()
     setErros([])
     iniciar(async () => {
-      const resultado = await salvarMatricula(estado)
+      const resultado = await salvarMatricula(estado, matricula?.id ?? null)
       if (resultado.ok) {
-        router.push(turmaFixa ? `/turmas/${turmaFixa}` : '/matriculas')
+        router.push(
+          matricula ? `/turmas/${estado.turma_id}` : turmaFixa ? `/turmas/${turmaFixa}` : '/matriculas',
+        )
         router.refresh()
       } else {
         setErros(resultado.erros ?? ['Não foi possível matricular.'])
@@ -57,7 +71,7 @@ export function FormularioMatricula({
   return (
     <form onSubmit={enviar} className="max-w-2xl">
       <Cartao className="flex flex-col gap-5">
-        {!alunoFixo && (
+        {!alunoFixo && !matricula && (
           <Campo etiqueta="Aluno" obrigatorio>
             <select
               value={estado.aluno_id ?? ''}
@@ -76,7 +90,7 @@ export function FormularioMatricula({
           </Campo>
         )}
 
-        {!turmaFixa && (
+        {!turmaFixa && !matricula && (
           <Campo etiqueta="Turma" ajuda="Somente turmas ativas aceitam matrícula." obrigatorio>
             <select
               value={estado.turma_id ?? ''}
@@ -148,7 +162,7 @@ export function FormularioMatricula({
 
       <div className="mt-6 flex gap-3">
         <Botao type="submit" disabled={pendente}>
-          {pendente ? 'Salvando…' : 'Matricular'}
+          {pendente ? 'Salvando…' : matricula ? 'Salvar alterações' : 'Matricular'}
         </Botao>
         <Botao type="button" aparencia="secundario" onClick={() => router.back()}>
           Cancelar

@@ -99,3 +99,17 @@ describe('gerarTextoCobranca', () => {
     expect(texto.split('\n').length).toBeGreaterThan(5)
   })
 })
+
+// C1 (Rodada 2)
+describe('cobrança complementar', () => {
+  it('avisa que é adicional, para não parecer cobrança repetida', () => {
+    const texto = gerarTextoCobranca({ ...dados, complementar: true })
+    expect(texto).toContain('cobrança complementar')
+    expect(texto).toContain('agosto/2026')
+    expect(texto).toContain('não entraram na cobrança anterior')
+  })
+
+  it('a cobrança normal não menciona complemento', () => {
+    expect(gerarTextoCobranca(dados)).not.toContain('complementar')
+  })
+})

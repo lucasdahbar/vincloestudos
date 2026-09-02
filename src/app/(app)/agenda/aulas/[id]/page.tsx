@@ -33,13 +33,15 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
     tokenDaAula(aula.id),
     supabase
       .from('turmas')
-      .select('professor:professores!professor_id (nome)')
+      .select('professor:professores!professor_id (nome, telefone)')
       .eq('id', aula.turma_id)
       .maybeSingle(),
   ])
 
-  const professorNome =
-    (daTurma?.professor as unknown as { nome: string } | null)?.nome ?? null
+  const professor = daTurma?.professor as unknown as
+    | { nome: string; telefone: string | null }
+    | null
+  const professorNome = professor?.nome ?? null
 
   const registradas = (presencas ?? []) as unknown as {
     aluno_id: number
@@ -116,6 +118,7 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
           aulaId={aula.id}
           turmaNome={aula.turma?.nome ?? 'a turma'}
           professorNome={professorNome}
+          professorTelefone={professor?.telefone ?? null}
           quando={quando}
           caminhoExistente={token && !token.usado_em ? `/p/presenca/${token.token}` : null}
           jaConfirmada={Boolean(token?.usado_em)}

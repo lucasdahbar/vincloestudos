@@ -1,4 +1,4 @@
-import type { Modalidade, StatusTurma } from '@/dominio/tipos'
+import type { Modalidade, StatusTurma, TipoRecorrencia } from '@/dominio/tipos'
 
 export interface ServicoDaTurma {
   permite_materia: boolean
@@ -12,6 +12,10 @@ export interface EntradaTurma {
   ano_escolar_id: number | null
   professor_id: number | null
   modalidade: Modalidade | null
+  /** T1: "Não se repete" (data_unica) ou "Recorrente" (dias da semana). */
+  tipo_recorrencia: TipoRecorrencia
+  /** Preenchido so no modo Único. Data em ISO (AAAA-MM-DD). */
+  data_unica: string | null
   dias_semana: number[]
   horario_inicio: string
   horario_fim: string
@@ -52,8 +56,20 @@ export function validarTurma(turma: EntradaTurma, servico: ServicoDaTurma): stri
     erros.push('Dia da semana inválido.')
   }
 
-  if (turma.status === 'Ativa' && turma.dias_semana.length === 0) {
-    erros.push('Escolha ao menos um dia da semana para ativar a turma.')
+  // T1: os dois modos sao excludentes. No modo Único a turma acontece uma vez
+  // so (um aulao de revisao, por exemplo) e nao ha dia da semana que se repita.
+  if (turma.tipo_recorrencia === 'Único') {
+    if (!turma.data_unica) erros.push('Informe a data da aula.')
+    if (turma.dias_semana.length > 0) {
+      erros.push('Uma aula que não se repete não tem dias da semana.')
+    }
+  } else {
+    if (turma.data_unica) {
+      erros.push('A data única só vale para uma aula que não se repete.')
+    }
+    if (turma.status === 'Ativa' && turma.dias_semana.length === 0) {
+      erros.push('Escolha ao menos um dia da semana para ativar a turma.')
+    }
   }
 
   return erros

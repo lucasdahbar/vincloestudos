@@ -62,6 +62,17 @@ export const professores = defineCadastro({
       ajuda: 'Para onde o pagamento do professor é enviado.',
       schema: opcional,
     },
+    // G1: a agenda do Google deste professor. A escolha a partir da lista de
+    // agendas da conta depende da autorizacao OAuth, que ainda nao foi feita;
+    // ate la o ID e colado a mao, e a coluna ja fica pronta para o seletor.
+    {
+      nome: 'google_calendar_id',
+      etiqueta: 'Agenda do Google',
+      tipo: 'texto',
+      ajuda:
+        'ID da agenda deste professor na conta Google da empresa. No Google Agenda: Configurações da agenda → Integrar agenda → ID da agenda.',
+      schema: opcional,
+    },
     { nome: 'ativo', etiqueta: 'Ativo', tipo: 'booleano', schema: z.boolean(), padrao: true },
   ],
 })

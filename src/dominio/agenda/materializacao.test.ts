@@ -65,3 +65,44 @@ describe('idOcorrenciaLocal', () => {
     expect(idOcorrenciaLocal(7, '2026-08-04', '15:00')).toBe('local:t7:2026-08-04T15:00')
   })
 })
+
+// T1 (Rodada 2): turma criada como "Não se repete" — um aulão de revisão, por
+// exemplo — rende uma aula so, na data marcada.
+describe('turma de data única', () => {
+  const aulao = {
+    id: 42,
+    tipo_recorrencia: 'Único' as const,
+    data_unica: '2026-09-15',
+    dias_semana: [],
+    horario_inicio: '14:00',
+    horario_fim: '17:00',
+    status: 'Ativa' as const,
+  }
+
+  it('gera exatamente uma ocorrência, na data marcada', () => {
+    const o = materializar(aulao, '2026-09-01', '2026-09-30')
+    expect(o).toHaveLength(1)
+    expect(o[0]).toMatchObject({ data: '2026-09-15', horario_inicio: '14:00' })
+  })
+
+  it('não gera nada quando a data cai fora da janela', () => {
+    expect(materializar(aulao, '2026-10-01', '2026-10-31')).toEqual([])
+  })
+
+  it('ignora dias da semana que tenham sobrado no registro', () => {
+    // Se a gestora trocar uma turma recorrente para única, os dias antigos não
+    // podem continuar gerando aula toda semana.
+    const o = materializar({ ...aulao, dias_semana: [1, 3] }, '2026-09-01', '2026-09-30')
+    expect(o).toHaveLength(1)
+  })
+
+  it('sem data marcada não gera aula', () => {
+    expect(materializar({ ...aulao, data_unica: null }, '2026-09-01', '2026-09-30')).toEqual([])
+  })
+
+  it('ressincronizar continua dando o mesmo id', () => {
+    const a = materializar(aulao, '2026-09-01', '2026-09-30')
+    const b = materializar(aulao, '2026-08-01', '2026-12-31')
+    expect(a[0].google_calendar_event_id).toBe(b[0].google_calendar_event_id)
+  })
+})

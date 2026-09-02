@@ -5,8 +5,27 @@ import { carregarReferencias } from '@/cadastros/motor/referencias'
 import { PainelRelacionados, paineisDe } from '@/cadastros/motor/Relacionados'
 import { BotaoExcluir } from '@/cadastros/motor/BotaoExcluir'
 import { paraCliente } from '@/cadastros/tipos'
+import { LinkDoProfessor } from './LinkDoProfessor'
+import { headers } from 'next/headers'
 import { obter } from '@/dados/crud'
+import { tokenDoProfessor } from '@/dados/professores'
 import { exigirGestora } from '@/dados/sessao'
+
+/**
+ * O link permanente do professor, se ele ja tem um.
+ *
+ * `obter()` traz so os campos declarados no cadastro, e `token_presenca` nao e
+ * um deles de proposito: e segredo, nao campo de formulario.
+ */
+async function linkDoProfessor(id: number): Promise<string | null> {
+  const token = await tokenDoProfessor(id)
+  if (!token) return null
+
+  const cabecalhos = await headers()
+  const anfitriao = cabecalhos.get('host') ?? ''
+  const protocolo = anfitriao.startsWith('localhost') ? 'http' : 'https'
+  return `${protocolo}://${anfitriao}/p/professor/${token}`
+}
 
 export default async function PaginaEdicao({
   params,
@@ -33,6 +52,18 @@ export default async function PaginaEdicao({
         registro={registro as Record<string, unknown> & { id: number }}
         referencias={referencias}
       />
+
+      {/* R1: o link permanente de presenca deste professor. */}
+      {cadastro === 'professores' && (
+        <div className="max-w-2xl">
+          <LinkDoProfessor
+            professorId={Number(id)}
+            nome={String(registro.nome ?? 'Professor')}
+            telefone={(registro.telefone as string | null) ?? null}
+            linkInicial={await linkDoProfessor(Number(id))}
+          />
+        </div>
+      )}
 
       {/* LGPD Art. 18: so as entidades que guardam dado pessoal de pessoa
           fisica (Secoes 4.4, 5.5, 5.7, 6.3 e 6.5). */}

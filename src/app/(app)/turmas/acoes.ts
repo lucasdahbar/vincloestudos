@@ -1,11 +1,14 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
+import { headers } from 'next/headers'
 import { clienteServidor } from '@/dados/cliente'
 import { sincronizarAulas } from '@/dados/aulas'
 import { exigirGestora } from '@/dados/sessao'
 import { validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
+import { avisarProfessorDaTurma } from '@/dados/avisos-turma'
 
 export interface ResultadoTurma {
   ok: boolean
@@ -45,6 +48,8 @@ export async function salvarTurma(
     ano_escolar_id: entrada.ano_escolar_id,
     professor_id: entrada.professor_id,
     modalidade: entrada.modalidade,
+    tipo_recorrencia: entrada.tipo_recorrencia,
+    data_unica: entrada.data_unica,
     dias_semana: entrada.dias_semana,
     horario_inicio: entrada.horario_inicio,
     horario_fim: entrada.horario_fim,
@@ -71,6 +76,24 @@ export async function salvarTurma(
     // Nao derruba o salvamento: a turma ja esta gravada, e a agenda se
     // recupera sozinha na proxima abertura.
     console.error('falha ao materializar aulas da turma:', e)
+  }
+
+  // G4: so na criacao. Reenviar a cada edicao encheria a caixa do professor de
+  // avisos iguais, e o documento pede o e-mail "ao criar uma nova Turma".
+  if (id === null) {
+    const cabecalhos = await headers()
+    const anfitriao = cabecalhos.get('host') ?? ''
+    const protocolo = anfitriao.startsWith('localhost') ? 'http' : 'https'
+    const urlBase = anfitriao ? `${protocolo}://${anfitriao}` : ''
+
+    after(async () => {
+      try {
+        await avisarProfessorDaTurma(resposta.data.id, urlBase)
+      } catch (e) {
+        // O aviso e conveniencia: a turma existe mesmo que o e-mail falhe.
+        console.error('falha ao avisar o professor da turma nova:', e)
+      }
+    })
   }
 
   revalidatePath('/turmas')

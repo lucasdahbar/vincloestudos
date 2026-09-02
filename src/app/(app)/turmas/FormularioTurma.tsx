@@ -5,7 +5,12 @@ import { useMemo, useState, useTransition } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { salvarTurma } from './acoes'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
-import { DIAS_SEMANA, MODALIDADES, type Modalidade } from '@/dominio/tipos'
+import {
+  DIAS_SEMANA,
+  MODALIDADES,
+  type Modalidade,
+  type TipoRecorrencia,
+} from '@/dominio/tipos'
 import type { EntradaTurma } from '@/dominio/turmas/regras'
 import type { OpcoesDeTurma, TurmaComRelacoes } from '@/dados/turmas'
 import { Botao } from '@/ui/Botao'
@@ -30,6 +35,8 @@ export function FormularioTurma({
     ano_escolar_id: turma?.ano_escolar_id ?? null,
     professor_id: turma?.professor_id ?? null,
     modalidade: turma?.modalidade ?? null,
+    tipo_recorrencia: turma?.tipo_recorrencia ?? 'Recorrente',
+    data_unica: turma?.data_unica ?? null,
     dias_semana: turma?.dias_semana ?? [],
     horario_inicio: turma?.horario_inicio?.slice(0, 5) ?? '',
     horario_fim: turma?.horario_fim?.slice(0, 5) ?? '',
@@ -58,6 +65,16 @@ export function FormularioTurma({
       servico_id: id,
       materia_id: novo?.permite_materia ? atual.materia_id : null,
       escola_id: novo?.permite_escola ? atual.escola_id : null,
+    }))
+  }
+
+  /** Trocar de modo limpa o campo do modo anterior: os dois nunca coexistem. */
+  function trocarRecorrencia(tipo: TipoRecorrencia) {
+    setEstado((atual) => ({
+      ...atual,
+      tipo_recorrencia: tipo,
+      dias_semana: tipo === 'Único' ? [] : atual.dias_semana,
+      data_unica: tipo === 'Recorrente' ? null : atual.data_unica,
     }))
   }
 
@@ -233,32 +250,68 @@ export function FormularioTurma({
           </select>
         </Campo>
 
-        <Campo
-          etiqueta="Dias da semana"
-          ajuda="Em quais dias esta turma tem aula."
-          obrigatorio
-        >
+        {/* T1: mesma escolha do Google Agenda — "não se repete" ou "recorrente".
+            Cobre o aulão de revisão sem precisar de um segundo cadastro. */}
+        <Campo etiqueta="Repetição" obrigatorio>
           <div className="flex flex-wrap gap-2">
-            {DIAS_SEMANA.map((dia) => {
-              const marcado = estado.dias_semana.includes(dia.valor)
+            {(['Recorrente', 'Único'] as TipoRecorrencia[]).map((tipo) => {
+              const marcado = estado.tipo_recorrencia === tipo
               return (
                 <button
-                  key={dia.valor}
+                  key={tipo}
                   type="button"
-                  onClick={() => alternarDia(dia.valor)}
+                  onClick={() => trocarRecorrencia(tipo)}
                   aria-pressed={marcado}
-                  className={`min-h-[44px] min-w-[56px] rounded-campo border px-3 font-medium transition-all active:scale-95 ${
+                  className={`min-h-[44px] rounded-campo border px-4 font-medium transition-all active:scale-95 ${
                     marcado
                       ? 'border-destaque bg-destaque text-white'
                       : 'border-borda bg-superficie text-tinta-suave hover:border-destaque/40'
                   }`}
                 >
-                  {dia.curto}
+                  {tipo === 'Recorrente' ? 'Toda semana' : 'Não se repete'}
                 </button>
               )
             })}
           </div>
         </Campo>
+
+        {estado.tipo_recorrencia === 'Único' ? (
+          <Campo etiqueta="Data da aula" ajuda="Esta turma acontece uma vez só." obrigatorio>
+            <input
+              type="date"
+              value={estado.data_unica ?? ''}
+              onChange={(e) => setEstado((a) => ({ ...a, data_unica: e.target.value || null }))}
+              className={entradaClasse}
+            />
+          </Campo>
+        ) : (
+          <Campo
+            etiqueta="Dias da semana"
+            ajuda="Em quais dias esta turma tem aula."
+            obrigatorio
+          >
+            <div className="flex flex-wrap gap-2">
+              {DIAS_SEMANA.map((dia) => {
+                const marcado = estado.dias_semana.includes(dia.valor)
+                return (
+                  <button
+                    key={dia.valor}
+                    type="button"
+                    onClick={() => alternarDia(dia.valor)}
+                    aria-pressed={marcado}
+                    className={`min-h-[44px] min-w-[56px] rounded-campo border px-3 font-medium transition-all active:scale-95 ${
+                      marcado
+                        ? 'border-destaque bg-destaque text-white'
+                        : 'border-borda bg-superficie text-tinta-suave hover:border-destaque/40'
+                    }`}
+                  >
+                    {dia.curto}
+                  </button>
+                )
+              })}
+            </div>
+          </Campo>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Campo etiqueta="Início" obrigatorio>

@@ -5,6 +5,24 @@ export interface MatriculadoNaAula {
   flag_reposicao: boolean
 }
 
+/**
+ * R3 (Rodada 2): quem ja tem uma Pendencia de Reposicao em aberto para ESTA
+ * aula sai da lista de matriculados dela — na agenda da gestora e no formulario
+ * do professor. E o caso do aviso previo: o responsavel avisa antes que o aluno
+ * nao vem, a gestora registra a pendencia, e o professor nem ve o nome para
+ * marcar falta. O aluno passa a viver na area de Reposicoes ate ser resolvido.
+ *
+ * So pendencia EM ABERTO tira o aluno: uma ja agendada ou desistida e assunto
+ * encerrado e nao deveria mexer na lista de outra aula.
+ */
+export function semPendenciaDeReposicao<T extends { aluno_id: number }>(
+  matriculados: T[],
+  pendentesNestaAula: { aluno_id: number }[],
+): T[] {
+  const fora = new Set(pendentesNestaAula.map((p) => p.aluno_id))
+  return matriculados.filter((m) => !fora.has(m.aluno_id))
+}
+
 export interface RespostaChamada {
   aluno_id: number
   presente: boolean

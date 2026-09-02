@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { motion } from 'motion/react'
-import { confirmarPresencas } from './acoes'
+import { confirmarPresencas, confirmarPresencasDoProfessor } from './acoes'
 import { Botao } from '@/ui/Botao'
 import { entradaClasse } from '@/ui/Campo'
 
@@ -17,11 +17,17 @@ export function Chamada({
   turmaNome,
   quando,
   alunos,
+  aulaId,
 }: {
   token: string
   turmaNome: string
   quando: string
   alunos: Aluno[]
+  /**
+   * R1: presente quando a chamada veio do link permanente do professor, em que
+   * o token identifica a pessoa e nao a aula — entao a aula precisa ser dita.
+   */
+  aulaId?: number
 }) {
   // Padrao Presente para todos (Operacionais 5.5): o caso comum nao deve dar trabalho.
   const [presentes, setPresentes] = useState<Record<number, boolean>>(
@@ -33,14 +39,16 @@ export function Chamada({
 
   function enviar() {
     iniciar(async () => {
-      const r = await confirmarPresencas(
-        token,
-        alunos.map((a) => ({
-          aluno_id: a.aluno_id,
-          presente: presentes[a.aluno_id],
-          observacao: observacoes[a.aluno_id],
-        })),
-      )
+      const respostas = alunos.map((a) => ({
+        aluno_id: a.aluno_id,
+        presente: presentes[a.aluno_id],
+        observacao: observacoes[a.aluno_id],
+      }))
+
+      const r =
+        aulaId === undefined
+          ? await confirmarPresencas(token, respostas)
+          : await confirmarPresencasDoProfessor(token, aulaId, respostas)
       setResultado(
         r.ok
           ? {

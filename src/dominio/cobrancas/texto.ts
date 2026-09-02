@@ -13,6 +13,11 @@ export interface DadosDoTexto {
   responsavel_nome: string
   /** Primeiro dia do mes, em ISO. */
   mes_referencia: string
+  /**
+   * C1: cobranca adicional de um mes que ja teve outra. Precisa estar dito no
+   * texto, senao o responsavel le como se fosse a mesma cobranca de novo.
+   */
+  complementar?: boolean
   valor_total: Centavos
   chave_pix: string | null
   /** Data de vencimento em ISO. */
@@ -52,8 +57,11 @@ const LARGURA = 38
  */
 export function gerarTextoCobranca(dados: DadosDoTexto): string {
   const primeiroNome = dados.responsavel_nome.trim().split(/\s+/)[0]
+  const mes = mesPorExtenso(dados.mes_referencia)
   const linhas: string[] = [
-    `Olá, ${primeiroNome}! Segue a cobrança referente a ${mesPorExtenso(dados.mes_referencia)}:`,
+    dados.complementar
+      ? `Olá, ${primeiroNome}! Segue uma cobrança complementar — ${mes}, referente a aulas que não entraram na cobrança anterior:`
+      : `Olá, ${primeiroNome}! Segue a cobrança referente a ${mes}:`,
     '',
   ]
 

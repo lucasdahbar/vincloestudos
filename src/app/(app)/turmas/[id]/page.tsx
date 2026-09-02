@@ -115,7 +115,9 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
             {matriculas.map((matricula) => (
               <li key={matricula.id} className="flex items-center justify-between gap-4 px-5 py-4">
                 <Link
-                  href={`/cadastros/alunos/${matricula.aluno_id}`}
+                  /* T3: abre a matricula daquele aluno NESTA turma, com as
+                     datas e a opcao de desmatricular — nao o cadastro geral. */
+                  href={`/matriculas/${matricula.id}`}
                   className="font-medium text-destaque hover:underline"
                 >
                   {matricula.aluno?.nome}

@@ -39,7 +39,7 @@ export async function sincronizarAulas(
 
   const { data: turmas, error } = await supabase
     .from('turmas')
-    .select('id, dias_semana, horario_inicio, horario_fim, status, google_calendar_event_id, modalidade')
+    .select('id, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, status, google_calendar_event_id, modalidade')
     .eq('status', 'Ativa')
 
   if (error) throw new Error(`Falha ao carregar turmas: ${error.message}`)
@@ -58,6 +58,8 @@ export async function sincronizarAulas(
     const ocorrencias = await provedor.listarOcorrencias(
       {
         id: turma.id,
+        tipo_recorrencia: turma.tipo_recorrencia,
+        data_unica: turma.data_unica,
         dias_semana: turma.dias_semana ?? [],
         horario_inicio: String(turma.horario_inicio).slice(0, 5),
         horario_fim: String(turma.horario_fim).slice(0, 5),

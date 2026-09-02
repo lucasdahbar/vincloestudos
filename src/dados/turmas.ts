@@ -2,7 +2,8 @@ import 'server-only'
 import { clienteServidor } from './cliente'
 
 const SELECT_TURMA = `
-  id, nome, modalidade, dias_semana, horario_inicio, horario_fim, status,
+  id, nome, modalidade, tipo_recorrencia, data_unica,
+  dias_semana, horario_inicio, horario_fim, status,
   google_calendar_event_id,
   servico_id, materia_id, escola_id, ano_escolar_id, professor_id,
   servico:servicos!servico_id (id, nome, permite_materia, permite_escola, valor_padrao),
@@ -16,6 +17,8 @@ export interface TurmaComRelacoes {
   id: number
   nome: string
   modalidade: 'Presencial' | 'Online'
+  tipo_recorrencia: 'Recorrente' | 'Único'
+  data_unica: string | null
   dias_semana: number[]
   horario_inicio: string
   horario_fim: string
@@ -34,15 +37,26 @@ export interface TurmaComRelacoes {
   alunos_matriculados?: number
 }
 
-export async function listarTurmas(filtros: {
+/** T2: os filtros que a listagem de turmas oferece. */
+export interface FiltrosDeTurma {
   professorId?: number
   status?: string
-} = {}): Promise<TurmaComRelacoes[]> {
+  materiaId?: number
+  escolaId?: number
+  modalidade?: string
+}
+
+export async function listarTurmas(
+  filtros: FiltrosDeTurma = {},
+): Promise<TurmaComRelacoes[]> {
   const supabase = await clienteServidor()
   let consulta = supabase.from('turmas').select(SELECT_TURMA)
 
   if (filtros.professorId) consulta = consulta.eq('professor_id', filtros.professorId)
   if (filtros.status) consulta = consulta.eq('status', filtros.status)
+  if (filtros.materiaId) consulta = consulta.eq('materia_id', filtros.materiaId)
+  if (filtros.escolaId) consulta = consulta.eq('escola_id', filtros.escolaId)
+  if (filtros.modalidade) consulta = consulta.eq('modalidade', filtros.modalidade)
 
   const { data, error } = await consulta.order('nome')
   if (error) throw new Error(`Falha ao listar turmas: ${error.message}`)
