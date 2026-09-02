@@ -89,7 +89,72 @@ export const contas = defineCadastro({
       ajuda: 'Aparece no texto de cobrança enviado aos responsáveis.',
       schema: z.string().nullable(),
     },
+    // C5: qual conta vem pré-selecionada em cada cobrança nova. O banco garante
+    // que só uma conta pode estar marcada.
+    {
+      nome: 'padrao_recebimento',
+      etiqueta: 'Conta padrão para receber',
+      tipo: 'booleano',
+      ajuda:
+        'É a chave Pix que aparece nas cobranças novas. Só uma conta pode ser a padrão; você pode trocar em cada cobrança, enquanto ela for rascunho.',
+      schema: z.boolean(),
+      padrao: false,
+    },
     { nome: 'ativo', etiqueta: 'Ativa', tipo: 'booleano', schema: z.boolean(), padrao: true },
+  ],
+})
+
+/**
+ * C2 (Rodada 2): periodos de recesso escolar.
+ *
+ * Feriado e uma data que vale para todo mundo; recesso e um intervalo do
+ * calendario de UMA escola. Duas escolas podem estar de recesso em semanas
+ * diferentes, e por isso o recesso nao cabe na tabela de feriados.
+ */
+export const recessos = defineCadastro({
+  tabela: 'recessos_escola',
+  rota: 'recessos',
+  rotulo: { singular: 'Recesso escolar', plural: 'Recessos escolares', genero: 'm' },
+  ordenacao: { coluna: 'data_inicio', ascendente: false },
+  dicaVazio:
+    'Cadastre as férias e recessos de cada escola para o sistema avisar quando uma aula cair dentro deles.',
+  campos: [
+    {
+      nome: 'escola_id',
+      etiqueta: 'Escola',
+      tipo: 'referencia',
+      referencia: { tabela: 'escolas', rotulo: 'nome', rota: 'escolas' },
+      schema: z.coerce.number().int().positive('Selecione a escola.'),
+      obrigatorio: true,
+      naLista: true,
+    },
+    {
+      nome: 'descricao',
+      etiqueta: 'Descrição',
+      tipo: 'texto',
+      ajuda: 'Ex.: Recesso de julho, Semana de provas.',
+      schema: textoObrigatorio('a descrição'),
+      obrigatorio: true,
+      naLista: true,
+      buscavel: true,
+    },
+    {
+      nome: 'data_inicio',
+      etiqueta: 'Início',
+      tipo: 'data',
+      schema: z.string().min(1, 'Informe a data de início.'),
+      obrigatorio: true,
+      naLista: true,
+    },
+    {
+      nome: 'data_fim',
+      etiqueta: 'Fim',
+      tipo: 'data',
+      ajuda: 'Último dia do recesso. Para um dia só, repita a data de início.',
+      schema: z.string().min(1, 'Informe a data de fim.'),
+      obrigatorio: true,
+      naLista: true,
+    },
   ],
 })
 

@@ -60,7 +60,14 @@ try {
   ck('criar matéria pelo formulário', criou, criou ? `id ${data[0].id}, ativo=${data[0].ativo}` : 'não gravou')
   registrar(criou)
 
-  const apareceu = await pagina.getByText(MARCA).first().isVisible()
+  // `waitForURL` resolve na troca de URL; a lista chega depois. Sem esperar o
+  // texto, o teste acusa falha numa listagem que esta certa.
+  const apareceu = await pagina
+    .getByText(MARCA)
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
   ck('aparece na listagem depois de salvar', apareceu)
   registrar(apareceu)
 } catch (e) {

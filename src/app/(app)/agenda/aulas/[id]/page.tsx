@@ -1,8 +1,9 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { matriculadosNaAula, obterAula } from '@/dados/aulas'
+import { listaDaAula, obterAula } from '@/dados/aulas'
 import { tokenDaAula } from '@/dados/presencas'
 import { LinkDeChamada } from './LinkDeChamada'
+import { AvisarFalta } from './AvisarFalta'
 import { clienteServidor } from '@/dados/cliente'
 import { exigirSessao } from '@/dados/sessao'
 import { Cartao } from '@/ui/Cartao'
@@ -24,8 +25,8 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
   })
 
   const supabase = await clienteServidor()
-  const [matriculados, { data: presencas }, token, { data: daTurma }] = await Promise.all([
-    matriculadosNaAula(aula.id),
+  const [lista, { data: presencas }, token, { data: daTurma }] = await Promise.all([
+    listaDaAula(aula.id),
     supabase
       .from('presencas')
       .select('aluno_id, presente, observacao, aluno:alunos!aluno_id (nome)')
@@ -89,20 +90,30 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
               </li>
             ))}
           </ul>
-        ) : matriculados.length === 0 ? (
-          <p className="text-tinta-suave">Nenhum aluno matriculado nesta turma na data da aula.</p>
+        ) : lista.presentes.length === 0 ? (
+          <p className="text-tinta-suave">
+            {lista.aguardandoReposicao.length > 0
+              ? 'Todos os alunos desta aula já avisaram que não vêm.'
+              : 'Nenhum aluno matriculado nesta turma na data da aula.'}
+          </p>
         ) : (
           <>
             <ul className="divide-y divide-borda/60">
-              {matriculados.map((m) => (
+              {lista.presentes.map((m) => (
                 <li key={m.aluno_id} className="flex items-center justify-between gap-3 py-3">
-                  <Link
-                    href={`/cadastros/alunos/${m.aluno_id}`}
-                    className="font-medium text-destaque hover:underline"
-                  >
-                    {m.nome}
-                  </Link>
-                  {m.flag_reposicao && <Selo tom="alerta">Reposição</Selo>}
+                  <span className="flex items-center gap-3">
+                    <Link
+                      href={`/cadastros/alunos/${m.aluno_id}`}
+                      className="font-medium text-destaque hover:underline"
+                    >
+                      {m.nome}
+                    </Link>
+                    {m.flag_reposicao && <Selo tom="alerta">Reposição</Selo>}
+                  </span>
+                  {/* R2: registrar aviso previo, antes de a aula acontecer. */}
+                  {ehGestora && aula.status === 'Agendada' && (
+                    <AvisarFalta alunoId={m.aluno_id} aulaId={aula.id} nome={m.nome} />
+                  )}
                 </li>
               ))}
             </ul>
@@ -112,6 +123,34 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
           </>
         )}
       </Cartao>
+
+      {/* R3: quem saiu da lista desta aula. Sem este bloco a gestora veria o
+          aluno simplesmente sumir, sem saber por que. */}
+      {lista.aguardandoReposicao.length > 0 && (
+        <Cartao>
+          <h2 className="mb-1 text-lg">Avisaram que não vêm</h2>
+          <p className="mb-3 text-sm text-tinta-suave">
+            Não entram na chamada desta aula. Ficam em{' '}
+            <Link href="/reposicoes" className="text-destaque hover:underline">
+              Reposições
+            </Link>{' '}
+            até você marcar a reposição ou registrar a desistência.
+          </p>
+          <ul className="divide-y divide-borda/60">
+            {lista.aguardandoReposicao.map((m) => (
+              <li key={m.aluno_id} className="flex items-center justify-between gap-3 py-3">
+                <Link
+                  href={`/cadastros/alunos/${m.aluno_id}`}
+                  className="font-medium text-destaque hover:underline"
+                >
+                  {m.nome}
+                </Link>
+                <Selo tom="alerta">Reposição pendente</Selo>
+              </li>
+            ))}
+          </ul>
+        </Cartao>
+      )}
 
       {ehGestora && aula.status !== 'Cancelada' && (
         <LinkDeChamada

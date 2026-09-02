@@ -5,6 +5,7 @@ import {
   escolas,
   feriados,
   materias,
+  recessos,
   servicos,
 } from './simples'
 import { alunos, professores, responsaveis } from './pessoas'
@@ -18,8 +19,9 @@ export const CADASTROS: Record<string, DefinicaoCadastro> = Object.fromEntries(
     servicos,
     materias,
     anosEscolares,
-      contas,
+    contas,
     feriados,
+    recessos,
   ].map((d) => [d.rota, d]),
 )
 

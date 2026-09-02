@@ -42,6 +42,8 @@ const ROTAS = [
   '/cadastros/responsaveis',
   '/cadastros/servicos',
   '/cadastros/alunos/2',
+  '/matriculas/3',
+  '/cadastros/recessos',
 ]
 
 const navegador = await chromium.launch()

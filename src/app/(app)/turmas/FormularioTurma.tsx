@@ -41,6 +41,7 @@ export function FormularioTurma({
     horario_inicio: turma?.horario_inicio?.slice(0, 5) ?? '',
     horario_fim: turma?.horario_fim?.slice(0, 5) ?? '',
     status: turma?.status ?? 'Ativa',
+    link_videochamada: turma?.link_videochamada ?? null,
   }))
 
   const servico = opcoes.servicos.find((s) => s.id === estado.servico_id) ?? null
@@ -252,7 +253,7 @@ export function FormularioTurma({
 
         {/* T1: mesma escolha do Google Agenda — "não se repete" ou "recorrente".
             Cobre o aulão de revisão sem precisar de um segundo cadastro. */}
-        <Campo etiqueta="Repetição" obrigatorio>
+        <Campo etiqueta="Repetição" obrigatorio grupo>
           <div className="flex flex-wrap gap-2">
             {(['Recorrente', 'Único'] as TipoRecorrencia[]).map((tipo) => {
               const marcado = estado.tipo_recorrencia === tipo
@@ -289,6 +290,7 @@ export function FormularioTurma({
             etiqueta="Dias da semana"
             ajuda="Em quais dias esta turma tem aula."
             obrigatorio
+            grupo
           >
             <div className="flex flex-wrap gap-2">
               {DIAS_SEMANA.map((dia) => {
@@ -331,6 +333,23 @@ export function FormularioTurma({
             />
           </Campo>
         </div>
+
+        {/* O professor recebe este link no e-mail de turma nova. */}
+        <Campo
+          etiqueta="Link da videochamada"
+          ajuda="Cole aqui o link do Google Meet desta turma. Ele vai no e-mail que o professor recebe."
+        >
+          <input
+            type="url"
+            inputMode="url"
+            placeholder="https://meet.google.com/…"
+            value={estado.link_videochamada ?? ''}
+            onChange={(e) =>
+              setEstado((a) => ({ ...a, link_videochamada: e.target.value || null }))
+            }
+            className={entradaClasse}
+          />
+        </Campo>
       </Cartao>
 
       {erros.length > 0 && (

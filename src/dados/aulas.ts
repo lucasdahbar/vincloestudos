@@ -1,7 +1,9 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
+import { semPendenciaDeReposicao } from '@/dominio/presencas/registro'
 import { provedorAtivo } from '@/agenda'
 import { conflitosComFeriado, type ConflitoFeriado } from '@/dominio/agenda/feriados'
+import { conflitosComRecesso, type ConflitoRecesso } from '@/dominio/agenda/recessos'
 
 export interface AulaComTurma {
   id: number
@@ -140,7 +142,27 @@ export async function obterAula(id: number): Promise<AulaComTurma | null> {
 }
 
 /** Alunos com matricula ativa na turma na data da aula. */
-export async function matriculadosNaAula(aulaId: number) {
+export interface MatriculadoDaAula {
+  aluno_id: number
+  nome: string
+  flag_reposicao: boolean
+}
+
+export interface ListaDaAula {
+  presentes: MatriculadoDaAula[]
+  /** R3: quem tem pendencia de reposicao em aberto para esta aula. */
+  aguardandoReposicao: MatriculadoDaAula[]
+}
+
+/**
+ * A lista de alunos de uma aula.
+ *
+ * R3 (Rodada 2): quem ja tem pendencia de reposicao em aberto para ESTA aula
+ * sai da lista de matriculados — a gestora e o professor precisam ver a mesma
+ * coisa. Os dois grupos voltam separados porque a gestora tem de enxergar quem
+ * saiu e por que; o professor recebe so `presentes`.
+ */
+export async function listaDaAula(aulaId: number): Promise<ListaDaAula> {
   const supabase = await clienteServidor()
   const { data: aula } = await supabase
     .from('aulas')
@@ -148,17 +170,24 @@ export async function matriculadosNaAula(aulaId: number) {
     .eq('id', aulaId)
     .maybeSingle()
 
-  if (!aula) return []
+  if (!aula) return { presentes: [], aguardandoReposicao: [] }
 
   const dia = String(aula.data_hora_inicio).slice(0, 10)
-  const { data } = await supabase
-    .from('matriculas')
-    .select('aluno_id, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (id, nome)')
-    .eq('turma_id', aula.turma_id)
-    .eq('status', 'Ativa')
-    .lte('data_inicio', dia)
+  const [{ data }, { data: pendencias }] = await Promise.all([
+    supabase
+      .from('matriculas')
+      .select('aluno_id, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (id, nome)')
+      .eq('turma_id', aula.turma_id)
+      .eq('status', 'Ativa')
+      .lte('data_inicio', dia),
+    supabase
+      .from('pendencias_reposicao')
+      .select('aluno_id')
+      .eq('aula_origem_id', aulaId)
+      .eq('status', 'Pendente'),
+  ])
 
-  return ((data ?? []) as unknown as {
+  const todos = ((data ?? []) as unknown as {
     aluno_id: number
     flag_reposicao: boolean
     data_fim: string | null
@@ -170,6 +199,18 @@ export async function matriculadosNaAula(aulaId: number) {
       nome: m.aluno?.nome ?? 'Aluno removido',
       flag_reposicao: m.flag_reposicao,
     }))
+
+  const fora = new Set((pendencias ?? []).map((p) => p.aluno_id))
+
+  return {
+    presentes: semPendenciaDeReposicao(todos, pendencias ?? []),
+    aguardandoReposicao: todos.filter((m) => fora.has(m.aluno_id)),
+  }
+}
+
+/** Mantida para quem so precisa da lista efetiva da aula. */
+export async function matriculadosNaAula(aulaId: number): Promise<MatriculadoDaAula[]> {
+  return (await listaDaAula(aulaId)).presentes
 }
 
 /** Aulas agendadas que caem em feriado, para o alerta da gestora (RN 4.2). */
@@ -191,5 +232,47 @@ export async function conflitosDeFeriado(de: string, ate: string): Promise<Confl
       status: a.status,
     })),
     feriados.data ?? [],
+  )
+}
+
+/**
+ * C2 (Rodada 2): aulas previstas dentro de um recesso escolar.
+ *
+ * Mesmo tratamento do alerta de feriado: o sistema relata, a gestora decide.
+ * A diferenca e que o recesso vale so para as turmas daquela escola.
+ */
+export async function conflitosDeRecesso(de: string, ate: string): Promise<ConflitoRecesso[]> {
+  const supabase = await clienteServidor()
+
+  const [aulas, recessos] = await Promise.all([
+    supabase
+      .from('aulas')
+      .select('id, data_hora_inicio, status, turma:turmas!turma_id (escola_id)')
+      .gte('data_hora_inicio', `${de}T00:00:00`)
+      .lte('data_hora_inicio', `${ate}T23:59:59`),
+    // Qualquer recesso que encoste na janela: um recesso que comecou antes do
+    // periodo mostrado continua valendo dentro dele.
+    supabase
+      .from('recessos_escola')
+      .select('escola_id, descricao, data_inicio, data_fim')
+      .lte('data_inicio', ate)
+      .gte('data_fim', de),
+  ])
+
+  const linhas = (aulas.data ?? []) as unknown as {
+    id: number
+    data_hora_inicio: string
+    status: string
+    turma: { escola_id: number | null } | null
+  }[]
+
+  return conflitosComRecesso(
+    linhas.map((a) => ({
+      id: a.id,
+      data: String(a.data_hora_inicio).slice(0, 10),
+      status: a.status as 'Agendada' | 'Realizada' | 'Cancelada' | 'Feriado',
+      escola_id: a.turma?.escola_id ?? null,
+    })),
+    recessos.data ?? [],
   )
 }

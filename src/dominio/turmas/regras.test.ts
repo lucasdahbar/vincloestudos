@@ -24,6 +24,7 @@ const turmaValida: EntradaTurma = {
   horario_inicio: '15:00',
   horario_fim: '16:00',
   status: 'Ativa',
+  link_videochamada: null,
 }
 
 describe('validarTurma', () => {

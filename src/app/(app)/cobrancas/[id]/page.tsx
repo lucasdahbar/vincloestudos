@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { obterCobranca } from '@/dados/cobrancas'
+import { contasDeRecebimento, obterCobranca } from '@/dados/cobrancas'
 import { recebimentosDaCobranca } from '@/dados/recebimentos'
 import { exigirGestora } from '@/dados/sessao'
 import { formatarBRL } from '@/dominio/dinheiro'
@@ -15,7 +15,10 @@ export default async function PaginaCobranca({ params }: { params: Promise<{ id:
   const cobranca = await obterCobranca(Number(id))
   if (!cobranca) notFound()
 
-  const recebimentos = await recebimentosDaCobranca(cobranca.id)
+  const [recebimentos, contas] = await Promise.all([
+    recebimentosDaCobranca(cobranca.id),
+    contasDeRecebimento(),
+  ])
   const recebido = recebimentos.reduce((s, r) => s + r.valor_recebido, 0)
   const saldo = Math.max(0, cobranca.valor_total - recebido)
 
@@ -26,9 +29,14 @@ export default async function PaginaCobranca({ params }: { params: Promise<{ id:
           <h1 className="text-3xl">{cobranca.responsavel?.nome}</h1>
           <p className="mt-1 text-tinta-suave">
             {cobranca.mes_referencia.slice(0, 7).split('-').reverse().join('/')}
+            {/* C1: precisa estar visível também aqui, e não só no texto: duas
+                cobranças do mesmo mês na lista pareceriam duplicidade. */}
+            {cobranca.complementar && ' · cobrança complementar'}
           </p>
         </div>
-        <Selo>{cobranca.status}</Selo>
+        <Selo tom={cobranca.status === 'Cancelada' ? 'encerrado' : 'neutro'}>
+          {cobranca.status}
+        </Selo>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -52,6 +60,10 @@ export default async function PaginaCobranca({ params }: { params: Promise<{ id:
         cobrancaId={cobranca.id}
         status={cobranca.status}
         texto={cobranca.texto_whatsapp}
+        contas={contas}
+        contaRecebimentoId={cobranca.conta_recebimento_id}
+        temRecebimento={recebimentos.length > 0}
+        telefone={cobranca.responsavel?.telefone ?? null}
         itens={cobranca.itens.map((i) => ({
           id: i.id,
           aluno_nome: i.aluno?.nome ?? 'Aluno',
@@ -63,7 +75,7 @@ export default async function PaginaCobranca({ params }: { params: Promise<{ id:
         }))}
       />
 
-      {saldo > 0 && cobranca.status !== 'Rascunho' && (
+      {saldo > 0 && cobranca.status !== 'Rascunho' && cobranca.status !== 'Cancelada' && (
         <BotaoLink href={`/recebimentos?cobranca=${cobranca.id}`}>Registrar recebimento</BotaoLink>
       )}
 

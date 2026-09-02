@@ -1,7 +1,8 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
-import { deNumeric, paraNumeric, somar, type Centavos } from '@/dominio/dinheiro'
+import { deNumeric, formatarBRL, paraNumeric, somar, type Centavos } from '@/dominio/dinheiro'
 import { carregarVigencias } from './vigencias'
+import { podeCancelarCobranca, type StatusCobranca } from '@/dominio/cobrancas/cancelamento'
 import { montarCobrancas, type AulaFaturavel } from '@/dominio/cobrancas/geracao'
 import { gerarTextoCobranca, type ItemDoTexto } from '@/dominio/cobrancas/texto'
 
@@ -150,23 +151,28 @@ export async function gerarCobrancasDoMes(
   let itens = 0
 
   for (const c of montadas) {
-    // Reaproveita o rascunho do mês se já existir; senão cria.
-    const { data: existente } = await supabase
+    // C1 (Rodada 2): passa a existir mais de uma cobranca por responsavel no
+    // mesmo mes. Um rascunho aberto continua sendo reaproveitado; se as
+    // anteriores ja foram confirmadas, as aulas novas (matricula feita no meio
+    // do mes) viram uma cobranca COMPLEMENTAR, sem tocar no que ja foi enviado.
+    const { data: doMes } = await supabase
       .from('cobrancas')
       .select('id, status')
       .eq('responsavel_id', c.responsavel_id)
       .eq('mes_referencia', primeiro)
-      .maybeSingle()
+      .order('id')
 
-    if (existente && existente.status !== 'Rascunho') continue
+    const rascunho = (doMes ?? []).find((x) => x.status === 'Rascunho')
+    const jaTeveOutra = (doMes ?? []).length > 0
 
-    let cobrancaId = existente?.id
+    let cobrancaId = rascunho?.id
     if (!cobrancaId) {
       const { data, error } = await supabase
         .from('cobrancas')
         .insert({
           responsavel_id: c.responsavel_id,
           mes_referencia: primeiro,
+          complementar: jaTeveOutra,
           valor_bruto: paraNumeric(c.valor_bruto),
           valor_desconto: paraNumeric(c.valor_desconto),
           valor_total: paraNumeric(c.valor_total),
@@ -223,7 +229,7 @@ export async function listarCobrancas(filtros: { mes?: string; status?: string }
   const supabase = await clienteServidor()
   let consulta = supabase
     .from('cobrancas')
-    .select('id, responsavel_id, mes_referencia, valor_bruto, valor_desconto, valor_total, status, texto_whatsapp, responsavel:responsaveis!responsavel_id (id, nome, telefone)')
+    .select('id, responsavel_id, mes_referencia, valor_bruto, valor_desconto, valor_total, status, complementar, conta_recebimento_id, texto_whatsapp, responsavel:responsaveis!responsavel_id (id, nome, telefone)')
 
   if (filtros.mes) consulta = consulta.eq('mes_referencia', `${filtros.mes}-01`)
   if (filtros.status) consulta = consulta.eq('status', filtros.status)
@@ -239,6 +245,8 @@ export async function listarCobrancas(filtros: { mes?: string; status?: string }
     valor_desconto: string
     valor_total: string
     status: string
+    complementar: boolean
+    conta_recebimento_id: number | null
     texto_whatsapp: string | null
     responsavel: { id: number; nome: string; telefone: string | null } | null
   }[]
@@ -262,7 +270,7 @@ export async function obterCobranca(id: number) {
   const supabase = await clienteServidor()
   const { data: cobranca } = await supabase
     .from('cobrancas')
-    .select('id, responsavel_id, mes_referencia, valor_bruto, valor_desconto, valor_total, status, texto_whatsapp, responsavel:responsaveis!responsavel_id (id, nome, telefone)')
+    .select('id, responsavel_id, mes_referencia, valor_bruto, valor_desconto, valor_total, status, complementar, conta_recebimento_id, texto_whatsapp, responsavel:responsaveis!responsavel_id (id, nome, telefone)')
     .eq('id', id)
     .maybeSingle()
 
@@ -281,6 +289,8 @@ export async function obterCobranca(id: number) {
     valor_desconto: string
     valor_total: string
     status: string
+    complementar: boolean
+    conta_recebimento_id: number | null
     texto_whatsapp: string | null
     responsavel: { id: number; nome: string; telefone: string | null } | null
   }
@@ -339,13 +349,24 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
   const cobranca = await obterCobranca(id)
   if (!cobranca) throw new Error('Cobrança não encontrada.')
 
-  const { data: conta } = await supabase
-    .from('contas')
-    .select('chave_pix')
-    .not('chave_pix', 'is', null)
-    .eq('ativo', true)
-    .limit(1)
-    .maybeSingle()
+  // C5 (Rodada 2): a chave Pix vem da conta de recebimento escolhida nesta
+  // cobranca. Antes vinha da "primeira conta ativa com chave" — se a gestora
+  // cadastrasse uma segunda conta, o texto passava a mostrar a chave errada
+  // sem ninguem perceber.
+  const { data: conta } = cobranca.conta_recebimento_id
+    ? await supabase
+        .from('contas')
+        .select('chave_pix')
+        .eq('id', cobranca.conta_recebimento_id)
+        .maybeSingle()
+    : await supabase
+        .from('contas')
+        .select('chave_pix')
+        .not('chave_pix', 'is', null)
+        .eq('ativo', true)
+        .order('padrao_recebimento', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
   const [ano, mes] = cobranca.mes_referencia.split('-')
   const itensTexto: ItemDoTexto[] = cobranca.itens.map((i) => ({
@@ -359,6 +380,7 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
   const texto = gerarTextoCobranca({
     responsavel_nome: cobranca.responsavel?.nome ?? '',
     mes_referencia: cobranca.mes_referencia,
+    complementar: cobranca.complementar,
     valor_total: cobranca.valor_total,
     chave_pix: conta?.chave_pix ?? null,
     vencimento: `${ano}-${mes}-05`,
@@ -382,4 +404,189 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
 export async function marcarComoEnviada(id: number): Promise<void> {
   const supabase = await clienteServidor()
   await supabase.from('cobrancas').update({ status: 'Enviada' }).eq('id', id)
+}
+
+/**
+ * C3 (Rodada 2): aplica o mesmo desconto a todos os itens de um grupo.
+ *
+ * O desconto continua guardado item a item — o modelo nao muda. Isto e so o
+ * atalho: quando o desconto foi negociado para todas as aulas de um servico,
+ * repetir o valor linha a linha e trabalho sem sentido, e cada digitacao e uma
+ * chance de errar uma delas.
+ */
+export async function aplicarDescontoEmLote(
+  cobrancaId: number,
+  /** Os itens que recebem o desconto — a tela decide o recorte (aluno, servico). */
+  itemIds: number[],
+  descontoPorItem: Centavos,
+): Promise<{ ok: boolean; motivo?: string; aplicados?: number }> {
+  const supabase = await clienteServidor()
+
+  if (itemIds.length === 0) return { ok: true, aplicados: 0 }
+  if (descontoPorItem < 0) return { ok: false, motivo: 'O desconto não pode ser negativo.' }
+
+  const { data: itens } = await supabase
+    .from('itens_cobranca')
+    .select('id, valor_original')
+    .eq('cobranca_id', cobrancaId)
+    .in('id', itemIds)
+
+  if (!itens || itens.length === 0) return { ok: false, motivo: 'Itens não encontrados.' }
+
+  // Um desconto maior que a aula mais barata do grupo faria o valor final ficar
+  // negativo. Avisa antes de gravar metade.
+  const menor = Math.min(...itens.map((i) => deNumeric(i.valor_original)))
+  if (descontoPorItem > menor) {
+    return {
+      ok: false,
+      motivo: `O desconto não pode passar de ${formatarBRL(menor)}, que é o valor da aula mais barata do grupo.`,
+    }
+  }
+
+  for (const item of itens) {
+    const original = deNumeric(item.valor_original)
+    await supabase
+      .from('itens_cobranca')
+      .update({
+        desconto: paraNumeric(descontoPorItem),
+        valor_final: paraNumeric(original - descontoPorItem),
+      })
+      .eq('id', item.id)
+  }
+
+  await recalcularTotais(cobrancaId)
+  return { ok: true, aplicados: itens.length }
+}
+
+/**
+ * C4 (Rodada 2): remove uma aula do rascunho antes de confirmar.
+ *
+ * A aula volta a ficar "nao cobrada", entao pode entrar numa geracao futura — e
+ * o comportamento certo para o caso do item: a gestora ja sabe que aquela aula
+ * nao vai acontecer, mas se acontecer depois ainda tem de ser cobrada.
+ */
+export async function excluirItem(itemId: number): Promise<{ ok: boolean; motivo?: string }> {
+  const supabase = await clienteServidor()
+
+  const { data: item } = await supabase
+    .from('itens_cobranca')
+    .select('cobranca_id, cobranca:cobrancas!cobranca_id (status)')
+    .eq('id', itemId)
+    .maybeSingle()
+
+  if (!item) return { ok: false, motivo: 'Este item não existe mais.' }
+
+  const cobranca = item.cobranca as unknown as { status: string } | null
+  if (cobranca?.status !== 'Rascunho') {
+    return { ok: false, motivo: 'Só dá para excluir itens enquanto a cobrança é um rascunho.' }
+  }
+
+  const { error } = await supabase.from('itens_cobranca').delete().eq('id', itemId)
+  if (error) return { ok: false, motivo: error.message }
+
+  await recalcularTotais(item.cobranca_id)
+  return { ok: true }
+}
+
+/** C5: as contas que podem receber, com a padrao primeiro. */
+export async function contasDeRecebimento() {
+  const supabase = await clienteServidor()
+  const { data } = await supabase
+    .from('contas')
+    .select('id, nome, chave_pix, padrao_recebimento')
+    .eq('ativo', true)
+    .order('padrao_recebimento', { ascending: false })
+    .order('nome')
+
+  return data ?? []
+}
+
+/**
+ * C5 (Rodada 2): define qual chave Pix aparece no texto da cobranca.
+ *
+ * Editavel so no rascunho, como o documento pede: depois de confirmada, o
+ * responsavel ja pode ter recebido o texto com a outra chave, e mudar aqui
+ * criaria divergencia entre o que ele viu e o que o sistema mostra.
+ */
+export async function definirContaDeRecebimento(
+  cobrancaId: number,
+  contaId: number | null,
+): Promise<{ ok: boolean; motivo?: string }> {
+  const supabase = await clienteServidor()
+
+  const { data: cobranca } = await supabase
+    .from('cobrancas')
+    .select('status')
+    .eq('id', cobrancaId)
+    .maybeSingle()
+
+  if (!cobranca) return { ok: false, motivo: 'Cobrança não encontrada.' }
+  if (cobranca.status !== 'Rascunho') {
+    return { ok: false, motivo: 'A conta de recebimento só pode ser trocada no rascunho.' }
+  }
+
+  const { error } = await supabase
+    .from('cobrancas')
+    .update({ conta_recebimento_id: contaId })
+    .eq('id', cobrancaId)
+
+  if (error) return { ok: false, motivo: error.message }
+  return { ok: true }
+}
+
+/**
+ * C7 (Rodada 2): cancela uma cobranca confirmada ou enviada.
+ *
+ * O ponto do item nao e o status: e liberar as aulas. Enquanto os itens
+ * existirem, aquelas aulas contam como ja cobradas e nunca mais entrariam numa
+ * geracao — a cobranca cancelada deixaria um buraco permanente no faturamento.
+ */
+export async function cancelarCobranca(
+  cobrancaId: number,
+  usuario: string,
+): Promise<{ ok: boolean; motivo?: string }> {
+  const supabase = await clienteServidor()
+
+  const [{ data: cobranca }, { count: recebimentos }] = await Promise.all([
+    supabase.from('cobrancas').select('id, status').eq('id', cobrancaId).maybeSingle(),
+    supabase
+      .from('recebimentos')
+      .select('*', { count: 'exact', head: true })
+      .eq('cobranca_id', cobrancaId),
+  ])
+
+  if (!cobranca) return { ok: false, motivo: 'Cobrança não encontrada.' }
+
+  const permissao = podeCancelarCobranca(cobranca.status as StatusCobranca, recebimentos ?? 0)
+  if (!permissao.pode) return { ok: false, motivo: permissao.motivo }
+
+  const { data: itens } = await supabase
+    .from('itens_cobranca')
+    .select('id')
+    .eq('cobranca_id', cobrancaId)
+
+  // Apagar os itens e o que solta as aulas: `UNIQUE(aula_id, aluno_id)` e a
+  // marca de "ja cobrada", entao sem item nao ha marca.
+  const { error: erroItens } = await supabase
+    .from('itens_cobranca')
+    .delete()
+    .eq('cobranca_id', cobrancaId)
+  if (erroItens) return { ok: false, motivo: `Falha ao liberar as aulas: ${erroItens.message}` }
+
+  const { error } = await supabase
+    .from('cobrancas')
+    .update({ status: 'Cancelada', valor_bruto: 0, valor_desconto: 0, valor_total: 0 })
+    .eq('id', cobrancaId)
+
+  if (error) return { ok: false, motivo: error.message }
+
+  await supabase.from('logs_operacionais').insert({
+    acao: 'cancelar_cobranca',
+    entidade: 'cobrancas',
+    entidade_id: cobrancaId,
+    usuario,
+    detalhe: { aulas_liberadas: (itens ?? []).length },
+  })
+
+  return { ok: true }
 }

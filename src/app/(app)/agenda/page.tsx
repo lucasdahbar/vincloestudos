@@ -1,6 +1,11 @@
 import Link from 'next/link'
 import { after } from 'next/server'
-import { conflitosDeFeriado, listarAulas, sincronizarAulas } from '@/dados/aulas'
+import {
+  conflitosDeFeriado,
+  conflitosDeRecesso,
+  listarAulas,
+  sincronizarAulas,
+} from '@/dados/aulas'
 import { clienteServidor } from '@/dados/cliente'
 import { exigirSessao } from '@/dados/sessao'
 import { Cartao } from '@/ui/Cartao'
@@ -110,13 +115,14 @@ export default async function PaginaAgenda({
   }
 
   const supabase = await clienteServidor()
-  const [aulas, conflitos, { data: feriadosDoPeriodo }] = await Promise.all([
+  const [aulas, conflitos, recessos, { data: feriadosDoPeriodo }] = await Promise.all([
     listarAulas({
       de: ctx.de,
       ate: ctx.ate,
       professorId: sessao.papel === 'professor' ? (sessao.professorId ?? -1) : undefined,
     }),
     sessao.papel === 'gestora' ? conflitosDeFeriado(ctx.de, ctx.ate) : Promise.resolve([]),
+    sessao.papel === 'gestora' ? conflitosDeRecesso(ctx.de, ctx.ate) : Promise.resolve([]),
     supabase.from('feriados').select('data, nome').gte('data', ctx.de).lte('data', ctx.ate),
   ])
 
@@ -212,6 +218,30 @@ export default async function PaginaAgenda({
                   className="font-medium text-destaque hover:underline"
                 >
                   {c.data.split('-').reverse().join('/')} — {c.feriado}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Cartao>
+      )}
+
+      {/* C2: recesso e do calendario de UMA escola — por isso separado do
+          alerta de feriado, que vale para todo mundo. */}
+      {recessos.length > 0 && (
+        <Cartao className="border-alerta/30 bg-alerta-suave">
+          <h2 className="text-lg text-alerta">Aulas em recesso escolar</h2>
+          <p className="mt-1 text-sm text-tinta-suave">
+            Estas aulas caem dentro de um recesso da escola da turma. Decida se cancela,
+            remarca ou mantém.
+          </p>
+          <ul className="mt-3 flex flex-col gap-1">
+            {recessos.map((c) => (
+              <li key={c.aulaId}>
+                <Link
+                  href={`/agenda/aulas/${c.aulaId}`}
+                  className="font-medium text-destaque hover:underline"
+                >
+                  {c.data.split('-').reverse().join('/')} — {c.recesso}
                 </Link>
               </li>
             ))}

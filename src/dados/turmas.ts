@@ -4,7 +4,7 @@ import { clienteServidor } from './cliente'
 const SELECT_TURMA = `
   id, nome, modalidade, tipo_recorrencia, data_unica,
   dias_semana, horario_inicio, horario_fim, status,
-  google_calendar_event_id,
+  google_calendar_event_id, link_videochamada,
   servico_id, materia_id, escola_id, ano_escolar_id, professor_id,
   servico:servicos!servico_id (id, nome, permite_materia, permite_escola, valor_padrao),
   materia:materias!materia_id (id, nome),
@@ -24,6 +24,7 @@ export interface TurmaComRelacoes {
   horario_fim: string
   status: 'Ativa' | 'Encerrada'
   google_calendar_event_id: string | null
+  link_videochamada: string | null
   servico_id: number
   materia_id: number | null
   escola_id: number | null

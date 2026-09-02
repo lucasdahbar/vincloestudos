@@ -20,13 +20,13 @@ interface ItemPrevia {
 
 export function PainelFechamento({ professores }: { professores: { id: number; nome: string }[] }) {
   const router = useRouter()
+  // P2: a data padrão é hoje. O sistema varre tudo o que ainda não foi
+  // reservado por outro fechamento, então não há data inicial a escolher.
   const hoje = new Date()
-  const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10)
-  const ultimo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).toISOString().slice(0, 10)
+  const dataDeHoje = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`
 
   const [professorId, setProfessorId] = useState<number | null>(professores[0]?.id ?? null)
-  const [de, setDe] = useState(primeiro)
-  const [ate, setAte] = useState(ultimo)
+  const [ate, setAte] = useState(dataDeHoje)
   const [previa, setPrevia] = useState<{ valor_total: number; itens: ItemPrevia[] } | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [pendente, iniciar] = useTransition()
@@ -36,12 +36,14 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
       <div>
         <h2 className="text-lg">Fechar o período de um professor</h2>
         <p className="mt-1 text-sm text-tinta-suave">
-          Soma o valor de cada aula com presença confirmada no período, aplicando o percentual de
-          repasse vigente na data da aula. Ausências e aulas sem chamada não entram.
+          Soma o valor de cada aula com presença confirmada até a data escolhida, aplicando o
+          percentual de repasse vigente na data da aula. Ausências e aulas sem chamada não
+          entram, e presenças que já entraram em outro fechamento também não — então não é
+          preciso informar uma data de início.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Campo etiqueta="Professor" obrigatorio>
           <select
             value={professorId ?? ''}
@@ -53,10 +55,7 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
             ))}
           </select>
         </Campo>
-        <Campo etiqueta="De" obrigatorio>
-          <input type="date" value={de} onChange={(e) => setDe(e.target.value)} className={entradaClasse} />
-        </Campo>
-        <Campo etiqueta="Até" obrigatorio>
+        <Campo etiqueta="Até" ajuda="Entram as aulas até esta data." obrigatorio>
           <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={entradaClasse} />
         </Campo>
       </div>
@@ -69,7 +68,7 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
           onClick={() =>
             iniciar(async () => {
               setErro(null)
-              setPrevia(await calcular(professorId!, de, ate))
+              setPrevia(await calcular(professorId!, ate))
             })
           }
         >
@@ -82,7 +81,7 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
             disabled={pendente}
             onClick={() =>
               iniciar(async () => {
-                const r = await fechar(professorId!, de, ate)
+                const r = await fechar(professorId!, ate)
                 if (r.ok) {
                   setPrevia(null)
                   router.refresh()
@@ -105,7 +104,7 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
         <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
           {previa.itens.length === 0 ? (
             <p className="rounded-campo bg-superficie-2 px-4 py-3 text-tinta-suave">
-              Nenhuma presença confirmada e ainda não paga neste período.
+              Nenhuma presença confirmada e ainda não paga até esta data.
             </p>
           ) : (
             <>

@@ -54,6 +54,7 @@ export async function salvarTurma(
     horario_inicio: entrada.horario_inicio,
     horario_fim: entrada.horario_fim,
     status: entrada.status,
+    link_videochamada: entrada.link_videochamada,
   }
 
   const resposta =

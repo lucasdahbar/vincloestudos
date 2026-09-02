@@ -20,6 +20,11 @@ export interface EntradaTurma {
   horario_inicio: string
   horario_fim: string
   status: StatusTurma
+  /**
+   * Link do Google Meet. Colado a mao ate G2 (criacao automatica do evento)
+   * entrar; depois o proprio sistema preenche.
+   */
+  link_videochamada: string | null
 }
 
 /**

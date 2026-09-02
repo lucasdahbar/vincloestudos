@@ -146,3 +146,73 @@ export async function desistirReposicao(pendenciaId: number): Promise<{ ok: bool
   if (error) return { ok: false, erros: [error.message] }
   return { ok: true }
 }
+
+/**
+ * R2 (Rodada 2): pendencia de reposicao criada a mao pela gestora.
+ *
+ * Ate aqui uma pendencia so nascia da falta marcada pelo professor. Isso nao
+ * cobria o aviso previo — o responsavel avisa na vespera que o aluno nao vai, e
+ * a gestora nao tinha onde registrar; ela precisava esperar a aula acontecer
+ * para o professor marcar a falta.
+ *
+ * Criada aqui, a pendencia ja tira o aluno da lista daquela aula (R3): o
+ * professor nem ve o nome para marcar.
+ */
+export async function criarPendenciaManual(
+  alunoId: number,
+  aulaOrigemId: number,
+): Promise<{ ok: boolean; erros?: string[] }> {
+  const supabase = await clienteServidor()
+
+  const [{ data: aula }, { data: pendenciaExistente }] = await Promise.all([
+    supabase
+      .from('aulas')
+      .select('id, turma_id, status, data_hora_inicio')
+      .eq('id', aulaOrigemId)
+      .maybeSingle(),
+    supabase
+      .from('pendencias_reposicao')
+      .select('id, status')
+      .eq('aluno_id', alunoId)
+      .eq('aula_origem_id', aulaOrigemId)
+      .maybeSingle(),
+  ])
+
+  if (!aula) return { ok: false, erros: ['Esta aula não existe mais.'] }
+  if (aula.status === 'Cancelada') {
+    return { ok: false, erros: ['Esta aula foi cancelada: não há reposição a fazer.'] }
+  }
+  if (pendenciaExistente) {
+    return {
+      ok: false,
+      erros: [
+        pendenciaExistente.status === 'Pendente'
+          ? 'Este aluno já tem uma reposição pendente para esta aula.'
+          : `Este aluno já tem uma reposição ${String(pendenciaExistente.status).toLowerCase()} para esta aula.`,
+      ],
+    }
+  }
+
+  // O aluno tem de estar matriculado na turma na data da aula: sem isso, a
+  // pendencia ficaria pendurada numa aula que nunca foi dele.
+  const dia = String(aula.data_hora_inicio).slice(0, 10)
+  const { data: matriculas } = await supabase
+    .from('matriculas')
+    .select('id, data_fim')
+    .eq('aluno_id', alunoId)
+    .eq('turma_id', aula.turma_id)
+    .eq('status', 'Ativa')
+    .lte('data_inicio', dia)
+
+  const matriculado = (matriculas ?? []).some((m) => !m.data_fim || String(m.data_fim) >= dia)
+  if (!matriculado) {
+    return { ok: false, erros: ['Este aluno não está matriculado nesta turma na data da aula.'] }
+  }
+
+  const { error } = await supabase
+    .from('pendencias_reposicao')
+    .insert({ aluno_id: alunoId, aula_origem_id: aulaOrigemId, status: 'Pendente' })
+
+  if (error) return { ok: false, erros: [error.message] }
+  return { ok: true }
+}
