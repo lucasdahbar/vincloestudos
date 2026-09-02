@@ -9,6 +9,7 @@ import { exigirGestora } from '@/dados/sessao'
 import { validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
 import { avisarProfessorDaTurma } from '@/dados/avisos-turma'
+import { sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
 
 export interface ResultadoTurma {
   ok: boolean
@@ -79,6 +80,18 @@ export async function salvarTurma(
     console.error('falha ao materializar aulas da turma:', e)
   }
 
+  // G2: o evento na agenda do professor acompanha a turma, na criacao e na
+  // edicao — mudar o horario aqui tem de mudar la.
+  after(async () => {
+    try {
+      const r = await sincronizarEventoDaTurma(resposta.data.id)
+      if (!r.ok) console.warn('evento da turma nao sincronizado:', r.motivo)
+    } catch (e) {
+      // A turma ja esta gravada; o evento e reflexo dela. A proxima edicao refaz.
+      console.error('falha ao sincronizar o evento da turma:', e)
+    }
+  })
+
   // G4: so na criacao. Reenviar a cada edicao encheria a caixa do professor de
   // avisos iguais, e o documento pede o e-mail "ao criar uma nova Turma".
   if (id === null) {
@@ -107,6 +120,16 @@ export async function alternarStatusTurma(id: number, status: 'Ativa' | 'Encerra
   const supabase = await clienteServidor()
   const { error } = await supabase.from('turmas').update({ status }).eq('id', id)
   if (error) throw new Error(error.message)
+
+  // G2: turma encerrada sai da agenda do professor; reativada, volta.
+  after(async () => {
+    try {
+      await sincronizarEventoDaTurma(id)
+    } catch (e) {
+      console.error('falha ao atualizar o evento da turma:', e)
+    }
+  })
+
   revalidatePath('/turmas')
   revalidatePath(`/turmas/${id}`)
 }

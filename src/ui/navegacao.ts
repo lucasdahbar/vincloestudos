@@ -47,6 +47,7 @@ export const SECOES: SecaoNav[] = [
       { rotulo: 'Contas', href: '/cadastros/contas', papeis: ['gestora'] },
       { rotulo: 'Feriados', href: '/cadastros/feriados', papeis: ['gestora'] },
       { rotulo: 'Recessos escolares', href: '/cadastros/recessos', papeis: ['gestora'] },
+      { rotulo: 'Integrações', href: '/cadastros/integracoes', papeis: ['gestora'] },
     ],
   },
 ]
