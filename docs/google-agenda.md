@@ -22,20 +22,24 @@ o item G3 (coorganizador do Meet) exige.
 
 | Passo | Quem |
 | --- | --- |
-| Entrar na conta Google da empresa | Kelly |
-| Criar o projeto no Google Cloud (ou dar acesso de Owner ao dev) | Kelly |
-| Ativar a Google Calendar API | dev |
-| Tela de consentimento como **Internal** | Kelly confirma, dev preenche |
+| Criar o projeto no Google Cloud, na conta do Workspace | dono da conta |
+| Ativar a Google Calendar API | dono da conta |
+| Tela de consentimento como **Internal** | dono da conta |
+| Dar acesso de **Proprietário** ao dev, no IAM do projeto | dono da conta |
+| Criar as agendas dos professores e copiar os IDs | dono da conta |
 | Criar as credenciais OAuth (Client ID e Secret) | dev |
 | Guardar o Secret nas variáveis de ambiente | dev |
-| Clicar em **Permitir** para autorizar as agendas | Kelly |
-| Copiar o ID de cada agenda para o cadastro do professor (G1) | Kelly |
+| Clicar em **Permitir** para autorizar as agendas | dono da conta |
 
-**Não mande a Kelly sozinha ao Google Cloud Console.** Façam juntos, por chamada
-de tela, logados na conta dela. Ela clica em duas coisas; o resto é do dev.
+**O `CLIENT_SECRET` nunca vai por WhatsApp, e-mail ou print.** É por isso que o
+dono da conta dá acesso ao projeto em vez de mandar a credencial: assim o dev
+cria e lê o segredo direto no console, e ele não transita por lugar nenhum.
 
-**O `CLIENT_SECRET` nunca vai por WhatsApp, e-mail ou print.** Ele é digitado
-direto na variável de ambiente pelo dev.
+Se a organização bloquear a inclusão de uma conta de fora do domínio (política
+de *domain restricted sharing*, ligada por padrão em organizações novas), há
+duas saídas: criar um usuário para o dev dentro do Workspace, ou o dono criar a
+credencial e mandar o **Client ID** normalmente e o **Secret** por um link de
+uso único (onetimesecret.com e afins) — nunca no corpo da mensagem.
 
 ## Passo a passo
 
