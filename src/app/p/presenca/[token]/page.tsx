@@ -1,7 +1,8 @@
 import { aulaPorToken } from '@/dados/presencas'
 import { Chamada } from './Chamada'
+import { titulo } from '@/marca'
 
-export const metadata = { title: 'Registro de presença — Mesinha Redonda' }
+export const metadata = { title: titulo('Registro de presença') }
 
 function formatarQuando(iso: string): string {
   const d = new Date(iso)

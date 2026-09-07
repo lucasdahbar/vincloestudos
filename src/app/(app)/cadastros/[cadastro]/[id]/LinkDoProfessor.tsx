@@ -5,6 +5,7 @@ import { motion } from 'motion/react'
 import { gerarLinkDoProfessor } from '../acoes-professor'
 import { Botao } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
+import { MARCA } from '@/marca'
 
 /**
  * R1 e R4 (Rodada 2): o link pessoal e permanente de presenca do professor.
@@ -32,7 +33,7 @@ export function LinkDoProfessor({
 
   const primeiroNome = nome.trim().split(/\s+/)[0]
   const mensagem = link
-    ? `Olá, ${primeiroNome}! Este é o seu link de presença do Mesinha Redonda:\n\n${link}\n\nEle é sempre o mesmo, para todas as suas turmas — salve no celular. Na hora da aula, é só abrir que ele mostra a turma do momento.`
+    ? `Olá, ${primeiroNome}! Este é o seu link de presença do ${MARCA}:\n\n${link}\n\nEle é sempre o mesmo, para todas as suas turmas — salve no celular. Na hora da aula, é só abrir que ele mostra a turma do momento.`
     : ''
 
   function pedirLink(trocar: boolean) {

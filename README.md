@@ -1,8 +1,8 @@
-# 📚 Mesinha Redonda OS
+# 📚 Vinclo Estudos
 
 > **Sistema Integrado de Gestão para Reforço Escolar e Aulas Particulares**
 
-O **Mesinha Redonda OS** é uma plataforma web de gestão educacional e operacional desenvolvida para simplificar a administração de negócios de reforço escolar e aulas particulares. O sistema centraliza todo o fluxo operacional: do cadastro de alunos e turmas à sincronização automatizada de aulas com o Google Calendar, emissão de cobranças consolidadas para os responsáveis e controle de repasse financeiro a professores.
+O **Vinclo Estudos** é uma plataforma web de gestão educacional e operacional desenvolvida para simplificar a administração de negócios de reforço escolar e aulas particulares. O sistema centraliza todo o fluxo operacional: do cadastro de alunos e turmas à sincronização automatizada de aulas com o Google Calendar, emissão de cobranças consolidadas para os responsáveis e controle de repasse financeiro a professores.
 
 ---
 

@@ -3,6 +3,7 @@ import { sair } from '@/app/login/acoes'
 import { Botao } from '@/ui/Botao'
 import { NavLateral } from '@/ui/NavLateral'
 import { NavMobile } from '@/ui/NavMobile'
+import { PRIMEIRA, SEGUNDA } from '@/marca'
 
 export default async function LayoutApp({ children }: { children: React.ReactNode }) {
   const sessao = await exigirSessao()
@@ -20,9 +21,9 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-borda bg-superficie-2/50 md:flex">
         <div className="px-6 py-7">
           <p className="font-titulo text-xl leading-[1.15] tracking-[-0.02em]">
-            Mesinha
+            {PRIMEIRA}
             <br />
-            <span className="text-destaque">Redonda</span>
+            <span className="text-destaque">{SEGUNDA}</span>
           </p>
         </div>
 

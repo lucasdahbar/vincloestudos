@@ -6,8 +6,9 @@ import { BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { Selo } from '@/ui/Selo'
 import { Desconectar } from './Desconectar'
+import { titulo } from '@/marca'
 
-export const metadata = { title: 'Integrações — Mesinha Redonda' }
+export const metadata = { title: titulo('Integrações') }
 export const dynamic = 'force-dynamic'
 
 const MOTIVOS: Record<string, string> = {

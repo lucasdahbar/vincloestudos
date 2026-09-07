@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { Papel } from '@/dominio/tipos'
 import { ehAtivo, visiveisPara } from './navegacao'
+import { PRIMEIRA, SEGUNDA } from '@/marca'
 
 /**
  * Navegacao do celular, em tres camadas de propósito redundante.
@@ -56,7 +57,7 @@ export function NavMobile({ papel, nome }: { papel: Papel; nome: string }) {
           </button>
 
           <p className="font-titulo text-base tracking-[-0.02em]">
-            Mesinha <span className="text-destaque">Redonda</span>
+            {PRIMEIRA} <span className="text-destaque">{SEGUNDA}</span>
           </p>
         </div>
       </header>

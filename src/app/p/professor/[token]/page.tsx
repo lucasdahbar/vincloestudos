@@ -1,8 +1,9 @@
 import Link from 'next/link'
 import { aulasDoLink, chamadaDaAula } from '@/dados/presenca-professor'
 import { Chamada } from '../../presenca/[token]/Chamada'
+import { titulo } from '@/marca'
 
-export const metadata = { title: 'Presença — Mesinha Redonda' }
+export const metadata = { title: titulo('Presença') }
 
 // A janela do link depende do relogio: a pagina nunca pode vir de cache.
 export const dynamic = 'force-dynamic'

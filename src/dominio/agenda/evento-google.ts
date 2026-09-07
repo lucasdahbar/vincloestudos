@@ -1,4 +1,5 @@
 import { nomesDosDias } from '@/dominio/tipos'
+import { MARCA } from '@/marca'
 
 /**
  * G2 (Rodada 2): o evento que o sistema cria na agenda do professor.
@@ -85,7 +86,7 @@ function descricao(turma: TurmaDoEvento): string {
     `${quando}, das ${turma.horario_inicio} às ${turma.horario_fim}.`,
     `Modalidade: ${turma.modalidade}.`,
     '',
-    'Evento criado pelo Mesinha Redonda. Alterações feitas aqui podem ser',
+    `Evento criado pelo ${MARCA}. Alterações feitas aqui podem ser`,
     'sobrescritas na próxima vez que a turma for salva no sistema.',
   ].join('\n')
 }

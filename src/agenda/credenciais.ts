@@ -1,5 +1,6 @@
 import 'server-only'
 import { clienteAdmin } from '@/dados/admin'
+import { MARCA } from '@/marca'
 
 /**
  * Autorização OAuth da conta Google da empresa (G2).
@@ -127,7 +128,7 @@ export async function trocarCodigoPorToken(
         ok: false,
         motivo:
           'O Google não devolveu a autorização de longo prazo. Remova o acesso do ' +
-          'Mesinha Redonda em myaccount.google.com/permissions e conecte de novo.',
+          `${MARCA} em myaccount.google.com/permissions e conecte de novo.`,
       }
     }
 

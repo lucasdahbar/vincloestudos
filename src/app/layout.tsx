@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Fraunces, Inter } from 'next/font/google'
 import './globals.css'
+import { MARCA } from '@/marca'
 
 const texto = Inter({
   subsets: ['latin'],
@@ -16,7 +17,7 @@ const titulo = Fraunces({
 })
 
 export const metadata: Metadata = {
-  title: 'Mesinha Redonda',
+  title: MARCA,
   description: 'Gestão de reforço escolar e aulas particulares',
 }
 
