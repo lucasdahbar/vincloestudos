@@ -44,3 +44,6 @@ next-env.d.ts
 
 # capturas do playwright
 capturas/
+
+# planilhas com dados pessoais dos professores (e-mails, IDs de agenda)
+Agendas-e-IDs*.csv
