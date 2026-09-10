@@ -12,7 +12,15 @@ import { MARCA } from '@/marca'
  * Ver `docs/google-agenda.md` para o roteiro de configuração.
  */
 
-export const ESCOPO = 'https://www.googleapis.com/auth/calendar'
+/**
+ * `calendar` é o que a integração precisa: ler e escrever nas agendas.
+ *
+ * `userinfo.email` é só para a tela de Integrações poder dizer *qual* conta
+ * autorizou. Sem ele, `/oauth2/v2/userinfo` responde 401 e a tela mostra a
+ * conexão sem dono — que é o que acontecia antes.
+ */
+export const ESCOPO =
+  'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email'
 
 export interface Credenciais {
   clientId: string
