@@ -82,10 +82,12 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
 
         <Cartao>
           <h2 className="mb-3 text-lg">Agenda</h2>
-          <p className="text-sm text-tinta-suave">
-            As aulas desta turma aparecem aqui a partir do Plano 2, quando a sincronização com a
-            agenda entra no ar.
-          </p>
+          <AgendaDaTurma
+            eventoId={turma.google_calendar_event_id}
+            agendaDoProfessor={turma.professor?.google_calendar_id ?? null}
+            professor={turma.professor?.nome ?? 'o professor'}
+            encerrada={turma.status !== 'Ativa'}
+          />
         </Cartao>
       </div>
 
@@ -129,5 +131,58 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
         )}
       </section>
     </div>
+  )
+}
+
+/**
+ * O que a agenda do Google sabe desta turma (G2).
+ *
+ * São quatro estados, e cada um pede uma ação diferente de quem lê. O texto
+ * antigo prometia a sincronização "a partir do Plano 2" mesmo depois de ela
+ * entrar no ar — dizia o contrário do que o sistema fazia.
+ */
+function AgendaDaTurma({
+  eventoId,
+  agendaDoProfessor,
+  professor,
+  encerrada,
+}: {
+  eventoId: string | null
+  agendaDoProfessor: string | null
+  professor: string
+  encerrada: boolean
+}) {
+  const texto = 'text-sm text-tinta-suave'
+
+  if (eventoId && agendaDoProfessor) {
+    // Sem link para o evento de propósito: o `eid` de um evento recorrente
+    // leva um sufixo de data que só o Google monta, e a URL que dá para
+    // derivar daqui nem sempre abre. Guardar o `htmlLink` na hora de criar o
+    // evento resolveria — fica para quando valer o campo a mais.
+    return (
+      <p className={texto}>
+        As aulas estão na agenda de {professor}, no Google. Editar a turma atualiza o evento; encerrá-la
+        o remove.
+      </p>
+    )
+  }
+
+  if (encerrada) {
+    return <p className={texto}>Turma encerrada: o evento foi retirado da agenda do professor.</p>
+  }
+
+  if (!agendaDoProfessor) {
+    return (
+      <p className={texto}>
+        {professor} ainda não tem uma agenda do Google no cadastro, então esta turma não gera
+        evento. Preencha o campo <strong>Agenda do Google</strong> no cadastro do professor.
+      </p>
+    )
+  }
+
+  return (
+    <p className={texto}>
+      Esta turma ainda não tem evento na agenda. Salvar a turma de novo refaz a sincronização.
+    </p>
   )
 }

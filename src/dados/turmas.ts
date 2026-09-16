@@ -10,7 +10,7 @@ const SELECT_TURMA = `
   materia:materias!materia_id (id, nome),
   escola:escolas!escola_id (id, nome),
   ano_escolar:anos_escolares!ano_escolar_id (id, nome),
-  professor:professores!professor_id (id, nome)
+  professor:professores!professor_id (id, nome, google_calendar_id)
 `
 
 export interface TurmaComRelacoes {
@@ -34,7 +34,7 @@ export interface TurmaComRelacoes {
   materia: { id: number; nome: string } | null
   escola: { id: number; nome: string } | null
   ano_escolar: { id: number; nome: string } | null
-  professor: { id: number; nome: string } | null
+  professor: { id: number; nome: string; google_calendar_id: string | null } | null
   alunos_matriculados?: number
 }
 
