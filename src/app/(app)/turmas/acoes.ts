@@ -9,7 +9,7 @@ import { exigirGestora } from '@/dados/sessao'
 import { validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
 import { avisarProfessorDaTurma } from '@/dados/avisos-turma'
-import { sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
+import { apagarEventoDaTurma, sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
 
 export interface ResultadoTurma {
   ok: boolean
@@ -132,4 +132,101 @@ export async function alternarStatusTurma(id: number, status: 'Ativa' | 'Encerra
 
   revalidatePath('/turmas')
   revalidatePath(`/turmas/${id}`)
+}
+
+export interface PreviaExclusaoTurma {
+  podeExcluir: boolean
+  motivo: string
+  matriculas: number
+  aulas: number
+  pagamentos: number
+}
+
+/**
+ * O que acontece se esta turma for excluida — consultado ANTES de perguntar.
+ *
+ * As tres chaves estrangeiras que apontam para `turmas` sao `on delete
+ * restrict`: matricula, aula e pagamento seguram a turma de proposito, para
+ * que ninguem apague historico financeiro por engano. Sem esta previa a
+ * gestora so descobriria isso no erro cru do banco.
+ */
+export async function consultarExclusaoTurma(id: number): Promise<PreviaExclusaoTurma> {
+  await exigirGestora()
+  const supabase = await clienteServidor()
+
+  const contar = async (tabela: 'matriculas' | 'aulas' | 'itens_conta_pagar_professor') => {
+    const { count } = await supabase
+      .from(tabela)
+      .select('id', { count: 'exact', head: true })
+      .eq('turma_id', id)
+    return count ?? 0
+  }
+
+  const [matriculas, aulas, pagamentos] = await Promise.all([
+    contar('matriculas'),
+    contar('aulas'),
+    contar('itens_conta_pagar_professor'),
+  ])
+
+  if (pagamentos > 0) {
+    return {
+      podeExcluir: false,
+      motivo:
+        'Esta turma ja entrou no pagamento de um professor. Excluir apagaria historico financeiro, ' +
+        'entao ela so pode ser encerrada.',
+      matriculas,
+      aulas,
+      pagamentos,
+    }
+  }
+
+  if (matriculas > 0 || aulas > 0) {
+    const partes = [
+      matriculas > 0 && `${matriculas} ${matriculas === 1 ? 'matricula' : 'matriculas'}`,
+      aulas > 0 && `${aulas} ${aulas === 1 ? 'aula' : 'aulas'}`,
+    ].filter(Boolean)
+
+    return {
+      podeExcluir: false,
+      motivo:
+        `Esta turma tem ${partes.join(' e ')}. Encerre a turma em vez de excluir: o evento sai da ` +
+        'agenda do professor e o historico continua de pe.',
+      matriculas,
+      aulas,
+      pagamentos,
+    }
+  }
+
+  return {
+    podeExcluir: true,
+    motivo:
+      'Esta turma nao tem matricula, aula nem pagamento. Excluir apaga o cadastro e retira o ' +
+      'evento da agenda do professor. Nao tem como voltar atras.',
+    matriculas,
+    aulas,
+    pagamentos,
+  }
+}
+
+export async function excluirTurma(id: number): Promise<{ ok: boolean; erro?: string }> {
+  await exigirGestora()
+
+  const previa = await consultarExclusaoTurma(id)
+  if (!previa.podeExcluir) return { ok: false, erro: previa.motivo }
+
+  // A agenda primeiro: depois do delete nao ha mais de onde ler qual evento
+  // apagar, e ele ficaria orfao na agenda do professor para sempre.
+  try {
+    await apagarEventoDaTurma(id)
+  } catch (e) {
+    console.error('falha ao retirar o evento da agenda antes de excluir:', e)
+  }
+
+  const supabase = await clienteServidor()
+  const { error } = await supabase.from('turmas').delete().eq('id', id)
+  if (error) return { ok: false, erro: error.message }
+
+  revalidatePath('/turmas')
+  revalidatePath('/agenda')
+  return { ok: true }
 }

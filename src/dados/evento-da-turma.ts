@@ -71,3 +71,28 @@ export async function sincronizarEventoDaTurma(
 
   return { ok: true }
 }
+
+/**
+ * Retira o evento da agenda antes de a turma ser excluida.
+ *
+ * Precisa ser chamado ANTES do delete: depois dele nao ha mais de onde ler
+ * qual evento apagar, e ele ficaria orfao na agenda do professor — uma aula
+ * recorrente que ninguem consegue tirar pelo sistema.
+ */
+export async function apagarEventoDaTurma(
+  turmaId: number,
+): Promise<{ ok: boolean; motivo?: string }> {
+  if (process.env.GOOGLE_CALENDAR_ATIVO !== 'true') return { ok: true }
+
+  const admin = clienteAdmin()
+  const { data: turma } = await admin
+    .from('turmas')
+    .select('google_calendar_event_id, professor:professores!professor_id (google_calendar_id)')
+    .eq('id', turmaId)
+    .maybeSingle()
+
+  const professor = turma?.professor as unknown as { google_calendar_id: string | null } | null
+  if (!turma?.google_calendar_event_id || !professor?.google_calendar_id) return { ok: true }
+
+  return apagarEvento(professor.google_calendar_id, turma.google_calendar_event_id)
+}

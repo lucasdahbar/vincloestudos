@@ -8,6 +8,7 @@ import { BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { Selo } from '@/ui/Selo'
+import { ExcluirTurma } from './ExcluirTurma'
 
 export default async function PaginaTurma({ params }: { params: Promise<{ id: string }> }) {
   const sessao = await exigirSessao()
@@ -32,9 +33,12 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
           </div>
         </div>
         {ehGestora && (
-          <BotaoLink href={`/turmas/${turma.id}/editar`} aparencia="secundario">
-            Editar turma
-          </BotaoLink>
+          <div className="flex flex-wrap gap-3">
+            <BotaoLink href={`/turmas/${turma.id}/editar`} aparencia="secundario">
+              Editar turma
+            </BotaoLink>
+            <ExcluirTurma id={turma.id} nome={turma.nome} />
+          </div>
         )}
       </header>
 
