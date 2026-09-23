@@ -81,8 +81,12 @@ GOOGLE_CALENDAR_ATIVO=false
 ```
 
 Deixe `GOOGLE_CALENDAR_ATIVO=false` por enquanto. Ele só vira `true` depois do
-passo 5, quando houver token guardado — ligar antes faz a sincronização da
-agenda falhar.
+passo 5, quando houver token guardado — ligar antes só faz as turmas não
+criarem evento (a página da turma mostra "ainda não tem evento na agenda").
+
+A flag controla **apenas** a criação do evento na agenda do professor. As aulas
+que aparecem na agenda do próprio sistema saem sempre da recorrência cadastrada
+na turma, com a flag ligada ou desligada.
 
 ### 5. Autorização (a Kelly clica)
 

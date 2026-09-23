@@ -30,7 +30,7 @@ if (!de || !ate) {
 
 const { data: turmas } = await db
   .from('turmas')
-  .select('id, nome, dias_semana, horario_inicio, horario_fim, status')
+  .select('id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, status')
   .eq('status', 'Ativa')
 
 let total = 0
@@ -38,6 +38,10 @@ for (const t of turmas ?? []) {
   const oc = materializar(
     {
       id: t.id,
+      // Sem estes dois, turma de aula unica (T1) sai com zero ocorrencias em
+      // silencio: ela nao tem dias_semana, so data_unica.
+      tipo_recorrencia: t.tipo_recorrencia,
+      data_unica: t.data_unica,
       dias_semana: t.dias_semana ?? [],
       horario_inicio: String(t.horario_inicio).slice(0, 5),
       horario_fim: String(t.horario_fim).slice(0, 5),
