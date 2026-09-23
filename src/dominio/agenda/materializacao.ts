@@ -11,6 +11,12 @@ export interface RecorrenciaTurma {
   horario_inicio: string
   horario_fim: string
   status: StatusTurma
+  /**
+   * Dia do cadastro da turma, em ISO. Turma recorrente não tem aula antes
+   * dele (decisão da gestora, 22/09/2026). Não vale para aula única: a data
+   * dela foi escolhida de propósito, mesmo quando já passou.
+   */
+  cadastrada_em?: string | null
 }
 
 export interface OcorrenciaAula {
@@ -24,6 +30,17 @@ export interface OcorrenciaAula {
    * do id que o Google Calendar devolve.
    */
   google_calendar_event_id: string
+}
+
+/**
+ * O dia do cadastro em São Paulo, a partir do `created_at` do banco (UTC).
+ *
+ * Cortar a string não serve: das 21h à meia-noite em São Paulo o UTC já está
+ * no dia seguinte, e a turma perderia a aula do próprio dia em que nasceu.
+ */
+export function dataDeCadastro(criadoEm: string): string {
+  // `en-CA` formata como AAAA-MM-DD, que é o ISO que o resto do módulo usa.
+  return new Date(criadoEm).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
 }
 
 export function idOcorrenciaLocal(turmaId: number, data: string, horario: string): string {
@@ -76,11 +93,15 @@ export function materializar(
 
   if (turma.dias_semana.length === 0) return []
 
+  // Sem isto, cadastrar hoje uma turma de segunda e quarta enchia o mês de
+  // aulas que nunca aconteceram — e cada uma delas pedia presença.
+  const inicio = turma.cadastrada_em && turma.cadastrada_em > de ? turma.cadastrada_em : de
+
   const dias = new Set(turma.dias_semana)
   const ocorrencias: OcorrenciaAula[] = []
   const fim = paraUTC(ate)
 
-  for (let d = paraUTC(de); d <= fim; d.setUTCDate(d.getUTCDate() + 1)) {
+  for (let d = paraUTC(inicio); d <= fim; d.setUTCDate(d.getUTCDate() + 1)) {
     if (!dias.has(d.getUTCDay())) continue
     const data = paraISO(d)
     ocorrencias.push({

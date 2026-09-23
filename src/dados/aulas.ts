@@ -3,6 +3,7 @@ import { clienteServidor } from './cliente'
 import { semPendenciaDeReposicao } from '@/dominio/presencas/registro'
 import { provedorAtivo } from '@/agenda'
 import { conflitosComFeriado, type ConflitoFeriado } from '@/dominio/agenda/feriados'
+import { dataDeCadastro } from '@/dominio/agenda/materializacao'
 import { conflitosComRecesso, type ConflitoRecesso } from '@/dominio/agenda/recessos'
 
 export interface AulaComTurma {
@@ -41,7 +42,7 @@ export async function sincronizarAulas(
 
   const { data: turmas, error } = await supabase
     .from('turmas')
-    .select('id, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, status, google_calendar_event_id, modalidade')
+    .select('id, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, status, google_calendar_event_id, modalidade, created_at')
     .eq('status', 'Ativa')
 
   if (error) throw new Error(`Falha ao carregar turmas: ${error.message}`)
@@ -68,6 +69,7 @@ export async function sincronizarAulas(
         status: 'Ativa',
         google_calendar_event_id: turma.google_calendar_event_id,
         modalidade: turma.modalidade,
+        cadastrada_em: dataDeCadastro(turma.created_at),
       },
       de,
       ate,

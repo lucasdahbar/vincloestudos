@@ -9,7 +9,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
-import { materializar } from '../src/dominio/agenda/materializacao.ts'
+import { dataDeCadastro, materializar } from '../src/dominio/agenda/materializacao.ts'
 
 const env = Object.fromEntries(
   readFileSync('.env.local', 'utf8')
@@ -30,7 +30,7 @@ if (!de || !ate) {
 
 const { data: turmas } = await db
   .from('turmas')
-  .select('id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, status')
+  .select('id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, status, created_at')
   .eq('status', 'Ativa')
 
 let total = 0
@@ -46,6 +46,7 @@ for (const t of turmas ?? []) {
       horario_inicio: String(t.horario_inicio).slice(0, 5),
       horario_fim: String(t.horario_fim).slice(0, 5),
       status: t.status,
+      cadastrada_em: dataDeCadastro(t.created_at),
     },
     de,
     ate,
