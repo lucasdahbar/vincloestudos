@@ -2,6 +2,13 @@ import 'server-only'
 import { clienteServidor } from './cliente'
 import { nomesDosDias } from '@/dominio/tipos'
 import {
+  identificarDestinatario,
+  TABELA_DO_DESTINATARIO,
+  type Contato,
+  type PessoasPorTipo,
+  type TipoDestinatario,
+} from '@/dominio/notificacoes/destinatarios'
+import {
   planejarNotificacoes,
   type ContextoNotificacao,
   type NotificacaoAEnfileirar,
@@ -259,31 +266,27 @@ export async function listarPendentes(): Promise<NotificacaoPendente[]> {
   const linhas = data ?? []
   if (linhas.length === 0) return []
 
-  const alunos = linhas.filter((l) => l.destinatario_tipo === 'aluno').map((l) => l.destinatario_id)
-  const resps = linhas.filter((l) => l.destinatario_tipo === 'responsavel').map((l) => l.destinatario_id)
+  // Uma consulta por tipo de destinatário, todas em paralelo. Percorre o mapa
+  // completo de tipos: foi uma lista escrita à mão, só com aluno e responsável,
+  // que fazia todo aviso de professor aparecer como "Contato removido".
+  const tipos = Object.keys(TABELA_DO_DESTINATARIO) as TipoDestinatario[]
+  const encontrados = await Promise.all(
+    tipos.map(async (tipo) => {
+      const ids = linhas.filter((l) => l.destinatario_tipo === tipo).map((l) => l.destinatario_id)
+      if (ids.length === 0) return [tipo, []] as const
+      const { data: achados } = await supabase
+        .from(TABELA_DO_DESTINATARIO[tipo])
+        .select('id, nome, telefone, email')
+        .in('id', ids)
+      return [tipo, (achados ?? []) as Contato[]] as const
+    }),
+  )
 
-  const [{ data: da }, { data: dr }] = await Promise.all([
-    alunos.length
-      ? supabase.from('alunos').select('id, nome, telefone, email').in('id', alunos)
-      : Promise.resolve({ data: [] }),
-    resps.length
-      ? supabase.from('responsaveis').select('id, nome, telefone, email').in('id', resps)
-      : Promise.resolve({ data: [] }),
-  ])
+  const pessoas = Object.fromEntries(
+    encontrados.map(([tipo, lista]) => [tipo, new Map(lista.map((p) => [p.id, p]))]),
+  ) as PessoasPorTipo
 
-  const porTipo = {
-    aluno: new Map((da ?? []).map((p) => [p.id, p])),
-    responsavel: new Map((dr ?? []).map((p) => [p.id, p])),
-  }
-
-  return linhas.map((l) => {
-    const p = porTipo[l.destinatario_tipo as 'aluno' | 'responsavel']?.get(l.destinatario_id)
-    return {
-      ...l,
-      destinatario_nome: p?.nome ?? 'Contato removido',
-      contato: l.canal === 'WhatsApp' ? (p?.telefone ?? null) : (p?.email ?? null),
-    }
-  })
+  return linhas.map((l) => ({ ...l, ...identificarDestinatario(l, pessoas) }))
 }
 
 export async function marcarEnviada(id: number): Promise<void> {
