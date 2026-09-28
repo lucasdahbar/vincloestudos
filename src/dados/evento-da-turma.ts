@@ -1,6 +1,8 @@
 import 'server-only'
 import { clienteAdmin } from './admin'
 import { apagarEvento, sincronizarEvento } from '@/agenda/eventos'
+import { ajustarCoorganizador, criarSala } from '@/agenda/meet'
+import { oQueFazerComASala } from '@/dominio/agenda/meet'
 
 /**
  * G2 (Rodada 2): mantém o evento da turma na agenda do professor.
@@ -20,7 +22,7 @@ export async function sincronizarEventoDaTurma(
   const { data: turma } = await admin
     .from('turmas')
     .select(
-      'id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, modalidade, status, google_calendar_event_id, professor:professores!professor_id (email, google_calendar_id)',
+      'id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, modalidade, status, google_calendar_event_id, link_videochamada, google_meet_sala, professor:professores!professor_id (email, google_calendar_id)',
     )
     .eq('id', turmaId)
     .maybeSingle()
@@ -44,6 +46,9 @@ export async function sincronizarEventoDaTurma(
     return { ok: true }
   }
 
+  // G3: a sala do Meet vem antes do evento, para o link já entrar nele.
+  const link = await prepararSala(turmaId, turma, professor?.email ?? null)
+
   // A recorrência começa hoje: criar o evento retroativo encheria a agenda do
   // professor de aulas passadas que ele já deu.
   const hoje = new Date()
@@ -59,6 +64,7 @@ export async function sincronizarEventoDaTurma(
     modalidade: turma.modalidade,
     inicio_recorrencia: inicio,
     professor_email: professor?.email ?? null,
+    link_videochamada: link,
     google_calendar_id: professor?.google_calendar_id ?? null,
     evento_id: turma.google_calendar_event_id,
   })
@@ -95,4 +101,46 @@ export async function apagarEventoDaTurma(
   if (!turma?.google_calendar_event_id || !professor?.google_calendar_id) return { ok: true }
 
   return apagarEvento(professor.google_calendar_id, turma.google_calendar_event_id)
+}
+
+/**
+ * G3: garante a sala do Meet da turma online, com o professor como
+ * coorganizador, e devolve o link que vai no evento.
+ *
+ * Falhar aqui não impede o evento: ele sai sem link, e a próxima vez que a
+ * turma for salva tenta de novo.
+ */
+async function prepararSala(
+  turmaId: number,
+  turma: {
+    modalidade: 'Presencial' | 'Online'
+    status: 'Ativa' | 'Encerrada'
+    link_videochamada: string | null
+    google_meet_sala: string | null
+  },
+  emailProfessor: string | null,
+): Promise<string | null> {
+  const acao = oQueFazerComASala(turma)
+
+  if (acao === 'criar') {
+    const r = await criarSala(emailProfessor)
+    if (!r.ok) {
+      console.warn('sala do Meet nao criada:', r.motivo)
+      return turma.link_videochamada
+    }
+    if (r.motivoCoorganizador) console.warn('coorganizador nao definido:', r.motivoCoorganizador)
+
+    await clienteAdmin()
+      .from('turmas')
+      .update({ google_meet_sala: r.sala, link_videochamada: r.link })
+      .eq('id', turmaId)
+    return r.link
+  }
+
+  if (acao === 'ajustar' && turma.google_meet_sala) {
+    const r = await ajustarCoorganizador(turma.google_meet_sala, emailProfessor)
+    if (!r.ok) console.warn('coorganizador nao ajustado:', r.motivo)
+  }
+
+  return turma.link_videochamada
 }

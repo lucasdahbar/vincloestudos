@@ -80,8 +80,19 @@ export async function salvarTurma(
     console.error('falha ao materializar aulas da turma:', e)
   }
 
-  // G2: o evento na agenda do professor acompanha a turma, na criacao e na
-  // edicao — mudar o horario aqui tem de mudar la.
+  // G4: so na criacao. Reenviar a cada edicao encheria a caixa do professor de
+  // avisos iguais, e o documento pede o e-mail "ao criar uma nova Turma".
+  let urlBase: string | null = null
+  if (id === null) {
+    const cabecalhos = await headers()
+    const anfitriao = cabecalhos.get('host') ?? ''
+    const protocolo = anfitriao.startsWith('localhost') ? 'http' : 'https'
+    urlBase = anfitriao ? `${protocolo}://${anfitriao}` : ''
+  }
+
+  // Em sequencia, de proposito: o evento (G2) cria antes a sala do Meet (G3),
+  // e o aviso ao professor (G4) le o link que a sala acabou de gravar. Em dois
+  // `after` separados o aviso podia sair antes, sem o link.
   after(async () => {
     try {
       const r = await sincronizarEventoDaTurma(resposta.data.id)
@@ -90,25 +101,15 @@ export async function salvarTurma(
       // A turma ja esta gravada; o evento e reflexo dela. A proxima edicao refaz.
       console.error('falha ao sincronizar o evento da turma:', e)
     }
+
+    if (urlBase === null) return
+    try {
+      await avisarProfessorDaTurma(resposta.data.id, urlBase)
+    } catch (e) {
+      // O aviso e conveniencia: a turma existe mesmo que o e-mail falhe.
+      console.error('falha ao avisar o professor da turma nova:', e)
+    }
   })
-
-  // G4: so na criacao. Reenviar a cada edicao encheria a caixa do professor de
-  // avisos iguais, e o documento pede o e-mail "ao criar uma nova Turma".
-  if (id === null) {
-    const cabecalhos = await headers()
-    const anfitriao = cabecalhos.get('host') ?? ''
-    const protocolo = anfitriao.startsWith('localhost') ? 'http' : 'https'
-    const urlBase = anfitriao ? `${protocolo}://${anfitriao}` : ''
-
-    after(async () => {
-      try {
-        await avisarProfessorDaTurma(resposta.data.id, urlBase)
-      } catch (e) {
-        // O aviso e conveniencia: a turma existe mesmo que o e-mail falhe.
-        console.error('falha ao avisar o professor da turma nova:', e)
-      }
-    })
-  }
 
   revalidatePath('/turmas')
   revalidatePath('/agenda')

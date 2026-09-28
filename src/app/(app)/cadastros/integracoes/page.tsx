@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { autorizacaoAtual, credenciaisDoApp } from '@/agenda/credenciais'
+import { autorizacaoAtual, credenciaisDoApp, ESCOPO_MEET } from '@/agenda/credenciais'
 import { exigirGestora } from '@/dados/sessao'
 import { clienteServidor } from '@/dados/cliente'
 import { BotaoLink } from '@/ui/Botao'
@@ -94,6 +94,20 @@ export default async function PaginaIntegracoes({
                 Falta trocar <code>GOOGLE_CALENDAR_ATIVO</code> para <code>true</code> — peça a
                 quem cuida da parte técnica.
               </p>
+            )}
+
+            {/* G3: conexões feitas antes do Meet não têm permissão de criar sala.
+                Reconectar por cima substitui a autorização; não precisa desconectar. */}
+            {!autorizacao.escopo?.includes(ESCOPO_MEET) && (
+              <div className="rounded-campo bg-alerta-suave px-4 py-3 text-sm text-alerta">
+                <p>
+                  Falta autorizar o Google Meet. Sem isso, as turmas online são salvas sem o link
+                  da aula. Clique em Reconectar, escolha a mesma conta e clique em Permitir.
+                </p>
+                <BotaoLink href="/api/google/autorizar" aparencia="secundario" className="mt-3">
+                  Reconectar
+                </BotaoLink>
+              </div>
             )}
 
             <Desconectar />

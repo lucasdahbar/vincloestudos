@@ -139,3 +139,19 @@ describe('primeiraOcorrencia', () => {
     expect(primeiraOcorrencia(turma({ dias_semana: [] }))).toBeNull()
   })
 })
+
+describe('link da videochamada no evento (G3)', () => {
+  const link = 'https://meet.google.com/abc-defg-hij'
+
+  it('põe o link no local do evento, onde o professor clica', () => {
+    expect(montarEvento(turma({ link_videochamada: link })).location).toBe(link)
+  })
+
+  it('repete o link na descrição', () => {
+    expect(montarEvento(turma({ link_videochamada: link })).description).toContain(link)
+  })
+
+  it('sem link, o evento não ganha local', () => {
+    expect(montarEvento(turma()).location).toBeUndefined()
+  })
+})

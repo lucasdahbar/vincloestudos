@@ -337,7 +337,7 @@ export function FormularioTurma({
         {/* O professor recebe este link no e-mail de turma nova. */}
         <Campo
           etiqueta="Link da videochamada"
-          ajuda="Cole aqui o link do Google Meet desta turma. Ele vai no e-mail que o professor recebe."
+          ajuda="Em turma online, deixe em branco: ao salvar, o sistema cria a sala do Google Meet com o professor como coorganizador. Só cole um link aqui para usar outra sala."
         >
           <input
             type="url"

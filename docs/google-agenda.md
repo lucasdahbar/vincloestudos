@@ -113,16 +113,29 @@ Cole esse ID no cadastro do professor, campo **Agenda do Google**.
 Enquanto esse campo estiver vazio, a turma daquele professor não gera evento —
 o sistema não tem onde criar.
 
-## O que fica pendente depois disso
+## Meet da turma online (G3)
 
-**G3 — Meet com acesso Confiável e professor coorganizador.** Depende do upgrade
-para **Google Workspace Business Standard**; o plano atual (Business Starter)
-não tem coorganizador. O documento também pede que o parâmetro exato da API seja
-confirmado com a gestora antes de ser codificado (item G5).
+Turma **online** sem link ganha, ao ser salva, uma sala do Meet com:
 
-Até lá, a Kelly cria o Meet à mão e cola o link no campo **Link da
-videochamada** da turma — é esse link que vai no e-mail que o professor recebe
-(G4).
+- acesso **Confiável** — quem foi convidado entra direto, o resto pede para entrar;
+- moderação ligada e o **professor como coorganizador** — é ele quem aceita os
+  alunos da fila.
+
+É a configuração que a gestora validou à mão em 25/09/2026. O link vai para o
+campo **Link da videochamada**, para o evento da agenda e para o e-mail do
+professor (G4). Se a gestora colar um link à mão, o sistema não mexe.
+
+Pré-requisitos, feitos uma vez:
+
+1. A conta que autoriza a integração precisa de **Business Standard** ou acima
+   (o Starter não tem coorganizador). A sala pertence a essa conta.
+2. **Google Meet REST API** ativada no projeto do Cloud (APIs e serviços →
+   Biblioteca).
+3. Reconectar em **/cadastros/integracoes** para autorizar o escopo
+   `meetings.space.created`. A tela avisa enquanto isso faltar.
+
+**Não apague a conta que autorizou a integração** sem antes reconectar com
+outra: as salas já criadas pertencem a ela.
 
 ## Se algo der errado
 

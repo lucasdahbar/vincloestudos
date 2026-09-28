@@ -18,9 +18,17 @@ import { MARCA } from '@/marca'
  * `userinfo.email` é só para a tela de Integrações poder dizer *qual* conta
  * autorizou. Sem ele, `/oauth2/v2/userinfo` responde 401 e a tela mostra a
  * conexão sem dono — que é o que acontecia antes.
+ *
+ * `meetings.space.created` (G3) cria a sala do Meet da turma online e mexe só
+ * nas salas que o próprio sistema criou — nunca nas reuniões da conta.
  */
-export const ESCOPO =
-  'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email'
+export const ESCOPO_MEET = 'https://www.googleapis.com/auth/meetings.space.created'
+
+export const ESCOPO = [
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/userinfo.email',
+  ESCOPO_MEET,
+].join(' ')
 
 export interface Credenciais {
   clientId: string
@@ -60,13 +68,15 @@ export function urlDeAutorizacao(redirectUri: string, estado: string): string | 
 export interface Autorizacao {
   email: string | null
   conectado_em: string
+  /** Escopos pedidos na autorização. Conexão anterior a G3 não tem o do Meet. */
+  escopo: string | null
 }
 
 /** Quem está conectado, sem devolver o segredo. */
 export async function autorizacaoAtual(): Promise<Autorizacao | null> {
   const { data } = await clienteAdmin()
     .from('google_oauth')
-    .select('email, conectado_em')
+    .select('email, conectado_em, escopo')
     .eq('id', 1)
     .maybeSingle()
 

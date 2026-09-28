@@ -25,11 +25,14 @@ export interface TurmaDoEvento {
   /** Data a partir da qual a recorrência começa a valer, em ISO. */
   inicio_recorrencia: string
   professor_email: string | null
+  /** Link do Meet (G3), quando a turma tem. */
+  link_videochamada?: string | null
 }
 
 export interface EventoGoogle {
   summary: string
   description: string
+  location?: string
   start: { dateTime: string; timeZone: string }
   end: { dateTime: string; timeZone: string }
   recurrence?: string[]
@@ -53,6 +56,9 @@ export function montarEvento(turma: TurmaDoEvento): EventoGoogle {
     start: { dateTime: `${dia}T${turma.horario_inicio}:00`, timeZone: FUSO },
     end: { dateTime: `${dia}T${turma.horario_fim}:00`, timeZone: FUSO },
   }
+
+  // No local, o Google Agenda mostra o link clicável logo abaixo do horário.
+  if (turma.link_videochamada) evento.location = turma.link_videochamada
 
   if (!unico) {
     // Sem UNTIL: a turma não tem data de término prevista, e encerrá-la no
@@ -85,6 +91,7 @@ function descricao(turma: TurmaDoEvento): string {
   return [
     `${quando}, das ${turma.horario_inicio} às ${turma.horario_fim}.`,
     `Modalidade: ${turma.modalidade}.`,
+    ...(turma.link_videochamada ? [`Link da aula: ${turma.link_videochamada}`] : []),
     '',
     `Evento criado pelo ${MARCA}. Alterações feitas aqui podem ser`,
     'sobrescritas na próxima vez que a turma for salva no sistema.',
