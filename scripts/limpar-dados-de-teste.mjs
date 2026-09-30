@@ -75,6 +75,58 @@ async function contar(tabela) {
 
 console.log(ENSAIO ? 'Ensaio — nada sera apagado.\n' : 'Apagando...\n')
 
+/**
+ * Tira do Google os eventos das turmas ANTES de apaga-las.
+ *
+ * Desde G2 cada turma tem um evento na agenda real do professor. Apagar so a
+ * linha do banco deixaria aula de teste recorrente na agenda dele, e o sistema
+ * perderia o id que permitiria tira-la depois.
+ */
+async function tirarEventosDoGoogle() {
+  const { data: turmas } = await db
+    .from('turmas')
+    .select('id, google_calendar_event_id, professor:professores!professor_id (nome, google_calendar_id)')
+    .not('google_calendar_event_id', 'is', null)
+
+  if (!turmas?.length) return
+  console.log(`  eventos no Google Agenda: ${turmas.length} ${ENSAIO ? 'retiraria' : 'retirando'}`)
+  if (ENSAIO) return
+
+  const { data: oauth } = await db.from('google_oauth').select('refresh_token').eq('id', 1).maybeSingle()
+  const t = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      refresh_token: oauth?.refresh_token ?? '',
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      grant_type: 'refresh_token',
+    }),
+  }).then((r) => r.json())
+
+  if (!t.access_token) {
+    console.error('  Sem acesso ao Google: nada foi apagado, para os eventos nao ficarem orfaos.')
+    process.exit(1)
+  }
+
+  for (const turma of turmas) {
+    const agenda = turma.professor?.google_calendar_id
+    if (!agenda) continue
+    const r = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(agenda)}/events/${encodeURIComponent(turma.google_calendar_event_id)}?sendUpdates=none`,
+      { method: 'DELETE', headers: { Authorization: `Bearer ${t.access_token}` } },
+    )
+    // 404/410: ja tinha sido apagado a mao, que e o efeito desejado.
+    if (!r.ok && r.status !== 404 && r.status !== 410) {
+      console.error(`  turma ${turma.id}: o Google recusou (HTTP ${r.status}). Nada foi apagado do banco.`)
+      process.exit(1)
+    }
+    console.log(`    turma ${turma.id} (${turma.professor?.nome}): evento retirado`)
+  }
+}
+
+await tirarEventosDoGoogle()
+
 for (const tabela of ORDEM) {
   const antes = await contar(tabela)
   if (antes === null) {

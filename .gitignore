@@ -47,3 +47,7 @@ capturas/
 
 # planilhas com dados pessoais dos professores (e-mails, IDs de agenda)
 Agendas-e-IDs*.csv
+
+# planilhas da escola na raiz (CPF, endereco, telefone): nunca versionar
+/*.csv
+/*.CSV
