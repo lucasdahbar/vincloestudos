@@ -10,7 +10,8 @@
  * para a gestora corrigir pela tela. Perder o responsavel inteiro por causa de
  * um CPF com digito trocado seria pior do que importa-lo sem o CPF.
  *
- * Nao duplica: quem ja existe (mesmo CPF ou, sem CPF, mesmo e-mail) e pulado.
+ * Nao duplica: quem ja existe e pulado. Casa pelo CPF; sem CPF, pelo e-mail;
+ * sem nenhum dos dois, pelo nome — a planilha tem gente so com nome e telefone.
  *
  * Uso:
  *   node scripts/importar-responsaveis.mjs <arquivo.csv> --ensaio    # so relata
@@ -161,17 +162,20 @@ const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_
   auth: { persistSession: false },
 })
 
-const { data: existentes, error } = await db.from('responsaveis').select('cpf, email')
+const { data: existentes, error } = await db.from('responsaveis').select('nome, cpf, email')
 if (error) {
   console.error(`Falha ao ler os responsaveis: ${error.message}`)
   process.exit(1)
 }
 const cpfs = new Set(existentes.map((e) => e.cpf).filter(Boolean))
 const emails = new Set(existentes.map((e) => e.email?.toLowerCase()).filter(Boolean))
+const nomes = new Set(existentes.map((e) => chave(e.nome)))
 
-const novos = registros.filter(({ r }) =>
-  r.cpf ? !cpfs.has(r.cpf) : !(r.email && emails.has(r.email)),
-)
+const novos = registros.filter(({ r }) => {
+  if (r.cpf) return !cpfs.has(r.cpf)
+  if (r.email) return !emails.has(r.email)
+  return !nomes.has(chave(r.nome))
+})
 
 const semContato = registros.filter(({ r }) => !r.telefone && !r.email)
 
