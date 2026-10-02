@@ -2,18 +2,23 @@ import 'server-only'
 import { clienteAdmin } from './admin'
 import { professorPorToken, type ProfessorDoLink } from './professores'
 import { montarRegistro, semPendenciaDeReposicao, type RespostaChamada } from '@/dominio/presencas/registro'
-import { podeAbrir, telaDoLink, type AulaDoProfessor, type TelaDoLink } from '@/dominio/presencas/link-professor'
+import {
+  DIAS_A_FRENTE,
+  modoDaAula,
+  telaDoLink,
+  ultimoDiaVisivel,
+  type ModoDaAula,
+  type TelaDoLink,
+} from '@/dominio/presencas/link-professor'
+import { agoraNaEscola } from '@/dominio/agenda/relogio'
 
 /**
  * R1 (Rodada 2): o que o link pessoal do professor abre.
  *
- * O link nao carrega a aula — carrega o professor. Quem decide qual aula
- * mostrar e o relogio, no dominio (`link-professor.ts`). E por isso que ele
- * cobre turmas criadas depois de o link ter sido enviado.
+ * O link nao carrega a aula — carrega o professor. Quais aulas mostrar e o que
+ * cada uma permite e decidido no dominio (`link-professor.ts`). E por isso que
+ * ele cobre turmas criadas depois de o link ter sido enviado.
  */
-
-/** Quantos dias ao redor de hoje sao lidos do banco antes de o dominio filtrar. */
-const DIAS_DE_FOLGA = 1
 
 export type LeituraDoLink =
   | { ok: false; motivo: string }
@@ -26,18 +31,25 @@ export async function aulasDoLink(token: string, agora = new Date()): Promise<Le
   }
 
   const admin = clienteAdmin()
+  const relogio = agoraNaEscola(agora)
+  const hoje = relogio.slice(0, 10)
 
-  // Busca uma janela larga e deixa o dominio apertar: a regra de "perto de
-  // agora" mora num lugar so, testada, em vez de virar aritmetica de data
-  // espalhada pela consulta.
-  const de = deslocar(agora, -DIAS_DE_FOLGA)
-  const ate = deslocar(agora, DIAS_DE_FOLGA)
+  const { data: turmas } = await admin.from('turmas').select('id').eq('professor_id', professor.id)
+  const idsDasTurmas = (turmas ?? []).map((t) => t.id)
+  if (idsDasTurmas.length === 0) {
+    return { ok: true, professor, tela: telaDoLink([], relogio) }
+  }
 
+  // Do passado so interessa o que ainda esta sem chamada (e o confirmado de
+  // hoje); o dominio aperta o resto. Aula cancelada ou em feriado nao tem
+  // chamada para fazer.
   const { data } = await admin
     .from('aulas')
-    .select('id, data_hora_inicio, data_hora_fim, status, turma:turmas!turma_id (nome, professor_id)')
-    .gte('data_hora_inicio', `${de}T00:00:00`)
-    .lte('data_hora_inicio', `${ate}T23:59:59`)
+    .select('id, data_hora_inicio, data_hora_fim, status, turma:turmas!turma_id (nome)')
+    .in('turma_id', idsDasTurmas)
+    .in('status', ['Agendada', 'Realizada'])
+    .or(`status.eq.Agendada,data_hora_inicio.gte.${hoje}T00:00:00`)
+    .lte('data_hora_inicio', `${ultimoDiaVisivel(relogio)}T23:59:59`)
     .order('data_hora_inicio')
 
   const linhas = (data ?? []) as unknown as {
@@ -45,15 +57,10 @@ export async function aulasDoLink(token: string, agora = new Date()): Promise<Le
     data_hora_inicio: string
     data_hora_fim: string
     status: string
-    turma: { nome: string; professor_id: number } | null
+    turma: { nome: string } | null
   }[]
 
-  const doProfessor = linhas.filter((l) => l.turma?.professor_id === professor.id)
-
-  // Aula cancelada ou em feriado nao tem chamada para fazer.
-  const abertas = doProfessor.filter((l) => l.status === 'Agendada' || l.status === 'Realizada')
-
-  const aulas: AulaDoProfessor[] = abertas.map((l) => ({
+  const aulas = linhas.map((l) => ({
     id: l.id,
     data: l.data_hora_inicio.slice(0, 10),
     horario_inicio: l.data_hora_inicio.slice(11, 16),
@@ -62,14 +69,15 @@ export async function aulasDoLink(token: string, agora = new Date()): Promise<Le
     ja_registrada: l.status === 'Realizada',
   }))
 
-  return { ok: true, professor, tela: telaDoLink(aulas, agora) }
+  return { ok: true, professor, tela: telaDoLink(aulas, relogio) }
 }
 
 export interface ChamadaDoProfessor {
   aula_id: number
   turma_nome: string
   data_hora_inicio: string
-  ja_registrada: boolean
+  /** `registrar` abre a chamada; `consultar` so mostra quem vem. */
+  modo: Exclude<ModoDaAula, 'fora'>
   alunos: { aluno_id: number; nome: string; flag_reposicao: boolean }[]
 }
 
@@ -97,7 +105,11 @@ export async function chamadaDaAula(
     return { ok: false, motivo: 'Esta aula não é de uma turma sua.' }
   }
 
-  const dentroDaJanela = podeAbrir(
+  if (aula.status !== 'Agendada' && aula.status !== 'Realizada') {
+    return { ok: false, motivo: 'Esta aula foi cancelada.' }
+  }
+
+  const modo = modoDaAula(
     {
       id: aula.id,
       data: aula.data_hora_inicio.slice(0, 10),
@@ -106,13 +118,13 @@ export async function chamadaDaAula(
       turma_nome: turma?.nome ?? '',
       ja_registrada: aula.status === 'Realizada',
     },
-    agora,
+    agoraNaEscola(agora),
   )
 
-  if (!dentroDaJanela) {
+  if (modo === 'fora') {
     return {
       ok: false,
-      motivo: 'Esta aula está fora do horário de registro. O link abre as aulas próximas ao horário atual.',
+      motivo: `Esta aula ainda está longe. O link mostra as aulas dos próximos ${DIAS_A_FRENTE} dias.`,
     }
   }
 
@@ -124,7 +136,7 @@ export async function chamadaDaAula(
       aula_id: aula.id,
       turma_nome: turma?.nome ?? 'Turma',
       data_hora_inicio: aula.data_hora_inicio,
-      ja_registrada: aula.status === 'Realizada',
+      modo,
       alunos,
     },
   }
@@ -185,11 +197,15 @@ export async function registrarChamadaDoProfessor(
 
   // A presenca trava depois de confirmada, como ja previsto: o professor pode
   // ter deixado a pagina aberta e clicado duas vezes.
-  if (leitura.chamada.ja_registrada) {
+  if (leitura.chamada.modo === 'confirmada') {
     return {
       ok: false,
       motivo: 'Esta chamada já foi confirmada. Peça à gestora para reabrir, se precisar corrigir.',
     }
+  }
+
+  if (leitura.chamada.modo === 'consultar') {
+    return { ok: false, motivo: 'A chamada desta aula abre uma hora antes do início.' }
   }
 
   const professor = await professorPorToken(token)
@@ -235,10 +251,4 @@ export async function registrarChamadaDoProfessor(
   })
 
   return { ok: true, ausentes: resultado.ausentes.map((a) => a.nome) }
-}
-
-function deslocar(base: Date, dias: number): string {
-  const d = new Date(base)
-  d.setDate(d.getDate() + dias)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }

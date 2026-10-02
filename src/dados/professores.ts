@@ -12,7 +12,7 @@ import { clienteAdmin } from './admin'
  * o suficiente para nao ser adivinhado.
  *
  * O que ele da acesso e limitado no dominio (`link-professor.ts`): so as aulas
- * daquele professor, e so as que estao perto do horario atual.
+ * daquele professor, e so as sem chamada, as de hoje e as dos proximos dias.
  */
 export function gerarToken(): string {
   return randomBytes(24).toString('base64url')

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { motion } from 'motion/react'
 import { confirmarPresencas, confirmarPresencasDoProfessor } from './acoes'
 import { Botao } from '@/ui/Botao'
@@ -18,6 +19,7 @@ export function Chamada({
   quando,
   alunos,
   aulaId,
+  voltarHref,
 }: {
   token: string
   turmaNome: string
@@ -28,6 +30,8 @@ export function Chamada({
    * o token identifica a pessoa e nao a aula — entao a aula precisa ser dita.
    */
   aulaId?: number
+  /** Link permanente: depois de confirmar, volta para a lista das outras aulas. */
+  voltarHref?: string
 }) {
   // Padrao Presente para todos (Operacionais 5.5): o caso comum nao deve dar trabalho.
   const [presentes, setPresentes] = useState<Record<number, boolean>>(
@@ -72,7 +76,16 @@ export function Chamada({
       >
         <p className="font-titulo text-2xl text-apoio">Tudo certo!</p>
         <p className="mt-2 text-tinta-suave">{resultado.texto}</p>
-        <p className="mt-6 text-sm text-tinta-suave">Você já pode fechar esta página.</p>
+        {voltarHref ? (
+          <Link
+            href={voltarHref}
+            className="mt-6 inline-flex min-h-[44px] items-center font-medium text-destaque"
+          >
+            Ver minhas outras aulas
+          </Link>
+        ) : (
+          <p className="mt-6 text-sm text-tinta-suave">Você já pode fechar esta página.</p>
+        )}
       </motion.div>
     )
   }

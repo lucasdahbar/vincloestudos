@@ -1,6 +1,7 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
 import { nomesDosDias } from '@/dominio/tipos'
+import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import {
   identificarDestinatario,
   TABELA_DO_DESTINATARIO,
@@ -79,7 +80,7 @@ async function contextoDaMatricula(matriculaId: number) {
         responsavel:responsaveis!responsavel_id (id, nome, telefone, email)
       ),
       turma:turmas!turma_id (
-        id, nome, dias_semana, horario_inicio, horario_fim, modalidade
+        id, nome, dias_semana, horario_inicio, horario_fim, modalidade, link_videochamada
       )
     `)
     .eq('id', matriculaId)
@@ -104,6 +105,7 @@ async function contextoDaMatricula(matriculaId: number) {
       horario_inicio: string
       horario_fim: string
       modalidade: 'Presencial' | 'Online'
+      link_videochamada: string | null
     } | null
   } | null
 }
@@ -118,8 +120,9 @@ export async function enfileirarBoasVindas(matriculaId: number): Promise<number>
   const m = await contextoDaMatricula(matriculaId)
   if (!m?.aluno?.responsavel || !m.turma || m.flag_reposicao) return 0
 
-  // O link nao vive na turma, e sim em cada aula. Para as boas-vindas usamos o
-  // da proxima aula agendada: e o endereco da sala que o aluno vai usar.
+  // A sala do Meet e da turma (`link_videochamada`), criada junto com ela. Uma
+  // aula pode ter link proprio, de uma troca pontual: vale o da proxima, se
+  // houver, por ser o endereco que o aluno vai usar primeiro.
   let link: string | null = null
   if (m.turma.modalidade === 'Online') {
     const supabase = await clienteServidor()
@@ -132,7 +135,7 @@ export async function enfileirarBoasVindas(matriculaId: number): Promise<number>
       .order('data_hora_inicio')
       .limit(1)
       .maybeSingle()
-    link = proxima?.link_online ?? null
+    link = proxima?.link_online ?? m.turma.link_videochamada
   }
 
   const ctx: ContextoNotificacao = {
@@ -166,18 +169,21 @@ export async function enfileirarBoasVindas(matriculaId: number): Promise<number>
  */
 export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<number> {
   const supabase = await clienteServidor()
+  // As aulas guardam o horario de parede: comparar com o relogio da escola, e
+  // nao com o UTC do servidor, senao a janela anda tres horas.
   const agora = new Date()
-  const limite = new Date(agora.getTime() + horasAFrente * 3600_000)
+  const de = agoraNaEscola(agora)
+  const ate = agoraNaEscola(new Date(agora.getTime() + horasAFrente * 3600_000))
 
   const { data: aulas } = await supabase
     .from('aulas')
     .select(`
       id, data_hora_inicio, link_online, turma_id,
-      turma:turmas!turma_id (id, nome, dias_semana, horario_inicio, horario_fim, modalidade)
+      turma:turmas!turma_id (id, nome, dias_semana, horario_inicio, horario_fim, modalidade, link_videochamada)
     `)
     .eq('status', 'Agendada')
-    .gte('data_hora_inicio', agora.toISOString())
-    .lte('data_hora_inicio', limite.toISOString())
+    .gte('data_hora_inicio', `${de}:00`)
+    .lte('data_hora_inicio', `${ate}:00`)
 
   const linhas = (aulas ?? []) as unknown as {
     id: number
@@ -191,10 +197,17 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
       horario_inicio: string
       horario_fim: string
       modalidade: 'Presencial' | 'Online'
+      link_videochamada: string | null
     } | null
   }[]
 
-  const online = linhas.filter((a) => a.turma?.modalidade === 'Online' && a.link_online)
+  // A sala do Meet e da turma; `link_online` da aula so existe quando alguem
+  // trocou o link daquela aula em particular. Olhar so a aula deixava toda
+  // turma com sala do Meet sem lembrete.
+  const online = linhas
+    .filter((a) => a.turma?.modalidade === 'Online')
+    .map((a) => ({ ...a, link: a.link_online ?? a.turma!.link_videochamada }))
+    .filter((a) => a.link)
   if (online.length === 0) return 0
 
   let total = 0
@@ -245,7 +258,7 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
           },
           link: null,
           referencia: { tipo: 'aulas', id: aula.id },
-          aula: { data_hora_inicio: aula.data_hora_inicio, link: aula.link_online },
+          aula: { data_hora_inicio: aula.data_hora_inicio, link: aula.link },
         }),
       )
     }

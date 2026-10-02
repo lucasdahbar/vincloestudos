@@ -293,31 +293,29 @@ try {
     .single()
   ck('o professor tem token permanente', Boolean(comToken.token_presenca))
 
-  // A janela de tempo é a proteção do link permanente.
+  // O link lista as chamadas pendentes e os próximos dias, e só isso.
   const anonima = await nav.newContext()
   const pa = await anonima.newPage()
   await pa.goto(`${BASE}/p/professor/${comToken.token_presenca}`, { waitUntil: 'domcontentloaded' })
   const semLogin = await pa.locator('body').innerText()
   ck('o link abre sem login', !pa.url().includes('/login'))
   ck(
-    'e não escancara a agenda: ou mostra a aula do momento, ou diz que não há',
-    semLogin.includes('Nenhuma aula por agora') ||
-      semLogin.includes('Confirmar') ||
-      semLogin.includes('Qual aula'),
+    'e mostra a aula de daqui a 3 dias entre as próximas',
+    semLogin.includes('Próximas aulas'),
     semLogin.slice(0, 80).replace(/\n/g, ' '),
   )
 
   await pa.goto(`${BASE}/p/professor/token-que-nao-existe`, { waitUntil: 'domcontentloaded' })
   ck('token inválido não abre nada', (await pa.locator('body').innerText()).includes('Link indisponível'))
 
-  // Uma aula distante não pode ser aberta nem forçando o id na URL.
+  // A aula futura abre só para ver quem vem: a chamada não, nem forçando o id na URL.
   await pa.goto(`${BASE}/p/professor/${comToken.token_presenca}?aula=${aulasUnica[0].id}`, {
     waitUntil: 'domcontentloaded',
   })
   const forcada = await pa.locator('body').innerText()
   ck(
-    'forçar uma aula fora da janela é recusado',
-    forcada.includes('fora do horário de registro') || forcada.includes('não é de uma turma sua'),
+    'a aula futura não abre a chamada',
+    forcada.includes('A chamada abre uma hora antes') && !forcada.includes('Confirmar presenças'),
     forcada.slice(0, 70).replace(/\n/g, ' '),
   )
   await anonima.close()
