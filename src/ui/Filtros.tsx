@@ -136,13 +136,3 @@ export function Filtros({
     </div>
   )
 }
-
-/** Lista de cadastro (id, nome) no formato de opção do seletor. */
-export function deOpcoes(lista: { id: number; nome: string }[]) {
-  return lista.map((o) => ({ valor: String(o.id), nome: o.nome }))
-}
-
-/** Lista de valores fixos (enum) no formato de opção do seletor. */
-export function deValores(lista: readonly string[]) {
-  return lista.map((v) => ({ valor: v, nome: v }))
-}

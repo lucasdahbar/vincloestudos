@@ -1,5 +1,41 @@
 import { describe, expect, it } from 'vitest'
-import { comFiltros, comoId, comoOpcao, comoTexto } from './filtros'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { comFiltros, comoId, comoOpcao, comoTexto, deOpcoes, deValores } from './filtros'
+
+describe('opções dos seletores', () => {
+  it('cadastro (id, nome) vira opção com o id como valor', () => {
+    expect(deOpcoes([{ id: 7, nome: 'Matemática' }])).toEqual([{ valor: '7', nome: 'Matemática' }])
+  })
+
+  it('valor fixo vira opção com ele mesmo como nome', () => {
+    expect(deValores(['Ativa'])).toEqual([{ valor: 'Ativa', nome: 'Ativa' }])
+  })
+})
+
+/**
+ * Regressão: `deOpcoes` morava em src/ui/Filtros.tsx, que é 'use client'. As
+ * páginas (servidor) chamavam a função, e o React recusa em produção com
+ * "Attempted to call deOpcoes() from the server but it's on the client" —
+ * Agenda, Turmas e Matrículas caíram. O build e o tsc não pegam.
+ *
+ * Módulo de cliente só exporta componente (nome com maiúscula), que o servidor
+ * renderiza em vez de chamar. Função auxiliar mora fora dele.
+ */
+describe('módulos de cliente em src/ui', () => {
+  const pasta = join(__dirname, '..', 'ui')
+  const clientes = readdirSync(pasta)
+    .filter((f) => f.endsWith('.tsx'))
+    .filter((f) => /^\s*['"]use client['"]/.test(readFileSync(join(pasta, f), 'utf8')))
+
+  it.each(clientes)('%s só exporta componentes', (arquivo) => {
+    const codigo = readFileSync(join(pasta, arquivo), 'utf8')
+    const funcoes = [...codigo.matchAll(/export\s+(?:async\s+)?(?:function|const)\s+(\w+)/g)].map(
+      (m) => m[1],
+    )
+    expect(funcoes.filter((nome) => !/^[A-Z]/.test(nome))).toEqual([])
+  })
+})
 
 describe('comoId', () => {
   it('lê um id positivo da URL', () => {

@@ -1,11 +1,11 @@
 import Link from 'next/link'
 import { listarTurmas, opcoesDeTurma } from '@/dados/turmas'
 import { exigirSessao } from '@/dados/sessao'
-import { comoId, comoOpcao } from '@/dominio/filtros'
+import { comoId, comoOpcao, deOpcoes, deValores } from '@/dominio/filtros'
 import { MODALIDADES, STATUS_TURMA, nomesDosDias } from '@/dominio/tipos'
 import { BotaoLink } from '@/ui/Botao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
-import { Filtros, deOpcoes, deValores } from '@/ui/Filtros'
+import { Filtros } from '@/ui/Filtros'
 import { Selo } from '@/ui/Selo'
 
 export default async function PaginaTurmas({

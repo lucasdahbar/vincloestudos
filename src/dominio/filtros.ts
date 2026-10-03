@@ -24,6 +24,22 @@ export function comoOpcao<T extends string>(valor: ValorDaUrl, opcoes: readonly 
   return opcoes.find((o) => o === t)
 }
 
+/*
+ * As duas abaixo montam as opções do componente Filtros, mas moram aqui e não
+ * nele: o componente é 'use client', e o servidor não pode chamar função de
+ * módulo de cliente — o React recusa em produção e a página cai.
+ */
+
+/** Lista de cadastro (id, nome) no formato de opção do seletor. */
+export function deOpcoes(lista: { id: number; nome: string }[]) {
+  return lista.map((o) => ({ valor: String(o.id), nome: o.nome }))
+}
+
+/** Lista de valores fixos (enum) no formato de opção do seletor. */
+export function deValores(lista: readonly string[]) {
+  return lista.map((v) => ({ valor: v, nome: v }))
+}
+
 /**
  * Acrescenta ao link os filtros aplicados, e só eles: o resto da URL atual
  * (a data que se está vendo, por exemplo) é justamente o que o link troca.

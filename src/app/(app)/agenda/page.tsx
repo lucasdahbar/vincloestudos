@@ -9,11 +9,11 @@ import {
 import { clienteServidor } from '@/dados/cliente'
 import { exigirSessao } from '@/dados/sessao'
 import { opcoesDeTurma, turmasResumidas } from '@/dados/turmas'
-import { comFiltros, comoId, comoOpcao, comoTexto } from '@/dominio/filtros'
+import { comFiltros, comoId, comoOpcao, comoTexto, deOpcoes, deValores } from '@/dominio/filtros'
 import { MODALIDADES, STATUS_AULA } from '@/dominio/tipos'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
-import { Filtros, deOpcoes, deValores } from '@/ui/Filtros'
+import { Filtros } from '@/ui/Filtros'
 import { CalendarioMes, type AulaDoCalendario } from './CalendarioMes'
 import { VisaoSemana } from './VisaoSemana'
 

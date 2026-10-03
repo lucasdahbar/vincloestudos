@@ -2,11 +2,11 @@ import Link from 'next/link'
 import { listarMatriculas } from '@/dados/matriculas'
 import { exigirGestora } from '@/dados/sessao'
 import { opcoesDeTurma, turmasResumidas } from '@/dados/turmas'
-import { comoId, comoOpcao, comoTexto } from '@/dominio/filtros'
+import { comoId, comoOpcao, comoTexto, deOpcoes, deValores } from '@/dominio/filtros'
 import { STATUS_MATRICULA } from '@/dominio/tipos'
 import { BotaoLink } from '@/ui/Botao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
-import { Filtros, deOpcoes, deValores } from '@/ui/Filtros'
+import { Filtros } from '@/ui/Filtros'
 import { Selo } from '@/ui/Selo'
 
 function dataBR(iso: string | null) {
