@@ -1,7 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { atualizar, criar } from '@/dados/crud'
+import { atualizarAlunosNosEventos, turmasDoAluno } from '@/dados/evento-da-turma'
 import { exigirGestora } from '@/dados/sessao'
 import { CADASTROS } from '@/cadastros/definicoes'
 import { deReal } from '@/dominio/dinheiro'
@@ -58,6 +60,12 @@ export async function salvarCadastro(
   try {
     const dados = normalizar(rota, validacao.data as Record<string, unknown>)
     const idFinal = id === null ? await criar(definicao, dados) : (await atualizar(definicao, id, dados), id)
+
+    // O nome do aluno esta na descricao do evento das turmas dele no Google.
+    if (rota === 'alunos' && id !== null) {
+      after(async () => atualizarAlunosNosEventos(await turmasDoAluno(id)))
+    }
+
     revalidatePath(`/cadastros/${rota}`)
     return { ok: true, id: idFinal }
   } catch (erro) {
@@ -82,11 +90,18 @@ export async function consultarExclusao(entidade: string, id: number) {
 export async function excluirCadastro(entidade: string, id: number) {
   const sessao = await exigirGestora()
   const { executarExclusao } = await import('@/dados/lgpd')
+
+  // Lidas ANTES: depois da exclusao nao ha mais de onde saber em que turmas o
+  // aluno estava, e o nome dele ficaria no Google — o contrario do que a LGPD pede.
+  const turmas = entidade === 'alunos' ? await turmasDoAluno(id) : []
+
   const r = await executarExclusao(
     entidade as 'professores' | 'responsaveis' | 'alunos',
     id,
     sessao.nome,
   )
+  if (r.ok) after(() => atualizarAlunosNosEventos(turmas))
+
   revalidatePath(`/cadastros`, 'layout')
   return r
 }

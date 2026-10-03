@@ -92,6 +92,47 @@ export async function sincronizarEvento(
   }
 }
 
+/**
+ * Troca só a descrição do evento — a lista de alunos muda a cada matrícula.
+ *
+ * Mandar o evento inteiro, como `sincronizarEvento` faz, levaria junto o
+ * início da recorrência (hoje), e o Google apagaria as aulas passadas da
+ * agenda do professor a cada aluno matriculado.
+ */
+export async function atualizarDescricao(
+  googleCalendarId: string,
+  eventoId: string,
+  descricao: string,
+  buscar: typeof fetch = fetch,
+): Promise<{ ok: true } | { ok: false; motivo: string; naoExiste?: boolean }> {
+  const token = await accessToken(buscar)
+  if (!token.ok) return { ok: false, motivo: token.motivo }
+
+  try {
+    const resposta = await buscar(
+      `${API}/${encodeURIComponent(googleCalendarId)}/events/${encodeURIComponent(eventoId)}?sendUpdates=none`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ description: descricao }),
+        signal: AbortSignal.timeout(10_000),
+      },
+    )
+
+    if (resposta.ok) return { ok: true }
+    // Apagado à mão no Google: quem chamou decide recriar.
+    if (resposta.status === 404 || resposta.status === 410) {
+      return { ok: false, motivo: 'O evento não existe mais no Google.', naoExiste: true }
+    }
+    return { ok: false, motivo: `O Google recusou a atualização (HTTP ${resposta.status}).` }
+  } catch {
+    return { ok: false, motivo: 'Não foi possível falar com o Google Agenda agora.' }
+  }
+}
+
 /** Turma encerrada: o evento sai da agenda do professor. */
 export async function apagarEvento(
   googleCalendarId: string,

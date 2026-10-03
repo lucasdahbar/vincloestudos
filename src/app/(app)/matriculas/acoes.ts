@@ -1,7 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { clienteServidor } from '@/dados/cliente'
+import { atualizarAlunosNosEventos } from '@/dados/evento-da-turma'
 import { exigirGestora } from '@/dados/sessao'
 import { enfileirarBoasVindas } from '@/dados/notificacoes'
 import { validarMatricula } from '@/dominio/matriculas/regras'
@@ -22,7 +24,7 @@ export async function salvarMatricula(
   await exigirGestora()
   const supabase = await clienteServidor()
 
-  const [{ data: aluno }, { data: turma }, { data: existentes }] = await Promise.all([
+  const [{ data: aluno }, { data: turma }, { data: existentes }, { data: anterior }] = await Promise.all([
     supabase.from('alunos').select('ativo').eq('id', entrada.aluno_id ?? -1).maybeSingle(),
     supabase.from('turmas').select('status').eq('id', entrada.turma_id ?? -1).maybeSingle(),
     // M1: as outras matriculas do mesmo par (aluno, turma). O trigger no banco
@@ -33,6 +35,9 @@ export async function salvarMatricula(
       .select('id, data_inicio, data_fim')
       .eq('aluno_id', entrada.aluno_id ?? -1)
       .eq('turma_id', entrada.turma_id ?? -1),
+    // A turma de antes da edicao: se a matricula mudou de turma, o aluno sai
+    // do evento da antiga.
+    supabase.from('matriculas').select('turma_id').eq('id', id ?? -1).maybeSingle(),
   ])
 
   if (!aluno) return { ok: false, erros: ['Selecione um aluno válido.'] }
@@ -72,6 +77,13 @@ export async function salvarMatricula(
     }
   }
 
+  // O nome do aluno na descricao do evento da turma, no Google Agenda. Depois
+  // da resposta: o Google lento ou fora nao pode segurar a matricula.
+  const turmasAfetadas = [entrada.turma_id, anterior?.turma_id].filter(
+    (t): t is number => typeof t === 'number',
+  )
+  after(() => atualizarAlunosNosEventos([...new Set(turmasAfetadas)]))
+
   revalidatePath('/matriculas')
   revalidatePath('/mensagens')
   revalidatePath(`/turmas/${entrada.turma_id}`)
@@ -93,11 +105,16 @@ function traduzir(mensagem: string): string {
 export async function encerrarMatricula(id: number) {
   await exigirGestora()
   const supabase = await clienteServidor()
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('matriculas')
     .update({ status: 'Encerrada', data_fim: new Date().toISOString().slice(0, 10) })
     .eq('id', id)
+    .select('turma_id')
+    .single()
   if (error) throw new Error(error.message)
+
+  after(() => atualizarAlunosNosEventos([data.turma_id]))
+
   revalidatePath('/matriculas')
   revalidatePath(`/matriculas/${id}`)
 }

@@ -27,6 +27,17 @@ export interface TurmaDoEvento {
   professor_email: string | null
   /** Link do Meet (G3), quando a turma tem. */
   link_videochamada?: string | null
+  /** Linhas já prontas de `alunosDoEvento`. Vão na descrição, nunca como convidados. */
+  alunos: string[]
+}
+
+export interface MatriculaDoEvento {
+  nome: string
+  status: 'Ativa' | 'Encerrada'
+  flag_reposicao: boolean
+  /** ISO (AAAA-MM-DD). */
+  data_inicio: string
+  data_fim: string | null
 }
 
 export interface EventoGoogle {
@@ -52,7 +63,7 @@ export function montarEvento(turma: TurmaDoEvento): EventoGoogle {
 
   const evento: EventoGoogle = {
     summary: turma.nome,
-    description: descricao(turma),
+    description: descricaoDoEvento(turma),
     start: { dateTime: `${dia}T${turma.horario_inicio}:00`, timeZone: FUSO },
     end: { dateTime: `${dia}T${turma.horario_fim}:00`, timeZone: FUSO },
   }
@@ -82,7 +93,12 @@ export function montarEvento(turma: TurmaDoEvento): EventoGoogle {
   return evento
 }
 
-function descricao(turma: TurmaDoEvento): string {
+/**
+ * Exportada à parte porque a matrícula atualiza só a descrição: mandar o
+ * evento inteiro moveria o início da recorrência e apagaria as aulas passadas
+ * da agenda do professor.
+ */
+export function descricaoDoEvento(turma: TurmaDoEvento): string {
   const quando =
     turma.tipo_recorrencia === 'Único'
       ? 'Aula única'
@@ -93,9 +109,44 @@ function descricao(turma: TurmaDoEvento): string {
     `Modalidade: ${turma.modalidade}.`,
     ...(turma.link_videochamada ? [`Link da aula: ${turma.link_videochamada}`] : []),
     '',
+    ...(turma.alunos.length > 0
+      ? [`Alunos matriculados (${turma.alunos.length}):`, ...turma.alunos.map((a) => `- ${a}`)]
+      : ['Nenhum aluno matriculado.']),
+    '',
     `Evento criado pelo ${MARCA}. Alterações feitas aqui podem ser`,
-    'sobrescritas na próxima vez que a turma for salva no sistema.',
+    'sobrescritas quando a turma ou uma matrícula for salva no sistema.',
   ].join('\n')
+}
+
+/**
+ * Quem aparece na descrição do evento, já com a observação de período.
+ *
+ * O evento é recorrente: a mesma descrição vale para todas as ocorrências.
+ * Por isso a lista é a turma de hoje em diante, e quem ainda vai entrar ou já
+ * tem data para sair vem marcado.
+ */
+export function alunosDoEvento(matriculas: MatriculaDoEvento[], hoje: string): string[] {
+  return matriculas
+    .filter(
+      (m) =>
+        m.status === 'Ativa' &&
+        // Reposição não tem data de fim: o aluno ficaria na lista para sempre.
+        !m.flag_reposicao &&
+        (m.data_fim === null || m.data_fim >= hoje),
+    )
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .map((m) => {
+      const comeca = m.data_inicio > hoje
+      if (comeca && m.data_fim) return `${m.nome} (de ${diaMes(m.data_inicio)} a ${diaMes(m.data_fim)})`
+      if (comeca) return `${m.nome} (a partir de ${diaMes(m.data_inicio)})`
+      if (m.data_fim) return `${m.nome} (até ${diaMes(m.data_fim)})`
+      return m.nome
+    })
+}
+
+function diaMes(iso: string): string {
+  const [, mes, dia] = iso.split('-')
+  return `${dia}/${mes}`
 }
 
 /**

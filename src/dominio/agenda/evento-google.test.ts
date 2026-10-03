@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { montarEvento, primeiraOcorrencia, type TurmaDoEvento } from './evento-google'
+import {
+  alunosDoEvento,
+  descricaoDoEvento,
+  montarEvento,
+  primeiraOcorrencia,
+  type MatriculaDoEvento,
+  type TurmaDoEvento,
+} from './evento-google'
 
 const turma = (over: Partial<TurmaDoEvento> = {}): TurmaDoEvento => ({
   nome: 'Matemática · 9º ano · Colégio São José',
@@ -11,6 +18,7 @@ const turma = (over: Partial<TurmaDoEvento> = {}): TurmaDoEvento => ({
   modalidade: 'Online',
   inicio_recorrencia: '2026-09-02', // uma quarta-feira
   professor_email: 'rafael@exemplo.com',
+  alunos: [],
   ...over,
 })
 
@@ -153,5 +161,88 @@ describe('link da videochamada no evento (G3)', () => {
 
   it('sem link, o evento não ganha local', () => {
     expect(montarEvento(turma()).location).toBeUndefined()
+  })
+})
+
+describe('alunos na descrição do evento', () => {
+  it('lista os alunos na descrição', () => {
+    const { description } = montarEvento(turma({ alunos: ['Ana Souza', 'Bruno Lima'] }))
+    expect(description).toContain('Alunos matriculados (2):\n- Ana Souza\n- Bruno Lima')
+  })
+
+  it('sem alunos, diz que ainda não há ninguém', () => {
+    expect(montarEvento(turma({ alunos: [] })).description).toContain('Nenhum aluno matriculado.')
+  })
+
+  it('aluno não vira convidado: só o professor é convidado', () => {
+    // Convidado entraria direto na sala do Meet, sem passar pela sala de espera.
+    const e = montarEvento(turma({ alunos: ['Ana Souza'] }))
+    expect(e.attendees).toEqual([{ email: 'rafael@exemplo.com' }])
+  })
+
+  it('a descrição sozinha sai igual à do evento completo', () => {
+    // A matrícula atualiza só a descrição: se as duas divergissem, salvar a
+    // turma e matricular um aluno escreveriam textos diferentes.
+    const t = turma({ alunos: ['Ana Souza'], link_videochamada: 'https://meet.google.com/x' })
+    expect(descricaoDoEvento(t)).toBe(montarEvento(t).description)
+  })
+})
+
+describe('alunosDoEvento', () => {
+  const HOJE = '2026-10-02'
+  const matricula = (over: Partial<MatriculaDoEvento> = {}): MatriculaDoEvento => ({
+    nome: 'Ana Souza',
+    status: 'Ativa',
+    flag_reposicao: false,
+    data_inicio: '2026-08-01',
+    data_fim: null,
+    ...over,
+  })
+
+  it('ordena por nome, respeitando acento', () => {
+    const nomes = alunosDoEvento(
+      [matricula({ nome: 'Bruno' }), matricula({ nome: 'Álvaro' }), matricula({ nome: 'Carla' })],
+      HOJE,
+    )
+    expect(nomes).toEqual(['Álvaro', 'Bruno', 'Carla'])
+  })
+
+  it('deixa de fora a matrícula encerrada', () => {
+    expect(alunosDoEvento([matricula({ status: 'Encerrada' })], HOJE)).toEqual([])
+  })
+
+  it('deixa de fora a matrícula de reposição', () => {
+    // Ela não tem data de fim: o aluno que veio repor uma aula ficaria listado
+    // na turma para sempre.
+    expect(alunosDoEvento([matricula({ flag_reposicao: true })], HOJE)).toEqual([])
+  })
+
+  it('deixa de fora quem já saiu, mas mantém quem sai hoje', () => {
+    const nomes = alunosDoEvento(
+      [
+        matricula({ nome: 'Saiu ontem', data_fim: '2026-10-01' }),
+        matricula({ nome: 'Sai hoje', data_fim: '2026-10-02' }),
+      ],
+      HOJE,
+    )
+    expect(nomes).toEqual(['Sai hoje (até 02/10)'])
+  })
+
+  it('avisa quando o aluno ainda vai começar', () => {
+    expect(alunosDoEvento([matricula({ data_inicio: '2026-10-15' })], HOJE)).toEqual([
+      'Ana Souza (a partir de 15/10)',
+    ])
+  })
+
+  it('avisa quando a matrícula tem data para acabar', () => {
+    expect(alunosDoEvento([matricula({ data_fim: '2026-11-30' })], HOJE)).toEqual([
+      'Ana Souza (até 30/11)',
+    ])
+  })
+
+  it('junta início e fim quando os dois estão por vir', () => {
+    expect(
+      alunosDoEvento([matricula({ data_inicio: '2026-10-15', data_fim: '2026-11-30' })], HOJE),
+    ).toEqual(['Ana Souza (de 15/10 a 30/11)'])
   })
 })
