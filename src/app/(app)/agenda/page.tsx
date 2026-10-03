@@ -8,8 +8,12 @@ import {
 } from '@/dados/aulas'
 import { clienteServidor } from '@/dados/cliente'
 import { exigirSessao } from '@/dados/sessao'
+import { opcoesDeTurma, turmasResumidas } from '@/dados/turmas'
+import { comFiltros, comoId, comoOpcao, comoTexto } from '@/dominio/filtros'
+import { MODALIDADES, STATUS_AULA } from '@/dominio/tipos'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Filtros, deOpcoes, deValores } from '@/ui/Filtros'
 import { CalendarioMes, type AulaDoCalendario } from './CalendarioMes'
 import { VisaoSemana } from './VisaoSemana'
 
@@ -81,19 +85,38 @@ const LEGENDA = [
   { rotulo: 'Feriado', classe: 'bg-alerta-suave text-alerta' },
 ]
 
+/** Os parametros que sao filtro — `vista` e `data` sao navegacao. */
+const CAMPOS_FILTRO = ['professor', 'turma', 'materia', 'escola', 'modalidade', 'status']
+
 export default async function PaginaAgenda({
   searchParams,
 }: {
-  searchParams: Promise<{ vista?: string; data?: string; mes?: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const sessao = await exigirSessao()
   const params = await searchParams
   const vista = params.vista === 'semana' ? 'semana' : 'mes'
+  const ehGestora = sessao.papel === 'gestora'
 
   const agoraData = new Date()
   const hoje = iso(agoraData)
   // `mes` continua aceito para nao quebrar links antigos.
-  const ctx = contexto(vista, params.data ?? params.mes, hoje)
+  const ctx = contexto(vista, comoTexto(params.data) ?? comoTexto(params.mes), hoje)
+
+  // Trocar de semana ou de formato nao pode perder o que foi filtrado.
+  const link = (href: string) => comFiltros(href, params, CAMPOS_FILTRO)
+  const filtrando = CAMPOS_FILTRO.some((c) => params[c])
+
+  // Professor, materia, escola e modalidade sao da turma: viram a lista de
+  // turmas que passam. O professor logado nunca escolhe professor — ele so
+  // ve as proprias aulas, pelo `professorId` mais abaixo.
+  const daTurma = {
+    professorId: ehGestora ? comoId(params.professor) : undefined,
+    materiaId: comoId(params.materia),
+    escolaId: comoId(params.escola),
+    modalidade: comoOpcao(params.modalidade, MODALIDADES),
+  }
+  const filtraPelaTurma = Object.values(daTurma).some(Boolean)
 
   // Sincronizacao sob demanda ao abrir a agenda (Operacionais 4.3), rodando
   // DEPOIS que a resposta ja foi enviada.
@@ -115,15 +138,21 @@ export default async function PaginaAgenda({
   }
 
   const supabase = await clienteServidor()
-  const [aulas, conflitos, recessos, { data: feriadosDoPeriodo }] = await Promise.all([
-    listarAulas({
-      de: ctx.de,
-      ate: ctx.ate,
-      professorId: sessao.papel === 'professor' ? (sessao.professorId ?? -1) : undefined,
-    }),
+  const [aulas, conflitos, recessos, { data: feriadosDoPeriodo }, opcoes, turmas] = await Promise.all([
+    (async () =>
+      listarAulas({
+        de: ctx.de,
+        ate: ctx.ate,
+        professorId: sessao.papel === 'professor' ? (sessao.professorId ?? -1) : undefined,
+        turmaId: comoId(params.turma),
+        turmaIds: filtraPelaTurma ? (await turmasResumidas(daTurma)).map((t) => t.id) : undefined,
+        status: comoOpcao(params.status, STATUS_AULA),
+      }))(),
     sessao.papel === 'gestora' ? conflitosDeFeriado(ctx.de, ctx.ate) : Promise.resolve([]),
     sessao.papel === 'gestora' ? conflitosDeRecesso(ctx.de, ctx.ate) : Promise.resolve([]),
     supabase.from('feriados').select('data, nome').gte('data', ctx.de).lte('data', ctx.ate),
+    opcoesDeTurma(),
+    turmasResumidas(ehGestora ? {} : { professorId: sessao.professorId ?? -1 }),
   ])
 
   // Somente dados simples atravessam a fronteira para os componentes de vista.
@@ -140,8 +169,8 @@ export default async function PaginaAgenda({
   )
 
   const abas = [
-    { rotulo: 'Semana', href: '/agenda?vista=semana', ativa: vista === 'semana' },
-    { rotulo: 'Mês', href: '/agenda', ativa: vista === 'mes' },
+    { rotulo: 'Semana', href: link('/agenda?vista=semana'), ativa: vista === 'semana' },
+    { rotulo: 'Mês', href: link('/agenda'), ativa: vista === 'mes' },
   ]
 
   return (
@@ -180,20 +209,20 @@ export default async function PaginaAgenda({
 
           <nav aria-label="Navegar no tempo" className="flex items-center gap-1">
             <Link
-              href={ctx.anterior}
+              href={link(ctx.anterior)}
               aria-label={vista === 'semana' ? 'Semana anterior' : 'Mês anterior'}
               className="flex size-11 items-center justify-center rounded-campo border border-borda bg-superficie text-lg transition-colors hover:border-destaque/40 hover:text-destaque"
             >
               ‹
             </Link>
             <Link
-              href={vista === 'semana' ? '/agenda?vista=semana' : '/agenda'}
+              href={link(vista === 'semana' ? '/agenda?vista=semana' : '/agenda')}
               className="flex min-h-[44px] items-center rounded-campo border border-borda bg-superficie px-4 font-medium transition-colors hover:border-destaque/40 hover:text-destaque"
             >
               Hoje
             </Link>
             <Link
-              href={ctx.seguinte}
+              href={link(ctx.seguinte)}
               aria-label={vista === 'semana' ? 'Próxima semana' : 'Próximo mês'}
               className="flex size-11 items-center justify-center rounded-campo border border-borda bg-superficie text-lg transition-colors hover:border-destaque/40 hover:text-destaque"
             >
@@ -202,6 +231,27 @@ export default async function PaginaAgenda({
           </nav>
         </div>
       </header>
+
+      <Filtros
+        seletores={[
+          {
+            campo: 'professor',
+            rotulo: 'Professor',
+            opcoes: ehGestora ? deOpcoes(opcoes.professores) : [],
+          },
+          { campo: 'turma', rotulo: 'Turma', opcoes: deOpcoes(turmas), todos: 'Todas' },
+          { campo: 'materia', rotulo: 'Matéria', opcoes: deOpcoes(opcoes.materias), todos: 'Todas' },
+          { campo: 'escola', rotulo: 'Escola', opcoes: deOpcoes(opcoes.escolas), todos: 'Todas' },
+          { campo: 'modalidade', rotulo: 'Modalidade', opcoes: deValores(MODALIDADES), todos: 'Todas' },
+          { campo: 'status', rotulo: 'Situação da aula', opcoes: deValores(STATUS_AULA), todos: 'Todas' },
+        ]}
+        total={aulas.length}
+        contagem={{
+          um: `aula ${vista === 'semana' ? 'na semana' : 'no mês'} com esses filtros`,
+          varios: `aulas ${vista === 'semana' ? 'na semana' : 'no mês'} com esses filtros`,
+          nenhum: `Nenhuma aula ${vista === 'semana' ? 'nesta semana' : 'neste mês'} com esses filtros.`,
+        }}
+      />
 
       {conflitos.length > 0 && (
         <Cartao className="border-alerta/30 bg-alerta-suave">
@@ -266,7 +316,8 @@ export default async function PaginaAgenda({
         />
       )}
 
-      {aulas.length === 0 ? (
+      {/* Filtrando, quem explica a lista vazia e o proprio filtro. */}
+      {aulas.length === 0 && filtrando ? null : aulas.length === 0 ? (
         <EstadoVazio
           titulo={`Nenhuma aula ${vista === 'semana' ? 'nesta semana' : 'neste mês'}`}
           descricao="As aulas são geradas a partir dos dias e horários cadastrados em cada turma. Use as setas acima para procurar em outro período."

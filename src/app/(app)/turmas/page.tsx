@@ -1,22 +1,12 @@
 import Link from 'next/link'
 import { listarTurmas, opcoesDeTurma } from '@/dados/turmas'
 import { exigirSessao } from '@/dados/sessao'
-import { nomesDosDias } from '@/dominio/tipos'
+import { comoId, comoOpcao } from '@/dominio/filtros'
+import { MODALIDADES, STATUS_TURMA, nomesDosDias } from '@/dominio/tipos'
 import { BotaoLink } from '@/ui/Botao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Filtros, deOpcoes, deValores } from '@/ui/Filtros'
 import { Selo } from '@/ui/Selo'
-import { FiltrosTurma } from './FiltrosTurma'
-
-/** Numero vindo da URL, ou undefined quando o filtro nao esta aplicado. */
-function comoId(valor: string | string[] | undefined): number | undefined {
-  const n = Number(Array.isArray(valor) ? valor[0] : valor)
-  return Number.isInteger(n) && n > 0 ? n : undefined
-}
-
-function comoTexto(valor: string | string[] | undefined): string | undefined {
-  const t = Array.isArray(valor) ? valor[0] : valor
-  return t || undefined
-}
 
 export default async function PaginaTurmas({
   searchParams,
@@ -33,10 +23,10 @@ export default async function PaginaTurmas({
     ...(ehGestora
       ? { professorId: comoId(filtros.professor) }
       : { professorId: sessao.professorId ?? undefined }),
-    status: comoTexto(filtros.status),
+    status: comoOpcao(filtros.status, STATUS_TURMA),
     materiaId: comoId(filtros.materia),
     escolaId: comoId(filtros.escola),
-    modalidade: comoTexto(filtros.modalidade),
+    modalidade: comoOpcao(filtros.modalidade, MODALIDADES),
   })
 
   const opcoes = await opcoesDeTurma()
@@ -56,11 +46,24 @@ export default async function PaginaTurmas({
       {/* T2: filtros. So aparecem quando ha turma suficiente para valer a pena
           filtrar — numa lista de tres, o filtro so ocupa espaco. */}
       {(turmas.length > 3 || Object.keys(filtros).length > 0) && (
-        <FiltrosTurma
-          materias={opcoes.materias}
-          escolas={opcoes.escolas}
-          professores={ehGestora ? opcoes.professores : []}
+        <Filtros
+          seletores={[
+            { campo: 'status', rotulo: 'Situação', opcoes: deValores(STATUS_TURMA) },
+            { campo: 'materia', rotulo: 'Matéria', opcoes: deOpcoes(opcoes.materias) },
+            { campo: 'escola', rotulo: 'Escola', opcoes: deOpcoes(opcoes.escolas) },
+            {
+              campo: 'professor',
+              rotulo: 'Professor',
+              opcoes: ehGestora ? deOpcoes(opcoes.professores) : [],
+            },
+            { campo: 'modalidade', rotulo: 'Modalidade', opcoes: deValores(MODALIDADES) },
+          ]}
           total={turmas.length}
+          contagem={{
+            um: 'turma encontrada',
+            varios: 'turmas encontradas',
+            nenhum: 'Nenhuma turma com esses filtros.',
+          }}
         />
       )}
 

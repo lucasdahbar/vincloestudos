@@ -8,6 +8,9 @@ export type StatusTurma = (typeof STATUS_TURMA)[number]
 export const TIPOS_RECORRENCIA = ['Recorrente', 'Único'] as const
 export type TipoRecorrencia = (typeof TIPOS_RECORRENCIA)[number]
 
+export const STATUS_AULA = ['Agendada', 'Realizada', 'Cancelada', 'Feriado'] as const
+export type StatusAula = (typeof STATUS_AULA)[number]
+
 export const STATUS_MATRICULA = ['Ativa', 'Encerrada'] as const
 export type StatusMatricula = (typeof STATUS_MATRICULA)[number]
 

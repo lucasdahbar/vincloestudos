@@ -22,14 +22,39 @@ export interface MatriculaComRelacoes {
 export async function listarMatriculas(filtros: {
   alunoId?: number
   turmaId?: number
+  /**
+   * Turmas que passaram pelos filtros da turma (professor, matéria, escola).
+   * Lista vazia quer dizer que nenhuma passou — e não "sem filtro".
+   */
+  turmaIds?: number[]
   status?: string
+  /** true: só reposição; false: só regulares. */
+  reposicao?: boolean
+  /** Parte do nome do aluno. */
+  busca?: string
 } = {}): Promise<MatriculaComRelacoes[]> {
   const supabase = await clienteServidor()
+
+  // A busca pelo nome resolve os alunos antes: filtrar pela tabela embutida
+  // exigiria o join interno, e a matrícula sem aluno visível sumiria da
+  // listagem sem filtro também.
+  let alunoIds: number[] | undefined
+  if (filtros.busca) {
+    const termo = filtros.busca.replace(/[%_\\]/g, (c) => `\\${c}`)
+    const { data } = await supabase.from('alunos').select('id').ilike('nome', `%${termo}%`)
+    alunoIds = (data ?? []).map((a) => a.id)
+  }
+
+  if (filtros.turmaIds?.length === 0 || alunoIds?.length === 0) return []
+
   let consulta = supabase.from('matriculas').select(SELECT_MATRICULA)
 
   if (filtros.alunoId) consulta = consulta.eq('aluno_id', filtros.alunoId)
+  if (alunoIds) consulta = consulta.in('aluno_id', alunoIds)
   if (filtros.turmaId) consulta = consulta.eq('turma_id', filtros.turmaId)
+  if (filtros.turmaIds) consulta = consulta.in('turma_id', filtros.turmaIds)
   if (filtros.status) consulta = consulta.eq('status', filtros.status)
+  if (filtros.reposicao !== undefined) consulta = consulta.eq('flag_reposicao', filtros.reposicao)
 
   const { data, error } = await consulta.order('data_inicio', { ascending: false })
   if (error) throw new Error(`Falha ao listar matrículas: ${error.message}`)

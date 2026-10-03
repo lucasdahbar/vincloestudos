@@ -1,8 +1,12 @@
 import Link from 'next/link'
 import { listarMatriculas } from '@/dados/matriculas'
 import { exigirGestora } from '@/dados/sessao'
+import { opcoesDeTurma, turmasResumidas } from '@/dados/turmas'
+import { comoId, comoOpcao, comoTexto } from '@/dominio/filtros'
+import { STATUS_MATRICULA } from '@/dominio/tipos'
 import { BotaoLink } from '@/ui/Botao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Filtros, deOpcoes, deValores } from '@/ui/Filtros'
 import { Selo } from '@/ui/Selo'
 
 function dataBR(iso: string | null) {
@@ -11,9 +15,40 @@ function dataBR(iso: string | null) {
   return `${dia}/${mes}/${ano}`
 }
 
-export default async function PaginaMatriculas() {
+const CAMPOS_FILTRO = ['busca', 'status', 'tipo', 'turma', 'professor', 'materia', 'escola']
+const TIPOS = ['regular', 'reposicao'] as const
+
+export default async function PaginaMatriculas({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   await exigirGestora()
-  const matriculas = await listarMatriculas()
+  const params = await searchParams
+  const filtrando = CAMPOS_FILTRO.some((c) => params[c])
+
+  // Professor, matéria e escola são da turma: viram a lista de turmas que
+  // passam, e a matrícula filtra por ela.
+  const daTurma = {
+    professorId: comoId(params.professor),
+    materiaId: comoId(params.materia),
+    escolaId: comoId(params.escola),
+  }
+  const filtraPelaTurma = Object.values(daTurma).some(Boolean)
+  const tipo = comoOpcao(params.tipo, TIPOS)
+
+  const [opcoes, turmas, matriculas] = await Promise.all([
+    opcoesDeTurma(),
+    turmasResumidas(),
+    (async () =>
+      listarMatriculas({
+        busca: comoTexto(params.busca),
+        status: comoOpcao(params.status, STATUS_MATRICULA),
+        turmaId: comoId(params.turma),
+        turmaIds: filtraPelaTurma ? (await turmasResumidas(daTurma)).map((t) => t.id) : undefined,
+        reposicao: tipo === undefined ? undefined : tipo === 'reposicao',
+      }))(),
+  ])
 
   return (
     <div className="flex flex-col gap-6">
@@ -27,7 +62,35 @@ export default async function PaginaMatriculas() {
         <BotaoLink href="/matriculas/nova">+ Nova matrícula</BotaoLink>
       </header>
 
-      {matriculas.length === 0 ? (
+      {/* Numa lista de tres, o filtro so ocupa espaco (mesma regra de turmas). */}
+      {(matriculas.length > 3 || filtrando) && (
+        <Filtros
+          busca={{ campo: 'busca', rotulo: 'Aluno', placeholder: 'Nome do aluno' }}
+          seletores={[
+            { campo: 'status', rotulo: 'Situação', opcoes: deValores(STATUS_MATRICULA), todos: 'Todas' },
+            {
+              campo: 'tipo',
+              rotulo: 'Tipo',
+              opcoes: [
+                { valor: 'regular', nome: 'Regular' },
+                { valor: 'reposicao', nome: 'Reposição' },
+              ],
+            },
+            { campo: 'turma', rotulo: 'Turma', opcoes: deOpcoes(turmas), todos: 'Todas' },
+            { campo: 'professor', rotulo: 'Professor', opcoes: deOpcoes(opcoes.professores) },
+            { campo: 'materia', rotulo: 'Matéria', opcoes: deOpcoes(opcoes.materias), todos: 'Todas' },
+            { campo: 'escola', rotulo: 'Escola', opcoes: deOpcoes(opcoes.escolas), todos: 'Todas' },
+          ]}
+          total={matriculas.length}
+          contagem={{
+            um: 'matrícula encontrada',
+            varios: 'matrículas encontradas',
+            nenhum: 'Nenhuma matrícula com esses filtros.',
+          }}
+        />
+      )}
+
+      {matriculas.length === 0 && filtrando ? null : matriculas.length === 0 ? (
         <EstadoVazio
           titulo="Nenhuma matrícula ainda"
           descricao="A matrícula liga um aluno a uma turma. É o que faz o aluno entrar nas aulas e nas cobranças."

@@ -80,6 +80,28 @@ export async function listarTurmas(
   return turmas.map((t) => ({ ...t, alunos_matriculados: porTurma.get(t.id) ?? 0 }))
 }
 
+/**
+ * Só id e nome das turmas que batem com os filtros, sem a contagem de alunos
+ * que a listagem faz. Agenda e matrículas filtram por campos da turma
+ * (professor, matéria, escola) através disto, e o seletor "Turma" sai daqui.
+ */
+export async function turmasResumidas(
+  filtros: FiltrosDeTurma = {},
+): Promise<{ id: number; nome: string }[]> {
+  const supabase = await clienteServidor()
+  let consulta = supabase.from('turmas').select('id, nome')
+
+  if (filtros.professorId) consulta = consulta.eq('professor_id', filtros.professorId)
+  if (filtros.status) consulta = consulta.eq('status', filtros.status)
+  if (filtros.materiaId) consulta = consulta.eq('materia_id', filtros.materiaId)
+  if (filtros.escolaId) consulta = consulta.eq('escola_id', filtros.escolaId)
+  if (filtros.modalidade) consulta = consulta.eq('modalidade', filtros.modalidade)
+
+  const { data, error } = await consulta.order('nome')
+  if (error) throw new Error(`Falha ao listar turmas: ${error.message}`)
+  return data ?? []
+}
+
 export async function obterTurma(id: number): Promise<TurmaComRelacoes | null> {
   const supabase = await clienteServidor()
   const { data, error } = await supabase

@@ -116,8 +116,16 @@ export async function listarAulas(filtros: {
   de: string
   ate: string
   turmaId?: number
+  /**
+   * Turmas que passaram pelos filtros da turma (professor, matéria, escola,
+   * modalidade). Lista vazia quer dizer que nenhuma passou.
+   */
+  turmaIds?: number[]
   professorId?: number
+  status?: string
 }): Promise<AulaComTurma[]> {
+  if (filtros.turmaIds?.length === 0) return []
+
   const supabase = await clienteServidor()
   let consulta = supabase
     .from('aulas')
@@ -126,6 +134,8 @@ export async function listarAulas(filtros: {
     .lte('data_hora_inicio', `${filtros.ate}T23:59:59`)
 
   if (filtros.turmaId) consulta = consulta.eq('turma_id', filtros.turmaId)
+  if (filtros.turmaIds) consulta = consulta.in('turma_id', filtros.turmaIds)
+  if (filtros.status) consulta = consulta.eq('status', filtros.status)
 
   const { data, error } = await consulta.order('data_hora_inicio')
   if (error) throw new Error(`Falha ao listar aulas: ${error.message}`)
