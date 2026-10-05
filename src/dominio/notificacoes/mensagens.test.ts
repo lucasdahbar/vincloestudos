@@ -9,7 +9,7 @@ const base: ContextoNotificacao = {
   canal: 'WhatsApp',
   turma: {
     nome: 'Matemática · 9º ano · Aula particular · Online',
-    dias: 'Ter, Qui',
+    quando: 'Terças e quintas, às 15:00',
     horario_inicio: '15:00',
     horario_fim: '16:00',
     modalidade: 'Online',
@@ -74,29 +74,42 @@ describe('planejarNotificacoes — quem recebe', () => {
 describe('planejarNotificacoes — texto de boas-vindas', () => {
   const [n] = planejarNotificacoes(base)
 
-  it('saúda o destinatário pelo primeiro nome', () => {
-    expect(n.texto_gerado).toContain('Olá, Ana!')
+  it('texto para o responsável, no estilo do lembrete de link', () => {
+    expect(n.texto_gerado).toBe(
+      [
+        'Oi, Ana! Tudo bem? A matrícula de João na turma abaixo está confirmada.',
+        '',
+        'Matemática · 9º ano · Aula particular · Online',
+        'Terças e quintas, às 15:00.',
+        'Link da sala: https://meet.exemplo.com/sala-123',
+        '',
+        'Qualquer dúvida, só chamar! Um abraço!',
+      ].join('\n'),
+    )
   })
 
-  it('fala do aluno na terceira pessoa quando é para o responsável', () => {
-    expect(n.texto_gerado).toContain('João')
-  })
-
-  it('fala direto com o aluno quando é para ele', () => {
+  it('texto para o aluno', () => {
     const [a] = planejarNotificacoes({ ...base, destinatario: 'Aluno' })
-    expect(a.texto_gerado).toContain('Olá, João!')
-    expect(a.texto_gerado).toContain('Você foi matriculado')
+    expect(a.texto_gerado).toBe(
+      [
+        'Oi, João! Tudo bem? Boas-vindas à turma de Matemática · 9º ano · Aula particular · Online.',
+        '',
+        'Terças e quintas, às 15:00.',
+        'Link da sala: https://meet.exemplo.com/sala-123',
+        '',
+        'Boas aulas para você! Um abraço!',
+      ].join('\n'),
+    )
   })
 
-  it('traz a turma, os dias e o horário', () => {
-    expect(n.texto_gerado).toContain('Matemática')
-    expect(n.texto_gerado).toContain('Ter, Qui')
-    expect(n.texto_gerado).toContain('15:00')
-    expect(n.texto_gerado).toContain('16:00')
-  })
-
-  it('traz o link da sala', () => {
-    expect(n.texto_gerado).toContain('https://meet.exemplo.com/sala-123')
+  it('turma presencial: sem a linha do link', () => {
+    const [p] = planejarNotificacoes({
+      ...base,
+      turma: { ...base.turma, modalidade: 'Presencial' },
+      link: null,
+    })
+    expect(p.texto_gerado).not.toContain('Link da sala')
+    expect(p.texto_gerado).toContain('Terças e quintas, às 15:00.')
   })
 
   it('marca o tipo e a referência, para não duplicar depois', () => {

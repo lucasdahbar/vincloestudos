@@ -16,7 +16,8 @@ export interface ContextoNotificacao {
   canal: 'WhatsApp' | 'E-mail' | 'Ambos'
   turma: {
     nome: string
-    dias: string
+    /** "Terças e quintas, às 15:00" (ver `quandoDaTurma`). */
+    quando: string
     horario_inicio: string
     horario_fim: string
     modalidade: 'Presencial' | 'Online'
@@ -59,23 +60,31 @@ function temContato(p: Pessoa, canal: CanalEnvio): boolean {
   return canal === 'WhatsApp' ? Boolean(p.telefone) : Boolean(p.email)
 }
 
+/** Mesmo estilo do lembrete de link, a pedido da escola. */
 function textoBoasVindas(ctx: ContextoNotificacao, paraAluno: boolean): string {
-  const quem = paraAluno ? ctx.aluno : ctx.responsavel
-  const sujeito = paraAluno ? 'Você foi matriculado' : `${primeiroNome(ctx.aluno.nome)} foi matriculado`
+  const link =
+    ctx.turma.modalidade === 'Online' && ctx.link ? [`Link da sala: ${ctx.link}`] : []
 
-  const linhas = [
-    `Olá, ${primeiroNome(quem.nome)}! ${sujeito} em ${ctx.turma.nome}.`,
-    '',
-    `Dias: ${ctx.turma.dias}`,
-    `Horário: ${ctx.turma.horario_inicio} às ${ctx.turma.horario_fim}`,
-  ]
-
-  if (ctx.turma.modalidade === 'Online' && ctx.link) {
-    linhas.push('', `Link da sala: ${ctx.link}`)
+  if (paraAluno) {
+    return [
+      `Oi, ${primeiroNome(ctx.aluno.nome)}! Tudo bem? Boas-vindas à turma de ${ctx.turma.nome}.`,
+      '',
+      `${ctx.turma.quando}.`,
+      ...link,
+      '',
+      'Boas aulas para você! Um abraço!',
+    ].join('\n')
   }
 
-  linhas.push('', 'Qualquer dúvida, é só chamar!')
-  return linhas.join('\n')
+  return [
+    `Oi, ${primeiroNome(ctx.responsavel.nome)}! Tudo bem? A matrícula de ${primeiroNome(ctx.aluno.nome)} na turma abaixo está confirmada.`,
+    '',
+    ctx.turma.nome,
+    `${ctx.turma.quando}.`,
+    ...link,
+    '',
+    'Qualquer dúvida, só chamar! Um abraço!',
+  ].join('\n')
 }
 
 const DIAS_DA_SEMANA = [

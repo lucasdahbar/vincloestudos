@@ -1,6 +1,6 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
-import { nomesDosDias } from '@/dominio/tipos'
+import { quandoDaTurma } from '@/dominio/turmas/quando'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import {
   identificarDestinatario,
@@ -80,7 +80,7 @@ async function contextoDaMatricula(matriculaId: number) {
         responsavel:responsaveis!responsavel_id (id, nome, telefone, email)
       ),
       turma:turmas!turma_id (
-        id, nome, dias_semana, horario_inicio, horario_fim, modalidade, link_videochamada
+        id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, modalidade, link_videochamada
       )
     `)
     .eq('id', matriculaId)
@@ -101,6 +101,8 @@ async function contextoDaMatricula(matriculaId: number) {
     turma: {
       id: number
       nome: string
+      tipo_recorrencia: 'Recorrente' | 'Único'
+      data_unica: string | null
       dias_semana: number[]
       horario_inicio: string
       horario_fim: string
@@ -151,7 +153,7 @@ export async function enfileirarBoasVindas(matriculaId: number): Promise<number>
     canal: m.aluno.canal_notificacao,
     turma: {
       nome: m.turma.nome,
-      dias: nomesDosDias(m.turma.dias_semana ?? []),
+      quando: quandoDaTurma(m.turma),
       horario_inicio: String(m.turma.horario_inicio).slice(0, 5),
       horario_fim: String(m.turma.horario_fim).slice(0, 5),
       modalidade: m.turma.modalidade,
@@ -179,7 +181,7 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
     .from('aulas')
     .select(`
       id, data_hora_inicio, link_online, turma_id,
-      turma:turmas!turma_id (id, nome, dias_semana, horario_inicio, horario_fim, modalidade, link_videochamada)
+      turma:turmas!turma_id (id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, modalidade, link_videochamada)
     `)
     .eq('status', 'Agendada')
     .gte('data_hora_inicio', `${de}:00`)
@@ -193,6 +195,8 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
     turma: {
       id: number
       nome: string
+      tipo_recorrencia: 'Recorrente' | 'Único'
+      data_unica: string | null
       dias_semana: number[]
       horario_inicio: string
       horario_fim: string
@@ -251,7 +255,7 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
           canal: a.canal_notificacao,
           turma: {
             nome: aula.turma!.nome,
-            dias: nomesDosDias(aula.turma!.dias_semana ?? []),
+            quando: quandoDaTurma(aula.turma!),
             horario_inicio: String(aula.turma!.horario_inicio).slice(0, 5),
             horario_fim: String(aula.turma!.horario_fim).slice(0, 5),
             modalidade: 'Online',
@@ -273,10 +277,15 @@ export async function listarPendentes(): Promise<NotificacaoPendente[]> {
     .from('notificacoes')
     .select('id, tipo, canal, destinatario_tipo, destinatario_id, agendado_para, texto_gerado, status')
     .in('status', ['Pendente', 'Pronta'])
-    .order('agendado_para', { ascending: true, nullsFirst: true })
-    .limit(100)
+    // Sem limite: com 100, as boas-vindas acumuladas (sem horario, vinham
+    // primeiro) empurravam os lembretes do dia para fora da tela — eles eram
+    // criados e a gestora nunca os via.
+    .order('agendado_para', { ascending: true, nullsFirst: false })
 
-  const linhas = data ?? []
+  // Lembrete de aula tem hora para sair; o resto espera.
+  const linhas = (data ?? []).sort(
+    (a, b) => Number(b.tipo === 'LinkAula') - Number(a.tipo === 'LinkAula'),
+  )
   if (linhas.length === 0) return []
 
   // Uma consulta por tipo de destinatário, todas em paralelo. Percorre o mapa
