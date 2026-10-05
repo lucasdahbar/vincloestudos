@@ -114,10 +114,53 @@ describe('planejarNotificacoes — lembrete do link da aula', () => {
     aula: { data_hora_inicio: '2026-08-04T15:00:00', link: 'https://meet.exemplo.com/aula-77' },
   }
 
-  it('avisa o horário de início da aula', () => {
+  it('texto para o aluno: dia da semana, dia do mês e horário', () => {
+    // 04/08/2026 é uma terça-feira.
+    const [n] = planejarNotificacoes({ ...ctx, destinatario: 'Aluno' })
+    expect(n.texto_gerado).toBe(
+      [
+        'Oi, João! Tudo bem? Segue o link para a aula de Matemática · 9º ano · Aula particular · Online.',
+        '',
+        'Terça-feira, 4 de agosto, às 15:00.',
+        'Link da sala: https://meet.exemplo.com/aula-77',
+        '',
+        'Boa aula para você! Um abraço!',
+      ].join('\n'),
+    )
+  })
+
+  it('texto para o responsável: fala do aluno e traz a turma numa linha à parte', () => {
     const [n] = planejarNotificacoes(ctx)
-    expect(n.texto_gerado).toContain('15:00')
-    expect(n.texto_gerado).toContain('começa')
+    expect(n.texto_gerado).toBe(
+      [
+        'Oi, Ana! Tudo bem? Segue o link para a aula de João.',
+        '',
+        'Matemática · 9º ano · Aula particular · Online',
+        'Terça-feira, 4 de agosto, às 15:00.',
+        'Link da sala: https://meet.exemplo.com/aula-77',
+        '',
+        'Qualquer dúvida, só chamar! Um abraço!',
+      ].join('\n'),
+    )
+  })
+
+  it('o dia sai do horário de parede, sem converter fuso', () => {
+    // A aula é gravada com o horário local como se fosse UTC. Converter para o
+    // fuso de Brasília jogaria a aula das 22h para as 19h, e a da 1h da
+    // madrugada para o dia anterior.
+    const [n] = planejarNotificacoes({
+      ...ctx,
+      aula: { data_hora_inicio: '2026-08-05T01:00:00+00:00', link: 'https://x/aula-77' },
+    })
+    expect(n.texto_gerado).toContain('Quarta-feira, 5 de agosto, às 01:00.')
+  })
+
+  it('escreve sábado e domingo sem o "-feira"', () => {
+    const [n] = planejarNotificacoes({
+      ...ctx,
+      aula: { data_hora_inicio: '2026-08-08T09:30:00', link: 'https://x/aula-77' },
+    })
+    expect(n.texto_gerado).toContain('Sábado, 8 de agosto, às 09:30.')
   })
 
   it('usa o link da aula, não o da turma', () => {

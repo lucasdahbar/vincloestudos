@@ -78,17 +78,57 @@ function textoBoasVindas(ctx: ContextoNotificacao, paraAluno: boolean): string {
   return linhas.join('\n')
 }
 
+const DIAS_DA_SEMANA = [
+  'Domingo',
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
+  'Sábado',
+]
+
+const MESES = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+]
+
+/**
+ * "Terça-feira, 4 de agosto, às 15:00."
+ *
+ * Lido direto do texto, sem `Date` no fuso de Brasília: a aula é gravada com o
+ * horário de parede como se fosse UTC (ver `agoraNaEscola`). Converter fuso
+ * aqui deslocaria a hora em três e, de madrugada, mudaria o dia.
+ */
+function quandoDaAula(dataHoraInicio: string): string {
+  const [ano, mes, dia] = dataHoraInicio.slice(0, 10).split('-').map(Number)
+  const semana = new Date(Date.UTC(ano, mes - 1, dia)).getUTCDay()
+  return `${DIAS_DA_SEMANA[semana]}, ${dia} de ${MESES[mes - 1]}, às ${dataHoraInicio.slice(11, 16)}.`
+}
+
 function textoLinkAula(ctx: ContextoNotificacao, paraAluno: boolean): string {
-  const quem = paraAluno ? ctx.aluno : ctx.responsavel
-  const hora = ctx.aula!.data_hora_inicio.slice(11, 16)
-  const deQuem = paraAluno ? 'Sua aula' : `A aula de ${primeiroNome(ctx.aluno.nome)}`
+  const quando = quandoDaAula(ctx.aula!.data_hora_inicio)
+  const link = `Link da sala: ${ctx.aula!.link}`
+
+  if (paraAluno) {
+    return [
+      `Oi, ${primeiroNome(ctx.aluno.nome)}! Tudo bem? Segue o link para a aula de ${ctx.turma.nome}.`,
+      '',
+      quando,
+      link,
+      '',
+      'Boa aula para você! Um abraço!',
+    ].join('\n')
+  }
 
   return [
-    `Olá, ${primeiroNome(quem.nome)}! ${deQuem} de ${ctx.turma.nome} começa às ${hora}.`,
+    `Oi, ${primeiroNome(ctx.responsavel.nome)}! Tudo bem? Segue o link para a aula de ${primeiroNome(ctx.aluno.nome)}.`,
     '',
-    `Link da sala: ${ctx.aula!.link}`,
+    ctx.turma.nome,
+    quando,
+    link,
     '',
-    'Até já!',
+    'Qualquer dúvida, só chamar! Um abraço!',
   ].join('\n')
 }
 
