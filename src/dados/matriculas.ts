@@ -1,10 +1,11 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
+import { rotuloDaTurma, type TurmaComHorario } from '@/dominio/turmas/quando'
 
 const SELECT_MATRICULA = `
   id, data_inicio, data_fim, flag_reposicao, status, aluno_id, turma_id,
   aluno:alunos!aluno_id (id, nome, ativo),
-  turma:turmas!turma_id (id, nome, status)
+  turma:turmas!turma_id (id, nome, status, tipo_recorrencia, data_unica, dias_semana, horario_inicio)
 `
 
 export interface MatriculaComRelacoes {
@@ -16,7 +17,9 @@ export interface MatriculaComRelacoes {
   aluno_id: number
   turma_id: number
   aluno: { id: number; nome: string; ativo: boolean } | null
-  turma: { id: number; nome: string; status: string } | null
+  turma:
+    | ({ id: number; status: string } & TurmaComHorario)
+    | null
 }
 
 export async function listarMatriculas(filtros: {
@@ -79,14 +82,14 @@ export async function obterMatricula(id: number): Promise<MatriculaParaEditar | 
 
   const { data } = await supabase
     .from('matriculas')
-    .select('id, aluno_id, turma_id, data_inicio, data_fim, flag_reposicao, status, aluno:alunos!aluno_id (nome), turma:turmas!turma_id (nome)')
+    .select('id, aluno_id, turma_id, data_inicio, data_fim, flag_reposicao, status, aluno:alunos!aluno_id (nome), turma:turmas!turma_id (nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio)')
     .eq('id', id)
     .maybeSingle()
 
   if (!data) return null
 
   const aluno = data.aluno as unknown as { nome: string } | null
-  const turma = data.turma as unknown as { nome: string } | null
+  const turma = data.turma as unknown as TurmaComHorario | null
 
   return {
     id: data.id,
@@ -97,7 +100,7 @@ export async function obterMatricula(id: number): Promise<MatriculaParaEditar | 
     flag_reposicao: data.flag_reposicao,
     status: data.status,
     aluno_nome: aluno?.nome ?? 'Aluno',
-    turma_nome: turma?.nome ?? 'Turma',
+    turma_nome: turma ? rotuloDaTurma(turma) : 'Turma',
   }
 }
 

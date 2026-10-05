@@ -1,5 +1,6 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
+import { rotuloDaTurma } from '@/dominio/turmas/quando'
 
 const SELECT_TURMA = `
   id, nome, modalidade, tipo_recorrencia, data_unica,
@@ -81,15 +82,18 @@ export async function listarTurmas(
 }
 
 /**
- * Só id e nome das turmas que batem com os filtros, sem a contagem de alunos
+ * Só id e rótulo das turmas que batem com os filtros, sem a contagem de alunos
  * que a listagem faz. Agenda e matrículas filtram por campos da turma
- * (professor, matéria, escola) através disto, e o seletor "Turma" sai daqui.
+ * (professor, matéria, escola) através disto, e o seletor "Turma" sai daqui —
+ * por isso o rótulo leva dia e horário: o nome sozinho repete entre turmas.
  */
 export async function turmasResumidas(
   filtros: FiltrosDeTurma = {},
 ): Promise<{ id: number; nome: string }[]> {
   const supabase = await clienteServidor()
-  let consulta = supabase.from('turmas').select('id, nome')
+  let consulta = supabase
+    .from('turmas')
+    .select('id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio')
 
   if (filtros.professorId) consulta = consulta.eq('professor_id', filtros.professorId)
   if (filtros.status) consulta = consulta.eq('status', filtros.status)
@@ -97,9 +101,9 @@ export async function turmasResumidas(
   if (filtros.escolaId) consulta = consulta.eq('escola_id', filtros.escolaId)
   if (filtros.modalidade) consulta = consulta.eq('modalidade', filtros.modalidade)
 
-  const { data, error } = await consulta.order('nome')
+  const { data, error } = await consulta.order('nome').order('horario_inicio')
   if (error) throw new Error(`Falha ao listar turmas: ${error.message}`)
-  return data ?? []
+  return (data ?? []).map((t) => ({ id: t.id, nome: rotuloDaTurma(t) }))
 }
 
 export async function obterTurma(id: number): Promise<TurmaComRelacoes | null> {

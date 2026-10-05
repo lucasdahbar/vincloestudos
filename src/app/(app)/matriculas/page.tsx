@@ -4,6 +4,7 @@ import { exigirGestora } from '@/dados/sessao'
 import { opcoesDeTurma, turmasResumidas } from '@/dados/turmas'
 import { comoId, comoOpcao, comoTexto, deOpcoes, deValores } from '@/dominio/filtros'
 import { STATUS_MATRICULA } from '@/dominio/tipos'
+import { quandoDaTurma } from '@/dominio/turmas/quando'
 import { BotaoLink } from '@/ui/Botao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { Filtros } from '@/ui/Filtros'
@@ -122,6 +123,7 @@ export default async function PaginaMatriculas({
                   className="mt-1 block text-sm text-tinta-suave"
                 >
                   {m.turma?.nome}
+                  {m.turma && <span className="block">{quandoDaTurma(m.turma)}</span>}
                 </Link>
                 <p className="mt-2 text-sm text-tinta-tenue">
                   {dataBR(m.data_inicio)}
@@ -157,6 +159,12 @@ export default async function PaginaMatriculas({
                     <Link href={`/turmas/${m.turma_id}`} className="hover:underline">
                       {m.turma?.nome}
                     </Link>
+                    {/* Turmas de mesmo nome em horarios diferentes: o quando as separa. */}
+                    {m.turma && (
+                      <span className="block text-sm text-tinta-suave">
+                        {quandoDaTurma(m.turma)}
+                      </span>
+                    )}
                   </td>
                   <td className="px-5 py-4">{dataBR(m.data_inicio)}</td>
                   <td className="px-5 py-4">{dataBR(m.data_fim)}</td>
