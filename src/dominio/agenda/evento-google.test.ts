@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  alunosDoEvento,
   descricaoDoEvento,
   montarEvento,
   primeiraOcorrencia,
-  type MatriculaDoEvento,
   type TurmaDoEvento,
 } from './evento-google'
 
@@ -185,64 +183,5 @@ describe('alunos na descrição do evento', () => {
     // turma e matricular um aluno escreveriam textos diferentes.
     const t = turma({ alunos: ['Ana Souza'], link_videochamada: 'https://meet.google.com/x' })
     expect(descricaoDoEvento(t)).toBe(montarEvento(t).description)
-  })
-})
-
-describe('alunosDoEvento', () => {
-  const HOJE = '2026-10-02'
-  const matricula = (over: Partial<MatriculaDoEvento> = {}): MatriculaDoEvento => ({
-    nome: 'Ana Souza',
-    status: 'Ativa',
-    flag_reposicao: false,
-    data_inicio: '2026-08-01',
-    data_fim: null,
-    ...over,
-  })
-
-  it('ordena por nome, respeitando acento', () => {
-    const nomes = alunosDoEvento(
-      [matricula({ nome: 'Bruno' }), matricula({ nome: 'Álvaro' }), matricula({ nome: 'Carla' })],
-      HOJE,
-    )
-    expect(nomes).toEqual(['Álvaro', 'Bruno', 'Carla'])
-  })
-
-  it('deixa de fora a matrícula encerrada', () => {
-    expect(alunosDoEvento([matricula({ status: 'Encerrada' })], HOJE)).toEqual([])
-  })
-
-  it('deixa de fora a matrícula de reposição', () => {
-    // Ela não tem data de fim: o aluno que veio repor uma aula ficaria listado
-    // na turma para sempre.
-    expect(alunosDoEvento([matricula({ flag_reposicao: true })], HOJE)).toEqual([])
-  })
-
-  it('deixa de fora quem já saiu, mas mantém quem sai hoje', () => {
-    const nomes = alunosDoEvento(
-      [
-        matricula({ nome: 'Saiu ontem', data_fim: '2026-10-01' }),
-        matricula({ nome: 'Sai hoje', data_fim: '2026-10-02' }),
-      ],
-      HOJE,
-    )
-    expect(nomes).toEqual(['Sai hoje (até 02/10)'])
-  })
-
-  it('avisa quando o aluno ainda vai começar', () => {
-    expect(alunosDoEvento([matricula({ data_inicio: '2026-10-15' })], HOJE)).toEqual([
-      'Ana Souza (a partir de 15/10)',
-    ])
-  })
-
-  it('avisa quando a matrícula tem data para acabar', () => {
-    expect(alunosDoEvento([matricula({ data_fim: '2026-11-30' })], HOJE)).toEqual([
-      'Ana Souza (até 30/11)',
-    ])
-  })
-
-  it('junta início e fim quando os dois estão por vir', () => {
-    expect(
-      alunosDoEvento([matricula({ data_inicio: '2026-10-15', data_fim: '2026-11-30' })], HOJE),
-    ).toEqual(['Ana Souza (de 15/10 a 30/11)'])
   })
 })

@@ -27,7 +27,7 @@ export interface TurmaDoEvento {
   professor_email: string | null
   /** Link do Meet (G3), quando a turma tem. */
   link_videochamada?: string | null
-  /** Linhas já prontas de `alunosDoEvento`. Vão na descrição, nunca como convidados. */
+  /** Nomes dos alunos (ver `ocorrencias.ts`). Vão na descrição, nunca como convidados. */
   alunos: string[]
 }
 
@@ -116,37 +116,6 @@ export function descricaoDoEvento(turma: TurmaDoEvento): string {
     `Evento criado pelo ${MARCA}. Alterações feitas aqui podem ser`,
     'sobrescritas quando a turma ou uma matrícula for salva no sistema.',
   ].join('\n')
-}
-
-/**
- * Quem aparece na descrição do evento, já com a observação de período.
- *
- * O evento é recorrente: a mesma descrição vale para todas as ocorrências.
- * Por isso a lista é a turma de hoje em diante, e quem ainda vai entrar ou já
- * tem data para sair vem marcado.
- */
-export function alunosDoEvento(matriculas: MatriculaDoEvento[], hoje: string): string[] {
-  return matriculas
-    .filter(
-      (m) =>
-        m.status === 'Ativa' &&
-        // Reposição não tem data de fim: o aluno ficaria na lista para sempre.
-        !m.flag_reposicao &&
-        (m.data_fim === null || m.data_fim >= hoje),
-    )
-    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-    .map((m) => {
-      const comeca = m.data_inicio > hoje
-      if (comeca && m.data_fim) return `${m.nome} (de ${diaMes(m.data_inicio)} a ${diaMes(m.data_fim)})`
-      if (comeca) return `${m.nome} (a partir de ${diaMes(m.data_inicio)})`
-      if (m.data_fim) return `${m.nome} (até ${diaMes(m.data_fim)})`
-      return m.nome
-    })
-}
-
-function diaMes(iso: string): string {
-  const [, mes, dia] = iso.split('-')
-  return `${dia}/${mes}`
 }
 
 /**

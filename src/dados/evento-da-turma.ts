@@ -1,20 +1,45 @@
 import 'server-only'
 import { clienteAdmin } from './admin'
-import { apagarEvento, atualizarDescricao, sincronizarEvento } from '@/agenda/eventos'
+import {
+  apagarEvento,
+  atualizarDescricao,
+  listarOcorrencias,
+  sincronizarEvento,
+} from '@/agenda/eventos'
 import { ajustarCoorganizador, criarSala } from '@/agenda/meet'
-import { alunosDoEvento, descricaoDoEvento } from '@/dominio/agenda/evento-google'
+import {
+  descricaoDoEvento,
+  type MatriculaDoEvento,
+  type TurmaDoEvento,
+} from '@/dominio/agenda/evento-google'
 import { oQueFazerComASala } from '@/dominio/agenda/meet'
+import {
+  ajustesDasOcorrencias,
+  alunosDaSerie,
+  alunosNaData,
+  fimDoHorizonte,
+} from '@/dominio/agenda/ocorrencias'
+import { agoraNaEscola } from '@/dominio/agenda/relogio'
 
 const CAMPOS_TURMA =
   'id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, modalidade, status, google_calendar_event_id, link_videochamada, google_meet_sala, professor:professores!professor_id (email, google_calendar_id)'
 
-function hojeISO(): string {
-  const hoje = new Date()
-  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`
+type TurmaLida = {
+  nome: string
+  tipo_recorrencia: 'Recorrente' | 'Único'
+  data_unica: string | null
+  dias_semana: number[] | null
+  horario_inicio: string
+  horario_fim: string
+  modalidade: 'Presencial' | 'Online'
 }
 
-/** Os alunos que vão na descrição do evento, já filtrados e marcados. */
-async function alunosDaTurma(turmaId: number, hoje: string): Promise<string[]> {
+/** Hoje no relógio da escola: o servidor roda em UTC, e às 21h já seria amanhã. */
+function hojeISO(): string {
+  return agoraNaEscola(new Date()).slice(0, 10)
+}
+
+async function matriculasDaTurma(turmaId: number): Promise<MatriculaDoEvento[]> {
   const { data } = await clienteAdmin()
     .from('matriculas')
     .select('status, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (nome)')
@@ -22,16 +47,89 @@ async function alunosDaTurma(turmaId: number, hoje: string): Promise<string[]> {
     .eq('status', 'Ativa')
     .eq('flag_reposicao', false)
 
-  return alunosDoEvento(
-    (data ?? []).map((m) => ({
-      nome: (m.aluno as unknown as { nome: string } | null)?.nome ?? 'Aluno',
-      status: m.status,
-      flag_reposicao: m.flag_reposicao,
-      data_inicio: String(m.data_inicio).slice(0, 10),
-      data_fim: m.data_fim ? String(m.data_fim).slice(0, 10) : null,
-    })),
+  return (data ?? []).map((m) => ({
+    nome: (m.aluno as unknown as { nome: string } | null)?.nome ?? 'Aluno',
+    status: m.status,
+    flag_reposicao: m.flag_reposicao,
+    data_inicio: String(m.data_inicio).slice(0, 10),
+    data_fim: m.data_fim ? String(m.data_fim).slice(0, 10) : null,
+  }))
+}
+
+/** O evento da turma sem os alunos, que mudam de ocorrência para ocorrência. */
+function eventoSemAlunos(
+  turma: TurmaLida,
+  inicio: string,
+  professorEmail: string | null,
+  link: string | null,
+): Omit<TurmaDoEvento, 'alunos'> {
+  return {
+    nome: turma.nome,
+    tipo_recorrencia: turma.tipo_recorrencia,
+    data_unica: turma.data_unica,
+    dias_semana: turma.dias_semana ?? [],
+    horario_inicio: String(turma.horario_inicio).slice(0, 5),
+    horario_fim: String(turma.horario_fim).slice(0, 5),
+    modalidade: turma.modalidade,
+    inicio_recorrencia: inicio,
+    professor_email: professorEmail,
+    link_videochamada: link,
+  }
+}
+
+/**
+ * Os alunos da descrição geral do evento. Aula única tem uma data só: lá vai
+ * quem está matriculado nela. Na recorrente, os fixos — os avulsos entram
+ * ocorrência por ocorrência, em `ajustarOcorrencias`.
+ */
+function alunosDaDescricaoGeral(turma: TurmaLida, matriculas: MatriculaDoEvento[]): string[] {
+  return turma.tipo_recorrencia === 'Único'
+    ? alunosNaData(matriculas, turma.data_unica ?? hojeISO())
+    : alunosDaSerie(matriculas)
+}
+
+/**
+ * Dá a cada ocorrência futura a lista de alunos daquele dia.
+ *
+ * Só escreve onde a descrição no Google não bate: quase sempre nada, ou só a
+ * ocorrência do aluno avulso. E desfaz sozinho: quando o avulso sai, a
+ * ocorrência dele volta a ter a lista da série.
+ */
+async function ajustarOcorrencias(
+  googleCalendarId: string,
+  eventoId: string,
+  evento: Omit<TurmaDoEvento, 'alunos'>,
+  matriculas: MatriculaDoEvento[],
+): Promise<{ ok: boolean; motivo?: string }> {
+  if (evento.tipo_recorrencia !== 'Recorrente') return { ok: true }
+
+  const hoje = hojeISO()
+  const lidas = await listarOcorrencias(
+    googleCalendarId,
+    eventoId,
     hoje,
+    fimDoHorizonte(matriculas, hoje),
   )
+  if (!lidas.ok) return lidas
+
+  const ajustes = ajustesDasOcorrencias(lidas.ocorrencias, matriculas, (alunos) =>
+    descricaoDoEvento({ ...evento, alunos }),
+  )
+
+  // Poucas por vez: o Google limita a taxa de escrita por usuário.
+  const falhas: string[] = []
+  for (let i = 0; i < ajustes.length; i += 5) {
+    const lote = await Promise.all(
+      ajustes
+        .slice(i, i + 5)
+        .map((a) => atualizarDescricao(googleCalendarId, a.id, a.descricao)),
+    )
+    for (const r of lote) if (!r.ok) falhas.push(r.motivo)
+  }
+
+  return falhas.length === 0
+    ? { ok: true }
+    : { ok: false, motivo: `${falhas.length} ocorrência(s) não atualizada(s): ${falhas[0]}` }
 }
 
 /**
@@ -79,20 +177,12 @@ export async function sincronizarEventoDaTurma(
 
   // A recorrência começa hoje: criar o evento retroativo encheria a agenda do
   // professor de aulas passadas que ele já deu.
-  const inicio = hojeISO()
+  const evento = eventoSemAlunos(turma, hojeISO(), professor?.email ?? null, link)
+  const matriculas = await matriculasDaTurma(turmaId)
 
   const r = await sincronizarEvento({
-    nome: turma.nome,
-    tipo_recorrencia: turma.tipo_recorrencia,
-    data_unica: turma.data_unica,
-    dias_semana: turma.dias_semana ?? [],
-    horario_inicio: String(turma.horario_inicio).slice(0, 5),
-    horario_fim: String(turma.horario_fim).slice(0, 5),
-    modalidade: turma.modalidade,
-    inicio_recorrencia: inicio,
-    professor_email: professor?.email ?? null,
-    link_videochamada: link,
-    alunos: await alunosDaTurma(turmaId, inicio),
+    ...evento,
+    alunos: alunosDaDescricaoGeral(turma, matriculas),
     google_calendar_id: professor?.google_calendar_id ?? null,
     evento_id: turma.google_calendar_event_id,
   })
@@ -103,7 +193,10 @@ export async function sincronizarEventoDaTurma(
     await admin.from('turmas').update({ google_calendar_event_id: r.eventoId }).eq('id', turmaId)
   }
 
-  return { ok: true }
+  // Mexer na série (o início muda para hoje) pode desfazer o que cada
+  // ocorrência tinha de próprio: confere todas de novo.
+  if (!professor?.google_calendar_id) return { ok: true }
+  return ajustarOcorrencias(professor.google_calendar_id, r.eventoId, evento, matriculas)
 }
 
 /**
@@ -141,28 +234,25 @@ export async function atualizarAlunosNoEvento(
     return sincronizarEventoDaTurma(turmaId)
   }
 
-  const hoje = hojeISO()
-  const descricao = descricaoDoEvento({
-    nome: turma.nome,
-    tipo_recorrencia: turma.tipo_recorrencia,
-    data_unica: turma.data_unica,
-    dias_semana: turma.dias_semana ?? [],
-    horario_inicio: String(turma.horario_inicio).slice(0, 5),
-    horario_fim: String(turma.horario_fim).slice(0, 5),
-    modalidade: turma.modalidade,
-    inicio_recorrencia: hoje,
-    professor_email: professor.email,
-    link_videochamada: turma.link_videochamada,
-    alunos: await alunosDaTurma(turmaId, hoje),
-  })
+  const evento = eventoSemAlunos(turma, hojeISO(), professor.email, turma.link_videochamada)
+  const matriculas = await matriculasDaTurma(turmaId)
 
+  // Primeiro a série, depois as ocorrências: as que não têm descrição própria
+  // herdam a da série, e é com ela já nova que a comparação tem de ser feita.
   const r = await atualizarDescricao(
     professor.google_calendar_id,
     turma.google_calendar_event_id,
-    descricao,
+    descricaoDoEvento({ ...evento, alunos: alunosDaDescricaoGeral(turma, matriculas) }),
   )
   if (!r.ok && r.naoExiste) return sincronizarEventoDaTurma(turmaId)
-  return r
+  if (!r.ok) return r
+
+  return ajustarOcorrencias(
+    professor.google_calendar_id,
+    turma.google_calendar_event_id,
+    evento,
+    matriculas,
+  )
 }
 
 /** As turmas em que o aluno aparece no evento, para quando o próprio aluno muda. */

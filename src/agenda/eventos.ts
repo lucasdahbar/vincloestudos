@@ -1,6 +1,7 @@
 import 'server-only'
 import { accessToken } from './credenciais'
-import { montarEvento, type TurmaDoEvento } from '@/dominio/agenda/evento-google'
+import { FUSO, montarEvento, type TurmaDoEvento } from '@/dominio/agenda/evento-google'
+import type { OcorrenciaNoGoogle } from '@/dominio/agenda/ocorrencias'
 
 /**
  * G2 (Rodada 2): cria ou atualiza o evento da turma na agenda do professor.
@@ -131,6 +132,74 @@ export async function atualizarDescricao(
   } catch {
     return { ok: false, motivo: 'Não foi possível falar com o Google Agenda agora.' }
   }
+}
+
+/**
+ * As ocorrências de um evento recorrente entre duas datas (AAAA-MM-DD), com a
+ * descrição que cada uma tem hoje — herdada da série ou própria.
+ *
+ * Ocorrência cancelada (apagada à mão no Google) fica de fora: editar a
+ * descrição dela a traria de volta.
+ */
+export async function listarOcorrencias(
+  googleCalendarId: string,
+  eventoId: string,
+  de: string,
+  ate: string,
+  buscar: typeof fetch = fetch,
+): Promise<{ ok: true; ocorrencias: OcorrenciaNoGoogle[] } | { ok: false; motivo: string }> {
+  const token = await accessToken(buscar)
+  if (!token.ok) return { ok: false, motivo: token.motivo }
+
+  const ocorrencias: OcorrenciaNoGoogle[] = []
+  let pagina: string | undefined
+
+  try {
+    do {
+      const parametros = new URLSearchParams({
+        timeMin: `${de}T00:00:00-03:00`,
+        timeMax: `${ate}T23:59:59-03:00`,
+        // As datas voltam no fuso da escola: a data da ocorrência é a do dia
+        // da aula, não a do UTC.
+        timeZone: FUSO,
+        maxResults: '2500',
+      })
+      if (pagina) parametros.set('pageToken', pagina)
+
+      const resposta = await buscar(
+        `${API}/${encodeURIComponent(googleCalendarId)}/events/${encodeURIComponent(eventoId)}/instances?${parametros}`,
+        {
+          headers: { Authorization: `Bearer ${token.token}` },
+          signal: AbortSignal.timeout(10_000),
+        },
+      )
+      if (!resposta.ok) {
+        return { ok: false, motivo: `O Google recusou a leitura das ocorrências (HTTP ${resposta.status}).` }
+      }
+
+      const json = (await resposta.json()) as {
+        items?: {
+          id: string
+          status?: string
+          description?: string
+          originalStartTime?: { dateTime?: string; date?: string }
+        }[]
+        nextPageToken?: string
+      }
+
+      for (const item of json.items ?? []) {
+        const inicio = item.originalStartTime?.dateTime ?? item.originalStartTime?.date
+        if (item.status === 'cancelled' || !inicio) continue
+        ocorrencias.push({ id: item.id, data: inicio.slice(0, 10), descricao: item.description ?? null })
+      }
+
+      pagina = json.nextPageToken
+    } while (pagina)
+  } catch {
+    return { ok: false, motivo: 'Não foi possível falar com o Google Agenda agora.' }
+  }
+
+  return { ok: true, ocorrencias }
 }
 
 /** Turma encerrada: o evento sai da agenda do professor. */
