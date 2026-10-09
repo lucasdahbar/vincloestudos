@@ -93,7 +93,7 @@ export async function turmasResumidas(
   const supabase = await clienteServidor()
   let consulta = supabase
     .from('turmas')
-    .select('id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio')
+    .select('id, nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio')
 
   if (filtros.professorId) consulta = consulta.eq('professor_id', filtros.professorId)
   if (filtros.status) consulta = consulta.eq('status', filtros.status)
