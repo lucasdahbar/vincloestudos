@@ -91,3 +91,43 @@ describe('calcularFechamento', () => {
     expect(f.itens.map((i) => i.data_aula)).toEqual(['2026-08-04', '2026-08-20'])
   })
 })
+
+describe('Rodada 3: desistencia paga', () => {
+  const desistencia = {
+    pendencia_id: 77,
+    aluno_id: 10,
+    aluno_nome: 'João',
+    turma_id: 5,
+    turma_nome: 'Matemática 9º ano',
+    data_aula: '2026-08-06',
+    valor_servico: 10000,
+    percentual: 60,
+    ja_paga: false,
+  }
+
+  it('paga a aula que nao aconteceu como se tivesse acontecido', () => {
+    const f = calcularFechamento([], [desistencia])
+    expect(f.itens).toHaveLength(1)
+    expect(f.itens[0]).toMatchObject({
+      pendencia_id: 77,
+      presenca_id: null,
+      desistencia: true,
+      valor_professor: 6000,
+    })
+  })
+
+  it('soma com as presencas, em ordem de data', () => {
+    const f = calcularFechamento([base], [desistencia])
+    expect(f.itens.map((i) => i.data_aula)).toEqual(['2026-08-04', '2026-08-06'])
+    expect(f.valor_total).toBe(12000)
+  })
+
+  it('nao paga de novo a desistencia ja incluida em outro fechamento', () => {
+    expect(calcularFechamento([], [{ ...desistencia, ja_paga: true }]).itens).toEqual([])
+  })
+
+  it('presenca comum continua sem marca de desistencia', () => {
+    const [item] = calcularFechamento([base]).itens
+    expect(item).toMatchObject({ presenca_id: 1, pendencia_id: null, desistencia: false })
+  })
+})

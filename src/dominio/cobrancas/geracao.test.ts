@@ -35,8 +35,9 @@ describe('montarCobrancas', () => {
     expect(c.valor_total).toBe(15000)
   })
 
-  it('EXCLUI aula de matricula de reposicao', () => {
-    // A reposicao nao gera cobranca: o aluno ja pagou pela aula original.
+  it('EXCLUI aula de reposicao sem aula de origem conhecida', () => {
+    // Registro anterior a Rodada 3: sem a origem nao ha como calcular a
+    // diferenca, e o aluno ja pagou pela aula original.
     const c = montarCobrancas([base, { ...base, aula_id: 2, matricula_reposicao: true }])
     expect(c[0].itens).toHaveLength(1)
     expect(c[0].itens[0].aula_id).toBe(1)
@@ -100,5 +101,66 @@ describe('montarCobrancas', () => {
       Array.from({ length: 3 }, (_, i) => ({ ...base, aula_id: i + 1, valor: 10 })),
     )
     expect(c.valor_total).toBe(30)
+  })
+})
+
+describe('Rodada 3: ausencias e reposicoes na cobranca', () => {
+  it('a aula que a gestora decidiu nao cobrar sai da cobranca', () => {
+    const c = montarCobrancas([
+      base,
+      { ...base, aula_id: 2, ausencia: { origem: 'Aviso', cobrar: false } },
+    ])
+    expect(c[0].itens.map((i) => i.aula_id)).toEqual([1])
+  })
+
+  it('a aula perdida e cobrada continua, com a ausencia anotada', () => {
+    const [c] = montarCobrancas([{ ...base, ausencia: { origem: 'Aviso', cobrar: true } }])
+    expect(c.itens[0].valor_final).toBe(10000)
+    expect(c.itens[0].descricao).toContain('não participou: avisou que não vem')
+  })
+
+  it('a ausencia ainda sem decisao e cobrada normalmente, anotada', () => {
+    // A reposicao pode acontecer: a aula original e cobrada, e a reposicao
+    // entra depois com valor zero.
+    const [c] = montarCobrancas([{ ...base, ausencia: { origem: 'Falta', cobrar: null } }])
+    expect(c.itens[0].valor_final).toBe(10000)
+    expect(c.itens[0].descricao).toContain('não participou: faltou')
+  })
+
+  it('a anotacao nao usa o separador " — " que o texto da cobranca parte', () => {
+    const [c] = montarCobrancas([{ ...base, ausencia: { origem: 'Aviso', cobrar: true } }])
+    expect(c.itens[0].descricao.split(' — ')).toHaveLength(base.descricao.split(' — ').length)
+  })
+
+  it('reposicao de mesmo valor entra com R$ 0,00', () => {
+    const [c] = montarCobrancas([
+      { ...base, matricula_reposicao: true, reposicao_de: { data: '2026-08-02', valor: 10000 } },
+    ])
+    expect(c.itens[0].valor_original).toBe(0)
+    expect(c.itens[0].valor_final).toBe(0)
+    expect(c.itens[0].descricao).toContain('reposição da aula de 02/08')
+  })
+
+  it('reposicao em turma mais barata tambem entra com zero', () => {
+    const [c] = montarCobrancas([
+      { ...base, valor: 6000, matricula_reposicao: true, reposicao_de: { data: '2026-08-02', valor: 10000 } },
+    ])
+    expect(c.itens[0].valor_final).toBe(0)
+  })
+
+  it('reposicao em turma mais cara cobra so a diferenca', () => {
+    const [c] = montarCobrancas([
+      { ...base, valor: 15000, matricula_reposicao: true, reposicao_de: { data: '2026-08-02', valor: 10000 } },
+    ])
+    expect(c.itens[0].valor_final).toBe(5000)
+  })
+
+  it('o total soma a reposicao sem distorcer', () => {
+    const [c] = montarCobrancas([
+      base,
+      { ...base, aula_id: 2, matricula_reposicao: true, reposicao_de: { data: '2026-08-02', valor: 10000 } },
+    ])
+    expect(c.itens).toHaveLength(2)
+    expect(c.valor_total).toBe(10000)
   })
 })

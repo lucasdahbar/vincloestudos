@@ -17,8 +17,27 @@ export interface PresencaRemunerada {
   ja_paga: boolean
 }
 
+/**
+ * Rodada 3: "desistencia paga". O aluno nao foi e nao houve reposicao, mas a
+ * gestora cobrou a aula e decidiu pagar o professor por ela.
+ */
+export interface DesistenciaPaga {
+  pendencia_id: number
+  aluno_id: number
+  aluno_nome: string
+  turma_id: number
+  turma_nome: string
+  data_aula: string
+  valor_servico: Centavos
+  percentual: number
+  ja_paga: boolean
+}
+
 export interface ItemFechamento {
-  presenca_id: number
+  /** Um dos dois: presenca confirmada ou desistencia paga. */
+  presenca_id: number | null
+  pendencia_id: number | null
+  desistencia: boolean
   aluno_id: number
   aluno_nome: string
   turma_id: number
@@ -45,13 +64,16 @@ export interface Fechamento {
  * Valor e percentual chegam ja resolvidos para a data da aula: mudanca posterior
  * de preco ou de repasse nao reescreve o que ja foi fechado.
  */
-export function calcularFechamento(presencas: PresencaRemunerada[]): Fechamento {
-  const itens: ItemFechamento[] = presencas
+export function calcularFechamento(
+  presencas: PresencaRemunerada[],
+  desistencias: DesistenciaPaga[] = [],
+): Fechamento {
+  const dePresenca: ItemFechamento[] = presencas
     .filter((p) => p.presente && !p.ja_paga)
-    .slice()
-    .sort((a, b) => a.data_aula.localeCompare(b.data_aula))
     .map((p) => ({
       presenca_id: p.presenca_id,
+      pendencia_id: null,
+      desistencia: false,
       aluno_id: p.aluno_id,
       aluno_nome: p.aluno_nome,
       turma_id: p.turma_id,
@@ -61,6 +83,28 @@ export function calcularFechamento(presencas: PresencaRemunerada[]): Fechamento 
       percentual_aplicado: p.percentual,
       valor_professor: aplicarPercentual(p.valor_servico, p.percentual),
     }))
+
+  // O mesmo calculo de uma aula dada: valor do servico x percentual, os dois
+  // vigentes na data da aula (decisao da gestora, 09/10/2026).
+  const deDesistencia: ItemFechamento[] = desistencias
+    .filter((d) => !d.ja_paga)
+    .map((d) => ({
+      presenca_id: null,
+      pendencia_id: d.pendencia_id,
+      desistencia: true,
+      aluno_id: d.aluno_id,
+      aluno_nome: d.aluno_nome,
+      turma_id: d.turma_id,
+      turma_nome: d.turma_nome,
+      data_aula: d.data_aula,
+      valor_servico: d.valor_servico,
+      percentual_aplicado: d.percentual,
+      valor_professor: aplicarPercentual(d.valor_servico, d.percentual),
+    }))
+
+  const itens = [...dePresenca, ...deDesistencia].sort((a, b) =>
+    a.data_aula.localeCompare(b.data_aula),
+  )
 
   return { itens, valor_total: somar(...itens.map((i) => i.valor_professor)) }
 }
