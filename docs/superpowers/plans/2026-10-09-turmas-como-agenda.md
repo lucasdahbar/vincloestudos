@@ -116,6 +116,37 @@ alter table public.turmas add constraint recorrencia_coerente check (
      and not fim_automatico)
 );
 
+-- Compatibilidade: o banco e compartilhado com o codigo em producao, que ate o
+-- deploy desta rodada grava turma recorrente sem os campos novos. Sem isto, a
+-- constraint acima recusaria toda turma nova criada pela gestora. Preenche como
+-- era antes (semanal, desde hoje, ate 31/12). Inofensivo depois do deploy: o
+-- codigo novo sempre manda os campos.
+create or replace function public.preencher_regra_da_turma()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.tipo_recorrencia = 'Recorrente' and new.frequencia is null then
+    new.frequencia := 'Semanal';
+    new.intervalo := coalesce(new.intervalo, 1);
+    new.data_inicio := coalesce(new.data_inicio, (now() at time zone 'America/Sao_Paulo')::date);
+    new.data_fim := coalesce(new.data_fim, make_date(extract(year from new.data_inicio)::int, 12, 31));
+    new.fim_automatico := true;
+  elsif new.tipo_recorrencia = 'Único' then
+    new.frequencia := null;
+    new.intervalo := null;
+    new.data_inicio := null;
+    new.data_fim := null;
+    new.fim_automatico := false;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger preencher_regra_da_turma
+  before insert or update on public.turmas
+  for each row execute function public.preencher_regra_da_turma();
+
 -- Aula excluida: a linha fica, para segurar as reposicoes que nasceram dela
 -- (pendencias_reposicao.aula_origem_id e on delete cascade) e para a
 -- materializacao (upsert com ignoreDuplicates) nao recria-la.
