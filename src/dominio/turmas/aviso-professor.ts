@@ -1,4 +1,5 @@
-import { nomesDosDias } from '@/dominio/tipos'
+import type { Frequencia } from '@/dominio/tipos'
+import { textoDaRegra } from '@/dominio/agenda/recorrencia'
 
 /**
  * G4 (Rodada 2): o texto do aviso que o professor recebe quando uma turma nova
@@ -19,6 +20,10 @@ export interface DadosDoAviso {
   /** ISO, AAAA-MM-DD. So no modo Único. */
   data_unica: string | null
   dias_semana: number[]
+  /** Rodada 4. Ausentes = semanal, como as turmas de antes. */
+  frequencia?: Frequencia | null
+  intervalo?: number | null
+  data_inicio?: string | null
   /** HH:MM. */
   horario_inicio: string
   horario_fim: string
@@ -38,7 +43,12 @@ export function montarAvisoDeTurma(d: DadosDoAviso): AvisoDeTurma {
   const quando =
     d.tipo_recorrencia === 'Único' && d.data_unica
       ? `Data: ${dataCompleta(d.data_unica)}, das ${d.horario_inicio} às ${d.horario_fim}`
-      : `Quando: ${nomesDosDias(d.dias_semana)}, das ${d.horario_inicio} às ${d.horario_fim}`
+      : `Quando: ${textoDaRegra({
+          frequencia: d.frequencia ?? 'Semanal',
+          intervalo: d.intervalo ?? 1,
+          dias_semana: d.dias_semana,
+          data_inicio: d.data_inicio ?? '',
+        })}, das ${d.horario_inicio} às ${d.horario_fim}`
 
   const detalhes = [
     d.materia && `Matéria: ${d.materia}`,
