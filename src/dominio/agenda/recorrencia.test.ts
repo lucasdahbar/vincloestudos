@@ -55,6 +55,16 @@ describe('datasDaRegra', () => {
     expect(datasDaRegra(r, '2026-09-10', '2026-09-20')).toEqual(['2026-09-15', '2026-09-17'])
   })
 
+  it('quinzenal: semana do início sem dia escolhido depois dele', () => {
+    // 14/10/2026 é quarta e só há terças: a semana do início fica sem aula, como no Google (RRULE).
+    const r = regra({ intervalo: 2, dias_semana: [2], data_inicio: '2026-10-14' })
+    expect(datasDaRegra(r, '2026-10-01', '2026-11-30')).toEqual([
+      '2026-10-27',
+      '2026-11-10',
+      '2026-11-24',
+    ])
+  })
+
   it('diária a cada 2 dias, inclusive fim de semana', () => {
     const r = regra({ frequencia: 'Diária', intervalo: 2, dias_semana: [] })
     expect(datasDaRegra(r, '2026-09-01', '2026-09-07')).toEqual([
