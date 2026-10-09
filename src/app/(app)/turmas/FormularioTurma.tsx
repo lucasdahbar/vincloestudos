@@ -8,14 +8,37 @@ import { gerarNomeTurma } from '@/dominio/turmas/nome'
 import {
   DIAS_SEMANA,
   MODALIDADES,
+  type Frequencia,
   type Modalidade,
-  type TipoRecorrencia,
 } from '@/dominio/tipos'
 import type { EntradaTurma } from '@/dominio/turmas/regras'
+import {
+  datasDaRegra,
+  fimAutomatico,
+  opcaoDaRegra,
+  regraDaOpcao,
+  textoDaRegra,
+  type OpcaoRepeticao,
+} from '@/dominio/agenda/recorrencia'
+import { alertaDaData, datasPuladas } from '@/dominio/agenda/datas-puladas'
 import type { OpcoesDeTurma, TurmaComRelacoes } from '@/dados/turmas'
 import { Botao } from '@/ui/Botao'
 import { Campo, entradaClasse } from '@/ui/Campo'
 import { Cartao } from '@/ui/Cartao'
+
+/** Hoje no relógio da escola, no navegador. */
+const hojeNaEscola = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
+
+const ddmmaaaa = (iso: string) => iso.split('-').reverse().join('/')
+
+const ROTULO_OPCAO: Record<OpcaoRepeticao, string> = {
+  Único: 'Não se repete',
+  Diário: 'Diário (seg a sex)',
+  Semanal: 'Semanal',
+  Quinzenal: 'Quinzenal',
+  Mensal: 'Mensal',
+  Personalizado: 'Personalizado',
+}
 
 export function FormularioTurma({
   opcoes,
@@ -37,12 +60,27 @@ export function FormularioTurma({
     modalidade: turma?.modalidade ?? null,
     tipo_recorrencia: turma?.tipo_recorrencia ?? 'Recorrente',
     data_unica: turma?.data_unica ?? null,
+    frequencia: turma?.frequencia ?? 'Semanal',
+    intervalo: turma?.intervalo ?? 1,
+    data_inicio: turma?.data_inicio ?? hojeNaEscola(),
+    // Fim automático aparece vazio: o sistema decide ao salvar.
+    data_fim: turma && !turma.fim_automatico ? turma.data_fim : null,
     dias_semana: turma?.dias_semana ?? [],
     horario_inicio: turma?.horario_inicio?.slice(0, 5) ?? '',
     horario_fim: turma?.horario_fim?.slice(0, 5) ?? '',
     status: turma?.status ?? 'Ativa',
     link_videochamada: turma?.link_videochamada ?? null,
   }))
+
+  const [opcao, setOpcao] = useState<OpcaoRepeticao>(() =>
+    opcaoDaRegra({
+      tipo_recorrencia: turma?.tipo_recorrencia ?? 'Recorrente',
+      frequencia: turma?.frequencia ?? 'Semanal',
+      intervalo: turma?.intervalo ?? 1,
+      dias_semana: turma?.dias_semana ?? [],
+    }),
+  )
+  const [confirmouData, setConfirmouData] = useState(false)
 
   const servico = opcoes.servicos.find((s) => s.id === estado.servico_id) ?? null
 
@@ -58,6 +96,35 @@ export function FormularioTurma({
 
   const nomeGerado = gerarNomeTurma({ ...nomes, modalidade: estado.modalidade })
 
+  const recorrente = estado.tipo_recorrencia === 'Recorrente'
+  const fimPrevisto =
+    estado.data_fim ?? (estado.data_inicio ? fimAutomatico(hojeNaEscola(), estado.data_inicio) : null)
+
+  // Rodada 4: o que a gestora vai lançar, antes de salvar.
+  const resumo = useMemo(() => {
+    if (!recorrente || !estado.data_inicio || !fimPrevisto || !estado.frequencia) return null
+    if (!estado.intervalo || estado.intervalo < 1 || fimPrevisto < estado.data_inicio) return null
+    const regra = {
+      frequencia: estado.frequencia,
+      intervalo: estado.intervalo,
+      dias_semana: estado.dias_semana,
+      data_inicio: estado.data_inicio,
+      data_fim: fimPrevisto,
+    }
+    const datas = datasDaRegra(regra, regra.data_inicio, regra.data_fim)
+    const puladas = datasPuladas(estado.escola_id, opcoes.feriados, opcoes.recessos, regra.data_inicio, regra.data_fim)
+    const pulam = datas.filter((d) => puladas.has(d)).length
+    return { texto: textoDaRegra(regra), de: regra.data_inicio, ate: regra.data_fim, aulas: datas.length - pulam, pulam }
+  }, [recorrente, estado, fimPrevisto, opcoes.feriados, opcoes.recessos])
+
+  const alerta =
+    !recorrente && estado.data_unica
+      ? alertaDaData(estado.data_unica, estado.escola_id, opcoes.feriados, opcoes.recessos)
+      : null
+
+  const mostraDias =
+    opcao === 'Semanal' || opcao === 'Quinzenal' || (opcao === 'Personalizado' && estado.frequencia === 'Semanal')
+
   /** Trocar de servico limpa os campos que o novo servico nao usa. */
   function escolherServico(id: number | null) {
     const novo = opcoes.servicos.find((s) => s.id === id) ?? null
@@ -69,14 +136,22 @@ export function FormularioTurma({
     }))
   }
 
-  /** Trocar de modo limpa o campo do modo anterior: os dois nunca coexistem. */
-  function trocarRecorrencia(tipo: TipoRecorrencia) {
-    setEstado((atual) => ({
-      ...atual,
-      tipo_recorrencia: tipo,
-      dias_semana: tipo === 'Único' ? [] : atual.dias_semana,
-      data_unica: tipo === 'Recorrente' ? null : atual.data_unica,
-    }))
+  /** Cada opção pronta grava uma regra; trocar de modo limpa o modo anterior. */
+  function escolherOpcao(nova: OpcaoRepeticao) {
+    setOpcao(nova)
+    setConfirmouData(false)
+    setEstado((atual) => {
+      if (nova === 'Único') return { ...atual, tipo_recorrencia: 'Único', dias_semana: [] }
+      const base = { ...atual, tipo_recorrencia: 'Recorrente' as const, data_unica: null }
+      if (nova === 'Personalizado') {
+        return { ...base, frequencia: atual.frequencia ?? 'Semanal', intervalo: atual.intervalo ?? 1 }
+      }
+      return { ...base, ...regraDaOpcao(nova, atual.dias_semana) }
+    })
+  }
+
+  function escolherUnidade(frequencia: Frequencia) {
+    setEstado((a) => ({ ...a, frequencia, dias_semana: frequencia === 'Semanal' ? a.dias_semana : [] }))
   }
 
   function alternarDia(dia: number) {
@@ -91,6 +166,11 @@ export function FormularioTurma({
   function enviar(evento: React.FormEvent) {
     evento.preventDefault()
     setErros([])
+    // Spec 4.3: aula única em feriado só com a confirmação da gestora.
+    if (alerta && !confirmouData) {
+      setErros(['Confirme que a aula vai acontecer mesmo assim, ou escolha outra data.'])
+      return
+    }
     iniciar(async () => {
       const resultado = await salvarTurma(turma?.id ?? null, estado, nomes)
       if (resultado.ok) {
@@ -251,17 +331,17 @@ export function FormularioTurma({
           </select>
         </Campo>
 
-        {/* T1: mesma escolha do Google Agenda — "não se repete" ou "recorrente".
-            Cobre o aulão de revisão sem precisar de um segundo cadastro. */}
+        {/* Rodada 4: como um compromisso no Google Agenda — não se repete,
+            diário, semanal, quinzenal, mensal ou "a cada N". */}
         <Campo etiqueta="Repetição" obrigatorio grupo>
           <div className="flex flex-wrap gap-2">
-            {(['Recorrente', 'Único'] as TipoRecorrencia[]).map((tipo) => {
-              const marcado = estado.tipo_recorrencia === tipo
+            {(Object.keys(ROTULO_OPCAO) as OpcaoRepeticao[]).map((op) => {
+              const marcado = opcao === op
               return (
                 <button
-                  key={tipo}
+                  key={op}
                   type="button"
-                  onClick={() => trocarRecorrencia(tipo)}
+                  onClick={() => escolherOpcao(op)}
                   aria-pressed={marcado}
                   className={`min-h-[44px] rounded-campo border px-4 font-medium transition-all active:scale-95 ${
                     marcado
@@ -269,50 +349,128 @@ export function FormularioTurma({
                       : 'border-borda bg-superficie text-tinta-suave hover:border-destaque/40'
                   }`}
                 >
-                  {tipo === 'Recorrente' ? 'Toda semana' : 'Não se repete'}
+                  {ROTULO_OPCAO[op]}
                 </button>
               )
             })}
           </div>
         </Campo>
 
-        {estado.tipo_recorrencia === 'Único' ? (
-          <Campo etiqueta="Data da aula" ajuda="Esta turma acontece uma vez só." obrigatorio>
-            <input
-              type="date"
-              value={estado.data_unica ?? ''}
-              onChange={(e) => setEstado((a) => ({ ...a, data_unica: e.target.value || null }))}
-              className={entradaClasse}
-            />
-          </Campo>
+        {!recorrente ? (
+          <>
+            <Campo etiqueta="Data da aula" ajuda="Esta turma acontece uma vez só." obrigatorio>
+              <input
+                type="date"
+                value={estado.data_unica ?? ''}
+                onChange={(e) => {
+                  setConfirmouData(false)
+                  setEstado((a) => ({ ...a, data_unica: e.target.value || null }))
+                }}
+                className={entradaClasse}
+              />
+            </Campo>
+            {alerta && (
+              <div role="alert" className="rounded-campo bg-alerta-suave px-4 py-3 text-sm">
+                <p>{alerta}</p>
+                <label className="mt-2 flex items-center gap-2 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={confirmouData}
+                    onChange={(e) => setConfirmouData(e.target.checked)}
+                  />
+                  Criar a aula nesta data mesmo assim
+                </label>
+              </div>
+            )}
+          </>
         ) : (
-          <Campo
-            etiqueta="Dias da semana"
-            ajuda="Em quais dias esta turma tem aula."
-            obrigatorio
-            grupo
-          >
-            <div className="flex flex-wrap gap-2">
-              {DIAS_SEMANA.map((dia) => {
-                const marcado = estado.dias_semana.includes(dia.valor)
-                return (
-                  <button
-                    key={dia.valor}
-                    type="button"
-                    onClick={() => alternarDia(dia.valor)}
-                    aria-pressed={marcado}
-                    className={`min-h-[44px] min-w-[56px] rounded-campo border px-3 font-medium transition-all active:scale-95 ${
-                      marcado
-                        ? 'border-destaque bg-destaque text-white'
-                        : 'border-borda bg-superficie text-tinta-suave hover:border-destaque/40'
-                    }`}
+          <>
+            {opcao === 'Personalizado' && (
+              <Campo etiqueta="Repete a cada" obrigatorio>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={estado.intervalo ?? ''}
+                    onChange={(e) =>
+                      setEstado((a) => ({ ...a, intervalo: e.target.value ? Number(e.target.value) : null }))
+                    }
+                    className={`${entradaClasse} w-24`}
+                  />
+                  <select
+                    value={estado.frequencia ?? 'Semanal'}
+                    onChange={(e) => escolherUnidade(e.target.value as Frequencia)}
+                    className={entradaClasse}
                   >
-                    {dia.curto}
-                  </button>
-                )
-              })}
+                    <option value="Diária">dias</option>
+                    <option value="Semanal">semanas</option>
+                    <option value="Mensal">meses</option>
+                  </select>
+                </div>
+              </Campo>
+            )}
+
+            {mostraDias && (
+              <Campo etiqueta="Dias da semana" ajuda="Em quais dias esta turma tem aula." obrigatorio grupo>
+                <div className="flex flex-wrap gap-2">
+                  {DIAS_SEMANA.map((dia) => {
+                    const marcado = estado.dias_semana.includes(dia.valor)
+                    return (
+                      <button
+                        key={dia.valor}
+                        type="button"
+                        onClick={() => alternarDia(dia.valor)}
+                        aria-pressed={marcado}
+                        className={`min-h-[44px] min-w-[56px] rounded-campo border px-3 font-medium transition-all active:scale-95 ${
+                          marcado
+                            ? 'border-destaque bg-destaque text-white'
+                            : 'border-borda bg-superficie text-tinta-suave hover:border-destaque/40'
+                        }`}
+                      >
+                        {dia.curto}
+                      </button>
+                    )
+                  })}
+                </div>
+              </Campo>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Campo etiqueta="Começa em" ajuda="Pode ser uma data passada." obrigatorio>
+                <input
+                  type="date"
+                  value={estado.data_inicio ?? ''}
+                  onChange={(e) => setEstado((a) => ({ ...a, data_inicio: e.target.value || null }))}
+                  className={entradaClasse}
+                />
+              </Campo>
+              <Campo
+                etiqueta="Termina em"
+                ajuda={`Sem data, a turma vai até ${fimPrevisto && !estado.data_fim ? ddmmaaaa(fimPrevisto) : '31/12'}.`}
+              >
+                <input
+                  type="date"
+                  value={estado.data_fim ?? ''}
+                  min={estado.data_inicio ?? undefined}
+                  onChange={(e) => setEstado((a) => ({ ...a, data_fim: e.target.value || null }))}
+                  className={entradaClasse}
+                />
+              </Campo>
             </div>
-          </Campo>
+
+            {resumo && (
+              <p aria-live="polite" className="rounded-campo bg-superficie-2 px-4 py-3 text-sm">
+                {resumo.texto}, de {ddmmaaaa(resumo.de)} a {ddmmaaaa(resumo.ate)}:{' '}
+                <strong>
+                  {resumo.aulas} {resumo.aulas === 1 ? 'aula' : 'aulas'}
+                </strong>
+                {resumo.pulam > 0 &&
+                  ` (${resumo.pulam} ${resumo.pulam === 1 ? 'data pulada' : 'datas puladas'} por feriado ou recesso)`}
+                .
+              </p>
+            )}
+          </>
         )}
 
         <div className="grid gap-4 sm:grid-cols-2">
