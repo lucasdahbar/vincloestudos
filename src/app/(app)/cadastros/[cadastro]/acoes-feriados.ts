@@ -1,7 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { clienteServidor } from '@/dados/cliente'
+import { aplicarMudancaDeCalendario } from '@/dados/limpeza-aulas'
 import { exigirGestora } from '@/dados/sessao'
 import { buscarFeriadosNacionais, feriadosQueFaltam } from '@/dominio/feriados/nacionais'
 
@@ -56,6 +58,7 @@ export async function importarFeriadosNacionais(ano: number): Promise<ResultadoI
     detalhe: { ano, criados: faltando.length, fonte: 'BrasilAPI' },
   })
 
+  after(() => aplicarMudancaDeCalendario('feriado'))
   revalidatePath('/cadastros/feriados')
   revalidatePath('/agenda')
 

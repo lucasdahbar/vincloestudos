@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { atualizar, criar } from '@/dados/crud'
+import { aplicarMudancaDeCalendario } from '@/dados/limpeza-aulas'
 import { atualizarAlunosNosEventos, turmasDoAluno } from '@/dados/evento-da-turma'
 import { exigirGestora } from '@/dados/sessao'
 import { CADASTROS } from '@/cadastros/definicoes'
@@ -64,6 +65,12 @@ export async function salvarCadastro(
     // O nome do aluno esta na descricao do evento das turmas dele no Google.
     if (rota === 'alunos' && id !== null) {
       after(async () => atualizarAlunosNosEventos(await turmasDoAluno(id)))
+    }
+
+    // Rodada 4: a turma recorrente não tem aula em feriado nem em recesso.
+    if (rota === 'feriados' || rota === 'recessos') {
+      after(() => aplicarMudancaDeCalendario(rota === 'feriados' ? 'feriado' : 'recesso'))
+      revalidatePath('/agenda')
     }
 
     revalidatePath(`/cadastros/${rota}`)
