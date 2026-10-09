@@ -50,6 +50,12 @@ describe('creditoDaDesistencia', () => {
 describe('podeCancelarAviso', () => {
   const aviso = { origem: 'Aviso' as const, status: 'Pendente' as const, temCredito: false }
 
+  it('não cancela a exclusão da aula: não é um aviso', () => {
+    const r = podeCancelarAviso({ ...aviso, origem: 'Exclusão' })
+    expect(r.pode).toBe(false)
+    if (!r.pode) expect(r.motivo).toContain('excluída')
+  })
+
   it('cancela aviso ainda pendente', () => {
     expect(podeCancelarAviso(aviso)).toEqual({ pode: true })
   })

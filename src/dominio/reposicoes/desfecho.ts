@@ -63,6 +63,12 @@ export function podeCancelarAviso(p: {
   /** Ja entrou num fechamento do professor como desistencia paga. */
   pagoAoProfessor?: boolean
 }): { pode: true } | { pode: false; motivo: string } {
+  if (p.origem === 'Exclusão') {
+    return {
+      pode: false,
+      motivo: 'A aula foi excluída e o aluno transferido para reposição. Registre a desistência dela, em Reposições.',
+    }
+  }
   if (p.origem !== 'Aviso') {
     return { pode: false, motivo: 'Só um aviso pode ser cancelado. A falta foi marcada pelo professor.' }
   }
