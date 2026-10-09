@@ -102,6 +102,18 @@ describe('validarTurma — regra e período (Rodada 4)', () => {
     )
   })
 
+  it('recusa ano de início absurdo', () => {
+    expect(
+      validarTurma({ ...turmaValida, data_inicio: '0202-10-09', data_fim: null }, servicoCompleto),
+    ).toContain('A data de início parece errada: confira o ano.')
+  })
+
+  it('recusa ano de término absurdo', () => {
+    expect(
+      validarTurma({ ...turmaValida, data_fim: '2200-01-01' }, servicoCompleto),
+    ).toContain('A data de término parece errada: confira o ano.')
+  })
+
   it('fim não pode ser antes do início', () => {
     expect(
       validarTurma({ ...turmaValida, data_fim: '2026-09-30' }, servicoCompleto),

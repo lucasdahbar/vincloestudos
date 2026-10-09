@@ -97,13 +97,26 @@ export function FormularioTurma({
   const nomeGerado = gerarNomeTurma({ ...nomes, modalidade: estado.modalidade })
 
   const recorrente = estado.tipo_recorrencia === 'Recorrente'
+  const automatico = estado.data_inicio ? fimAutomatico(hojeNaEscola(), estado.data_inicio) : null
+  // Turma renovada: o fim automático salvo pode ser posterior ao do ano corrente.
   const fimPrevisto =
-    estado.data_fim ?? (estado.data_inicio ? fimAutomatico(hojeNaEscola(), estado.data_inicio) : null)
+    estado.data_fim ??
+    (automatico && turma?.fim_automatico && turma.data_fim && turma.data_fim > automatico
+      ? turma.data_fim
+      : automatico)
+
+  const mostraDias =
+    opcao === 'Semanal' || opcao === 'Quinzenal' || (opcao === 'Personalizado' && estado.frequencia === 'Semanal')
+  const faltaDia = recorrente && mostraDias && estado.dias_semana.length === 0
 
   // Rodada 4: o que a gestora vai lançar, antes de salvar.
   const resumo = useMemo(() => {
-    if (!recorrente || !estado.data_inicio || !fimPrevisto || !estado.frequencia) return null
+    if (!recorrente || faltaDia || !estado.data_inicio || !fimPrevisto || !estado.frequencia) return null
     if (!estado.intervalo || estado.intervalo < 1 || fimPrevisto < estado.data_inicio) return null
+    // Digitando o ano, o navegador emite datas intermediárias (0202-10-09): não calcula.
+    const anoIni = Number(estado.data_inicio.slice(0, 4))
+    const anoFim = Number(fimPrevisto.slice(0, 4))
+    if (anoIni < 2000 || anoFim < 2000 || anoFim - anoIni > 3) return null
     const regra = {
       frequencia: estado.frequencia,
       intervalo: estado.intervalo,
@@ -115,15 +128,12 @@ export function FormularioTurma({
     const puladas = datasPuladas(estado.escola_id, opcoes.feriados, opcoes.recessos, regra.data_inicio, regra.data_fim)
     const pulam = datas.filter((d) => puladas.has(d)).length
     return { texto: textoDaRegra(regra), de: regra.data_inicio, ate: regra.data_fim, aulas: datas.length - pulam, pulam }
-  }, [recorrente, estado, fimPrevisto, opcoes.feriados, opcoes.recessos])
+  }, [recorrente, faltaDia, estado, fimPrevisto, opcoes.feriados, opcoes.recessos])
 
   const alerta =
     !recorrente && estado.data_unica
       ? alertaDaData(estado.data_unica, estado.escola_id, opcoes.feriados, opcoes.recessos)
       : null
-
-  const mostraDias =
-    opcao === 'Semanal' || opcao === 'Quinzenal' || (opcao === 'Personalizado' && estado.frequencia === 'Semanal')
 
   /** Trocar de servico limpa os campos que o novo servico nao usa. */
   function escolherServico(id: number | null) {
@@ -386,9 +396,10 @@ export function FormularioTurma({
         ) : (
           <>
             {opcao === 'Personalizado' && (
-              <Campo etiqueta="Repete a cada" obrigatorio>
+              <Campo etiqueta="Repete a cada" obrigatorio grupo>
                 <div className="flex gap-2">
                   <input
+                    aria-label="Intervalo"
                     type="number"
                     min={1}
                     max={99}
@@ -399,6 +410,7 @@ export function FormularioTurma({
                     className={`${entradaClasse} w-24`}
                   />
                   <select
+                    aria-label="Unidade"
                     value={estado.frequencia ?? 'Semanal'}
                     onChange={(e) => escolherUnidade(e.target.value as Frequencia)}
                     className={entradaClasse}
@@ -458,6 +470,12 @@ export function FormularioTurma({
                 />
               </Campo>
             </div>
+
+            {faltaDia && (
+              <p className="rounded-campo bg-superficie-2 px-4 py-3 text-sm">
+                Escolha ao menos um dia da semana.
+              </p>
+            )}
 
             {resumo && (
               <p aria-live="polite" className="rounded-campo bg-superficie-2 px-4 py-3 text-sm">
