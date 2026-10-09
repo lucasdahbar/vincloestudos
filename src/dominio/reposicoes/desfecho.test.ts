@@ -56,6 +56,11 @@ describe('podeCancelarAviso', () => {
     if (!r.pode) expect(r.motivo).toContain('excluída')
   })
 
+  it('não cancela aviso de aula excluída', () => {
+    const r = podeCancelarAviso({ ...aviso, aulaExcluida: true })
+    expect(r.pode).toBe(false)
+  })
+
   it('cancela aviso ainda pendente', () => {
     expect(podeCancelarAviso(aviso)).toEqual({ pode: true })
   })

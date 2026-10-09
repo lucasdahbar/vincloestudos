@@ -187,4 +187,12 @@ describe('aula excluída', () => {
       ]),
     ).toEqual([])
   })
+
+  it('é cobrada de quem já tinha avisado antes da exclusão', () => {
+    const [c] = montarCobrancas([
+      { ...base, status_aula: 'Excluída', ausencia: { origem: 'Aviso', cobrar: null } },
+    ])
+    expect(c.itens).toHaveLength(1)
+    expect(c.itens[0].descricao).toContain('avisou que não vem')
+  })
 })

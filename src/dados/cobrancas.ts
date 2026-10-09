@@ -1,5 +1,5 @@
 import 'server-only'
-import type { OrigemAusencia } from '@/dominio/tipos'
+import type { OrigemAusencia, StatusAula } from '@/dominio/tipos'
 import { clienteServidor } from './cliente'
 import { deNumeric, formatarBRL, paraNumeric, somar, type Centavos } from '@/dominio/dinheiro'
 import { carregarVigencias } from './vigencias'
@@ -55,7 +55,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
   const linhas = (aulas ?? []) as unknown as {
     id: number
     data_hora_inicio: string
-    status: 'Agendada' | 'Realizada' | 'Cancelada' | 'Feriado'
+    status: StatusAula
     turma_id: number
     turma: {
       id: number

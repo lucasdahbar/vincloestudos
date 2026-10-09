@@ -74,7 +74,7 @@ export function faturavel(aula: AulaFaturavel): boolean {
       aula.status_aula === 'Realizada' ||
       // Rodada 4: a aula excluída segue cobrada de quem foi para reposição —
       // é o que faz a reposição entrar com zero (spec 3.3).
-      (aula.status_aula === 'Excluída' && aula.ausencia?.origem === 'Exclusão'))
+      (aula.status_aula === 'Excluída' && !!aula.ausencia))
   )
 }
 

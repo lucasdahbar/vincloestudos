@@ -331,7 +331,7 @@ export async function cancelarAviso(
   const [{ data: p }, { count: creditos }, { count: pagos }] = await Promise.all([
     supabase
       .from('pendencias_reposicao')
-      .select('id, origem, status')
+      .select('id, origem, status, aula:aulas!aula_origem_id (status)')
       .eq('id', pendenciaId)
       .maybeSingle(),
     supabase
@@ -347,7 +347,9 @@ export async function cancelarAviso(
   if (!p) return { ok: false, erros: ['Aviso não encontrado.'] }
 
   const permissao = podeCancelarAviso({
-    ...p,
+    origem: p.origem,
+    status: p.status,
+    aulaExcluida: (p.aula as unknown as { status: string } | null)?.status === 'Excluída',
     temCredito: (creditos ?? 0) > 0,
     pagoAoProfessor: (pagos ?? 0) > 0,
   })

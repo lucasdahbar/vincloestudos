@@ -62,6 +62,8 @@ export function podeCancelarAviso(p: {
   temCredito: boolean
   /** Ja entrou num fechamento do professor como desistencia paga. */
   pagoAoProfessor?: boolean
+  /** A aula de origem foi excluída: o aluno depende da reposição. */
+  aulaExcluida?: boolean
 }): { pode: true } | { pode: false; motivo: string } {
   if (p.origem === 'Exclusão') {
     return {
@@ -71,6 +73,12 @@ export function podeCancelarAviso(p: {
   }
   if (p.origem !== 'Aviso') {
     return { pode: false, motivo: 'Só um aviso pode ser cancelado. A falta foi marcada pelo professor.' }
+  }
+  if (p.aulaExcluida) {
+    return {
+      pode: false,
+      motivo: 'A aula deste aviso foi excluída: o aluno precisa da reposição. Registre a desistência se ela não for acontecer.',
+    }
   }
   if (p.status === 'Agendada' || p.status === 'Realizada') {
     return { pode: false, motivo: 'A reposição já foi marcada. Registre a desistência dela, em Reposições.' }
