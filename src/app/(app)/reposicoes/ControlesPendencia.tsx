@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { agendar, desistir } from './acoes'
+import { PerguntasDeCobranca } from './PerguntasDeCobranca'
 import { Botao } from '@/ui/Botao'
 import { entradaClasse } from '@/ui/Campo'
 
@@ -18,6 +19,8 @@ export function AcoesPendencia({
   aulas: OpcaoAula[]
 }) {
   const [destino, setDestino] = useState('')
+  // Desistencia: a regra pede a decisao de cobranca antes de registrar.
+  const [desistindo, setDesistindo] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [pendente, iniciar] = useTransition()
 
@@ -27,6 +30,23 @@ export function AcoesPendencia({
       const r = await fn()
       if (!r.ok) setErro(r.erros?.join(' ') ?? 'Não foi possível concluir.')
     })
+  }
+
+  if (desistindo) {
+    return (
+      <div className="flex flex-col gap-2">
+        <PerguntasDeCobranca
+          pendente={pendente}
+          onVoltar={() => setDesistindo(false)}
+          onDecidir={(d) => executar(() => desistir(pendenciaId, d))}
+        />
+        {erro && (
+          <p role="alert" className="rounded-campo bg-erro-suave px-3 py-2 text-sm text-erro">
+            {erro}
+          </p>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -58,7 +78,7 @@ export function AcoesPendencia({
           type="button"
           aparencia="secundario"
           disabled={pendente}
-          onClick={() => executar(() => desistir(pendenciaId))}
+          onClick={() => setDesistindo(true)}
         >
           Desistiu
         </Botao>

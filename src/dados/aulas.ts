@@ -1,6 +1,6 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
-import { semPendenciaDeReposicao } from '@/dominio/presencas/registro'
+import { montarListaDaAula, type AlunoDaAula, type ListaDaAula } from './lista-da-aula'
 import { provedorAtivo } from '@/agenda'
 import { conflitosComFeriado, type ConflitoFeriado } from '@/dominio/agenda/feriados'
 import { dataDeCadastro } from '@/dominio/agenda/materializacao'
@@ -153,76 +153,26 @@ export async function obterAula(id: number): Promise<AulaComTurma | null> {
   return (data ?? null) as unknown as AulaComTurma | null
 }
 
-/** Alunos com matricula ativa na turma na data da aula. */
-export interface MatriculadoDaAula {
-  aluno_id: number
-  nome: string
-  flag_reposicao: boolean
-}
-
-export interface ListaDaAula {
-  presentes: MatriculadoDaAula[]
-  /** R3: quem tem pendencia de reposicao em aberto para esta aula. */
-  aguardandoReposicao: MatriculadoDaAula[]
-}
-
 /**
- * A lista de alunos de uma aula.
- *
- * R3 (Rodada 2): quem ja tem pendencia de reposicao em aberto para ESTA aula
- * sai da lista de matriculados — a gestora e o professor precisam ver a mesma
- * coisa. Os dois grupos voltam separados porque a gestora tem de enxergar quem
- * saiu e por que; o professor recebe so `presentes`.
+ * A lista de alunos de uma aula: quem entra na chamada e quem avisou que nao
+ * vem. A montagem mora em `lista-da-aula.ts`, compartilhada com os links do
+ * professor — as telas nao podem divergir.
  */
 export async function listaDaAula(aulaId: number): Promise<ListaDaAula> {
   const supabase = await clienteServidor()
   const { data: aula } = await supabase
     .from('aulas')
-    .select('turma_id, data_hora_inicio')
+    .select('id, turma_id, data_hora_inicio')
     .eq('id', aulaId)
     .maybeSingle()
 
-  if (!aula) return { presentes: [], aguardandoReposicao: [] }
-
-  const dia = String(aula.data_hora_inicio).slice(0, 10)
-  const [{ data }, { data: pendencias }] = await Promise.all([
-    supabase
-      .from('matriculas')
-      .select('aluno_id, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (id, nome)')
-      .eq('turma_id', aula.turma_id)
-      .eq('status', 'Ativa')
-      .lte('data_inicio', dia),
-    supabase
-      .from('pendencias_reposicao')
-      .select('aluno_id')
-      .eq('aula_origem_id', aulaId)
-      .eq('status', 'Pendente'),
-  ])
-
-  const todos = ((data ?? []) as unknown as {
-    aluno_id: number
-    flag_reposicao: boolean
-    data_fim: string | null
-    aluno: { id: number; nome: string } | null
-  }[])
-    .filter((m) => !m.data_fim || m.data_fim >= dia)
-    .map((m) => ({
-      aluno_id: m.aluno_id,
-      nome: m.aluno?.nome ?? 'Aluno removido',
-      flag_reposicao: m.flag_reposicao,
-    }))
-
-  const fora = new Set((pendencias ?? []).map((p) => p.aluno_id))
-
-  return {
-    presentes: semPendenciaDeReposicao(todos, pendencias ?? []),
-    aguardandoReposicao: todos.filter((m) => fora.has(m.aluno_id)),
-  }
+  if (!aula) return { chamada: [], avisaram: [] }
+  return montarListaDaAula(supabase, aula)
 }
 
-/** Mantida para quem so precisa da lista efetiva da aula. */
-export async function matriculadosNaAula(aulaId: number): Promise<MatriculadoDaAula[]> {
-  return (await listaDaAula(aulaId)).presentes
+/** Mantida para quem so precisa de quem entra na chamada. */
+export async function matriculadosNaAula(aulaId: number): Promise<AlunoDaAula[]> {
+  return (await listaDaAula(aulaId)).chamada
 }
 
 /** Aulas agendadas que caem em feriado, para o alerta da gestora (RN 4.2). */

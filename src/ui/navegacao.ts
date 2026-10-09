@@ -31,6 +31,7 @@ export const SECOES: SecaoNav[] = [
     itens: [
       { rotulo: 'Cobranças', href: '/cobrancas', papeis: ['gestora'], principal: true },
       { rotulo: 'Recebimentos', href: '/recebimentos', papeis: ['gestora'] },
+      { rotulo: 'Créditos', href: '/creditos', papeis: ['gestora'] },
       { rotulo: 'Pagamentos', href: '/pagamentos', papeis: ['gestora'] },
     ],
   },

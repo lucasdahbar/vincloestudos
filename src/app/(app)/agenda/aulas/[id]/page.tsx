@@ -4,6 +4,15 @@ import { listaDaAula, obterAula } from '@/dados/aulas'
 import { tokenDaAula } from '@/dados/presencas'
 import { LinkDeChamada } from './LinkDeChamada'
 import { AvisarFalta } from './AvisarFalta'
+import { CancelarAviso } from '../../../reposicoes/CancelarAviso'
+
+/** O que aconteceu depois do aviso, do ponto de vista desta aula. */
+const ROTULO_AVISO = {
+  Pendente: 'Reposição pendente',
+  Agendada: 'Reposição marcada',
+  Realizada: 'Reposição feita',
+  Desistida: 'Sem reposição',
+} as const
 import { clienteServidor } from '@/dados/cliente'
 import { exigirSessao } from '@/dados/sessao'
 import { Cartao } from '@/ui/Cartao'
@@ -90,16 +99,16 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
               </li>
             ))}
           </ul>
-        ) : lista.presentes.length === 0 ? (
+        ) : lista.chamada.length === 0 ? (
           <p className="text-tinta-suave">
-            {lista.aguardandoReposicao.length > 0
+            {lista.avisaram.length > 0
               ? 'Todos os alunos desta aula já avisaram que não vêm.'
               : 'Nenhum aluno matriculado nesta turma na data da aula.'}
           </p>
         ) : (
           <>
             <ul className="divide-y divide-borda/60">
-              {lista.presentes.map((m) => (
+              {lista.chamada.map((m) => (
                 <li key={m.aluno_id} className="flex items-center justify-between gap-3 py-3">
                   <span className="flex items-center gap-3">
                     <Link
@@ -124,28 +133,34 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
         )}
       </Cartao>
 
-      {/* R3: quem saiu da lista desta aula. Sem este bloco a gestora veria o
-          aluno simplesmente sumir, sem saber por que. */}
-      {lista.aguardandoReposicao.length > 0 && (
+      {/* Rodada 3: quem avisou continua visivel, marcado e fora da chamada —
+          sem presenca nem falta, porque a aula nao conta para o professor. */}
+      {lista.avisaram.length > 0 && (
         <Cartao>
           <h2 className="mb-1 text-lg">Avisaram que não vêm</h2>
           <p className="mb-3 text-sm text-tinta-suave">
-            Não entram na chamada desta aula. Ficam em{' '}
+            Aparecem para o professor, mas sem presença nem falta. A reposição e a cobrança de
+            cada um se resolvem em{' '}
             <Link href="/reposicoes" className="text-destaque hover:underline">
               Reposições
-            </Link>{' '}
-            até você marcar a reposição ou registrar a desistência.
+            </Link>
+            .
           </p>
           <ul className="divide-y divide-borda/60">
-            {lista.aguardandoReposicao.map((m) => (
-              <li key={m.aluno_id} className="flex items-center justify-between gap-3 py-3">
+            {lista.avisaram.map((m) => (
+              <li key={m.aluno_id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <Link
                   href={`/cadastros/alunos/${m.aluno_id}`}
                   className="font-medium text-destaque hover:underline"
                 >
                   {m.nome}
                 </Link>
-                <Selo tom="alerta">Reposição pendente</Selo>
+                <span className="flex items-center gap-3">
+                  <Selo tom={m.status === 'Pendente' ? 'alerta' : 'neutro'}>
+                    {ROTULO_AVISO[m.status]}
+                  </Selo>
+                  {ehGestora && <CancelarAviso pendenciaId={m.pendencia_id} nome={m.nome} />}
+                </span>
               </li>
             ))}
           </ul>

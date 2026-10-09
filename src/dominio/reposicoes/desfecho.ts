@@ -53,21 +53,26 @@ export function creditoDaDesistencia(
  *
  * Enquanto nada aconteceu por causa dele — reposição marcada, crédito gerado —
  * o aviso some como se não tivesse existido. Depois disso o acerto é pelo
- * caminho normal: reposição na própria turma ou crédito.
+ * caminho normal: desistência da reposição ou crédito.
  */
 export function podeCancelarAviso(p: {
   origem: 'Aviso' | 'Falta'
   status: StatusReposicao
   temCredito: boolean
+  /** Ja entrou num fechamento do professor como desistencia paga. */
+  pagoAoProfessor?: boolean
 }): { pode: true } | { pode: false; motivo: string } {
   if (p.origem !== 'Aviso') {
     return { pode: false, motivo: 'Só um aviso pode ser cancelado. A falta foi marcada pelo professor.' }
   }
   if (p.status === 'Agendada' || p.status === 'Realizada') {
-    return { pode: false, motivo: 'A reposição já foi marcada. Desmarque-a antes.' }
+    return { pode: false, motivo: 'A reposição já foi marcada. Registre a desistência dela, em Reposições.' }
   }
   if (p.temCredito) {
     return { pode: false, motivo: 'Este aviso já gerou crédito ao responsável.' }
+  }
+  if (p.pagoAoProfessor) {
+    return { pode: false, motivo: 'Esta aula já entrou no pagamento do professor.' }
   }
   return { pode: true }
 }

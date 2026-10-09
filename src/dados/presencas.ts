@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { clienteAdmin } from './admin'
 import { clienteServidor } from './cliente'
 import { montarRegistro, type RespostaChamada } from '@/dominio/presencas/registro'
+import { concluirReposicoes, montarListaDaAula } from './lista-da-aula'
 
 /** Validade padrao do link enviado ao professor. */
 const HORAS_DE_VALIDADE = 48
@@ -13,6 +14,8 @@ export interface AulaDoFormulario {
   data_hora_inicio: string
   professor_id: number | null
   alunos: { aluno_id: number; nome: string; flag_reposicao: boolean }[]
+  /** Rodada 3: avisaram que nao vem. Aparecem, sem presenca nem falta. */
+  avisaram: { aluno_id: number; nome: string }[]
 }
 
 export interface TokenDaAula {
@@ -104,26 +107,9 @@ export async function aulaPorToken(token: string): Promise<
 
   if (!aula) return { ok: false, motivo: 'A aula deste link não existe mais.' }
 
-  const dia = String(aula.data_hora_inicio).slice(0, 10)
-  const { data: matriculas } = await admin
-    .from('matriculas')
-    .select('aluno_id, flag_reposicao, data_fim, aluno:alunos!aluno_id (nome)')
-    .eq('turma_id', aula.turma_id)
-    .eq('status', 'Ativa')
-    .lte('data_inicio', dia)
-
-  const alunos = ((matriculas ?? []) as unknown as {
-    aluno_id: number
-    flag_reposicao: boolean
-    data_fim: string | null
-    aluno: { nome: string } | null
-  }[])
-    .filter((m) => !m.data_fim || m.data_fim >= dia)
-    .map((m) => ({
-      aluno_id: m.aluno_id,
-      nome: m.aluno?.nome ?? 'Aluno removido',
-      flag_reposicao: m.flag_reposicao,
-    }))
+  // A mesma lista dos outros links: quem avisou que nao vem fica fora da
+  // chamada. Este link montava a propria e gravava "presente" para ele.
+  const lista = await montarListaDaAula(admin, aula)
 
   const turma = aula.turma as unknown as { nome: string } | null
 
@@ -134,7 +120,8 @@ export async function aulaPorToken(token: string): Promise<
       turma_nome: turma?.nome ?? 'Turma',
       data_hora_inicio: aula.data_hora_inicio,
       professor_id: registro.professor_id,
-      alunos,
+      alunos: lista.chamada,
+      avisaram: lista.avisaram.map(({ aluno_id, nome }) => ({ aluno_id, nome })),
     },
   }
 }
@@ -175,6 +162,7 @@ export async function registrarChamada(
     if (error) return { ok: false, motivo: `Falha ao registrar as reposições: ${error.message}` }
   }
 
+  await concluirReposicoes(admin, aula.aula_id, resultado.presencas)
   await admin.from('aulas').update({ status: resultado.novoStatusAula }).eq('id', aula.aula_id)
   await admin.from('presenca_tokens').update({ usado_em: new Date().toISOString() }).eq('token', token)
 

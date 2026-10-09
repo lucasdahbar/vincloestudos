@@ -1,7 +1,8 @@
 import 'server-only'
 import { clienteAdmin } from './admin'
 import { professorPorToken, type ProfessorDoLink } from './professores'
-import { montarRegistro, semPendenciaDeReposicao, type RespostaChamada } from '@/dominio/presencas/registro'
+import { montarRegistro, type RespostaChamada } from '@/dominio/presencas/registro'
+import { concluirReposicoes, montarListaDaAula, type AlunoDaAula } from './lista-da-aula'
 import {
   DIAS_A_FRENTE,
   modoDaAula,
@@ -78,7 +79,10 @@ export interface ChamadaDoProfessor {
   data_hora_inicio: string
   /** `registrar` abre a chamada; `consultar` so mostra quem vem. */
   modo: Exclude<ModoDaAula, 'fora'>
-  alunos: { aluno_id: number; nome: string; flag_reposicao: boolean }[]
+  /** Entram na chamada. */
+  alunos: AlunoDaAula[]
+  /** Rodada 3: avisaram que nao vem. Aparecem, sem presenca nem falta. */
+  avisaram: { aluno_id: number; nome: string }[]
 }
 
 export async function chamadaDaAula(
@@ -128,7 +132,7 @@ export async function chamadaDaAula(
     }
   }
 
-  const alunos = await matriculadosDaAula(aula.turma_id, aula.id, aula.data_hora_inicio.slice(0, 10))
+  const lista = await montarListaDaAula(admin, aula)
 
   return {
     ok: true,
@@ -137,53 +141,10 @@ export async function chamadaDaAula(
       turma_nome: turma?.nome ?? 'Turma',
       data_hora_inicio: aula.data_hora_inicio,
       modo,
-      alunos,
+      alunos: lista.chamada,
+      avisaram: lista.avisaram.map(({ aluno_id, nome }) => ({ aluno_id, nome })),
     },
   }
-}
-
-/**
- * A lista de alunos de uma aula, ja com R3 aplicado: quem tem pendencia de
- * reposicao em aberto para ESTA aula nao aparece.
- *
- * Exportada porque a agenda da gestora precisa da mesma lista — se as duas
- * telas divergirem, o professor e a gestora passam a ver turmas diferentes.
- */
-export async function matriculadosDaAula(
-  turmaId: number,
-  aulaId: number,
-  dia: string,
-): Promise<{ aluno_id: number; nome: string; flag_reposicao: boolean }[]> {
-  const admin = clienteAdmin()
-
-  const [{ data: matriculas }, { data: pendencias }] = await Promise.all([
-    admin
-      .from('matriculas')
-      .select('aluno_id, flag_reposicao, data_fim, aluno:alunos!aluno_id (nome)')
-      .eq('turma_id', turmaId)
-      .eq('status', 'Ativa')
-      .lte('data_inicio', dia),
-    admin
-      .from('pendencias_reposicao')
-      .select('aluno_id')
-      .eq('aula_origem_id', aulaId)
-      .eq('status', 'Pendente'),
-  ])
-
-  const lista = ((matriculas ?? []) as unknown as {
-    aluno_id: number
-    flag_reposicao: boolean
-    data_fim: string | null
-    aluno: { nome: string } | null
-  }[])
-    .filter((m) => !m.data_fim || m.data_fim >= dia)
-    .map((m) => ({
-      aluno_id: m.aluno_id,
-      nome: m.aluno?.nome ?? 'Aluno removido',
-      flag_reposicao: m.flag_reposicao,
-    }))
-
-  return semPendenciaDeReposicao(lista, pendencias ?? [])
 }
 
 export async function registrarChamadaDoProfessor(
@@ -235,6 +196,7 @@ export async function registrarChamadaDoProfessor(
     if (error) return { ok: false, motivo: `Falha ao registrar as reposições: ${error.message}` }
   }
 
+  await concluirReposicoes(admin, aulaId, resultado.presencas)
   await admin.from('aulas').update({ status: resultado.novoStatusAula }).eq('id', aulaId)
 
   await admin.from('logs_operacionais').insert({

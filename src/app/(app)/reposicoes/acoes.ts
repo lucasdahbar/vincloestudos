@@ -1,35 +1,51 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { agendarReposicao, criarPendenciaManual, desistirReposicao } from '@/dados/reposicoes'
+import {
+  agendarReposicao,
+  cancelarAviso,
+  desistirReposicao,
+  registrarAviso,
+} from '@/dados/reposicoes'
 import { exigirGestora } from '@/dados/sessao'
+import type { Decisao } from '@/dominio/reposicoes/desfecho'
+
+/** Telas que mostram o aviso, a reposição ou o efeito dela na cobrança. */
+function revalidarTudo() {
+  revalidatePath('/reposicoes')
+  revalidatePath('/agenda', 'layout')
+  revalidatePath('/creditos')
+}
 
 export async function agendar(pendenciaId: number, aulaDestinoId: number) {
   await exigirGestora()
   const r = await agendarReposicao(pendenciaId, aulaDestinoId)
-  revalidatePath('/reposicoes')
+  revalidarTudo()
   return r
 }
 
-export async function desistir(pendenciaId: number) {
+export async function desistir(pendenciaId: number, decisao: Decisao) {
   await exigirGestora()
-  const r = await desistirReposicao(pendenciaId)
-  revalidatePath('/reposicoes')
+  const r = await desistirReposicao(pendenciaId, decisao)
+  revalidarTudo()
   return r
 }
 
-/**
- * R2: registra que o aluno avisou que nao vem a uma aula especifica.
- *
- * Revalida a agenda junto porque o aluno some da lista daquela aula na hora
- * (R3) — se so a tela de reposicoes atualizasse, a gestora veria o nome ainda
- * la e registraria de novo.
- */
-export async function registrarFaltaAvisada(alunoId: number, aulaId: number) {
+/** Registra que o aluno avisou que não vem a uma aula específica. */
+export async function registrarFaltaAvisada(
+  alunoId: number,
+  aulaId: number,
+  decisao: { gerarReposicao: true } | ({ gerarReposicao: false } & Decisao),
+) {
   await exigirGestora()
-  const r = await criarPendenciaManual(alunoId, aulaId)
-  revalidatePath('/reposicoes')
-  revalidatePath('/agenda')
-  revalidatePath(`/agenda/aulas/${aulaId}`)
+  const r = await registrarAviso(alunoId, aulaId, decisao)
+  revalidarTudo()
+  return r
+}
+
+export async function desfazerAviso(pendenciaId: number) {
+  await exigirGestora()
+  const r = await cancelarAviso(pendenciaId)
+  revalidarTudo()
   return r
 }

@@ -18,6 +18,7 @@ export function Chamada({
   turmaNome,
   quando,
   alunos,
+  avisaram = [],
   aulaId,
   voltarHref,
 }: {
@@ -25,6 +26,11 @@ export function Chamada({
   turmaNome: string
   quando: string
   alunos: Aluno[]
+  /**
+   * Rodada 3: avisaram que nao vem. Aparecem para o professor saber quem
+   * esperar, mas sem presenca nem falta: a aula nao conta para ele.
+   */
+  avisaram?: { aluno_id: number; nome: string }[]
   /**
    * R1: presente quando a chamada veio do link permanente do professor, em que
    * o token identifica a pessoa e nao a aula — entao a aula precisa ser dita.
@@ -154,6 +160,15 @@ export function Chamada({
             </li>
           )
         })}
+        {avisaram.map((aluno) => (
+          <li
+            key={aluno.aluno_id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-cartao border border-borda bg-superficie-2 p-4"
+          >
+            <span className="font-medium text-tinta-suave">{aluno.nome}</span>
+            <span className="text-sm text-tinta-suave">Avisou que não vem</span>
+          </li>
+        ))}
       </ul>
 
       {resultado && !resultado.ok && (

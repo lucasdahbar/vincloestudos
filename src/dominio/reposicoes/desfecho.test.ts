@@ -67,6 +67,10 @@ describe('podeCancelarAviso', () => {
     expect(podeCancelarAviso({ ...aviso, status: 'Realizada' }).pode).toBe(false)
   })
 
+  it('nao cancela depois de entrar no pagamento do professor', () => {
+    expect(podeCancelarAviso({ ...aviso, status: 'Desistida', pagoAoProfessor: true }).pode).toBe(false)
+  })
+
   it('falta marcada pelo professor não é aviso: não se cancela por aqui', () => {
     expect(podeCancelarAviso({ ...aviso, origem: 'Falta' }).pode).toBe(false)
   })

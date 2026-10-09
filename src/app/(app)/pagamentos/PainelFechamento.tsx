@@ -11,6 +11,8 @@ import { formatarBRL } from '@/dominio/dinheiro'
 
 interface ItemPrevia {
   aluno_nome: string
+  /** Rodada 3: aula que nao aconteceu, paga por decisao da gestora. */
+  desistencia?: boolean
   turma_nome: string
   data_aula: string
   valor_servico: number
@@ -113,7 +115,7 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
                 {previa.itens.map((i, n) => (
                   <li key={n} className="rounded-campo border border-borda bg-superficie p-3 text-sm">
                     <div className="flex items-start justify-between gap-3">
-                      <span className="font-medium">{i.aluno_nome}</span>
+                      <span className="font-medium">{i.aluno_nome}{i.desistencia && ' (desistência paga)'}</span>
                       <span className="font-medium">{formatarBRL(i.valor_professor)}</span>
                     </div>
                     <p className="mt-1 text-tinta-suave">
@@ -142,7 +144,7 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
                     {previa.itens.map((i, n) => (
                       <tr key={n} className="border-b border-borda/60 last:border-0">
                         <td className="px-4 py-2">{i.data_aula.split('-').reverse().join('/')}</td>
-                        <td className="px-4 py-2">{i.aluno_nome}</td>
+                        <td className="px-4 py-2">{i.aluno_nome}{i.desistencia && ' (desistência paga)'}</td>
                         <td className="px-4 py-2 text-tinta-suave">{i.turma_nome.slice(0, 34)}</td>
                         <td className="px-4 py-2">{formatarBRL(i.valor_servico)}</td>
                         <td className="px-4 py-2">{i.percentual_aplicado}%</td>

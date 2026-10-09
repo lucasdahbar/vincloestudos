@@ -68,14 +68,38 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
 
   if (linhas.length === 0) return []
 
-  const [{ data: matriculas }, { data: cobradas }] = await Promise.all([
+  const [{ data: matriculas }, { data: cobradas }, { data: pendencias }] = await Promise.all([
     supabase
       .from('matriculas')
       .select('aluno_id, turma_id, status, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (id, nome, responsavel_id, responsavel:responsaveis!responsavel_id (id, nome))'),
-    supabase.from('itens_cobranca').select('aula_id'),
+    supabase.from('itens_cobranca').select('aula_id, aluno_id'),
+    // Rodada 3: as ausencias (para anotar ou tirar da cobranca) e as
+    // reposicoes (para cobrar zero ou a diferenca).
+    supabase
+      .from('pendencias_reposicao')
+      .select('aluno_id, aula_origem_id, aula_reposicao_id, origem, status, cobrar, aula_origem:aulas!aula_origem_id (data_hora_inicio, turma:turmas!turma_id (servico_id))'),
   ])
 
-  const jaCobradas = new Set((cobradas ?? []).map((c) => c.aula_id))
+  // Por aluno, nao por aula: numa turma em grupo, a aula ja cobrada de um
+  // aluno nao pode impedir a cobranca do colega que entrou depois.
+  const chave = (aulaId: number, alunoId: number) => `${aulaId}:${alunoId}`
+  const jaCobradas = new Set((cobradas ?? []).map((c) => chave(c.aula_id, c.aluno_id)))
+
+  const pends = (pendencias ?? []) as unknown as {
+    aluno_id: number
+    aula_origem_id: number
+    aula_reposicao_id: number | null
+    origem: 'Aviso' | 'Falta'
+    status: string
+    cobrar: boolean | null
+    aula_origem: { data_hora_inicio: string; turma: { servico_id: number } | null } | null
+  }[]
+  const ausencias = new Map(pends.map((p) => [chave(p.aula_origem_id, p.aluno_id), p]))
+  const reposicoes = new Map(
+    pends
+      .filter((p) => p.aula_reposicao_id && p.status !== 'Desistida')
+      .map((p) => [chave(p.aula_reposicao_id!, p.aluno_id), p]),
+  )
 
   const mats = (matriculas ?? []) as unknown as {
     aluno_id: number
@@ -127,12 +151,36 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
         status_aula: aula.status,
         matricula_ativa: m.status === 'Ativa',
         matricula_reposicao: m.flag_reposicao,
-        ja_cobrada: jaCobradas.has(aula.id),
+        ja_cobrada: jaCobradas.has(chave(aula.id, m.aluno_id)),
+        ausencia: ausenciaDe(ausencias.get(chave(aula.id, m.aluno_id))),
+        reposicao_de: reposicaoDe(reposicoes.get(chave(aula.id, m.aluno_id)), vigencias),
       })
     }
   }
 
   return faturaveis
+}
+
+type PendenciaDaCobranca = {
+  origem: 'Aviso' | 'Falta'
+  status: string
+  cobrar: boolean | null
+  aula_origem: { data_hora_inicio: string; turma: { servico_id: number } | null } | null
+}
+
+/** A ausencia do aluno nesta aula, se houve. Cancelar o aviso apaga o registro. */
+function ausenciaDe(p: PendenciaDaCobranca | undefined): AulaFaturavel['ausencia'] {
+  return p ? { origem: p.origem, cobrar: p.status === 'Desistida' ? p.cobrar : null } : null
+}
+
+/** Esta aula repoe outra: o valor da original, na data dela, para a diferenca. */
+function reposicaoDe(
+  p: PendenciaDaCobranca | undefined,
+  vigencias: Awaited<ReturnType<typeof carregarVigencias>>,
+): AulaFaturavel['reposicao_de'] {
+  if (!p?.aula_origem?.turma) return null
+  const dia = p.aula_origem.data_hora_inicio.slice(0, 10)
+  return { data: dia, valor: vigencias.valorServico(p.aula_origem.turma.servico_id, dia) }
 }
 
 /**

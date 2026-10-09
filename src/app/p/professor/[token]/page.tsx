@@ -130,7 +130,7 @@ export default async function PaginaLinkDoProfessor({
               <h1 className="font-titulo text-2xl leading-snug">{leitura.chamada.turma_nome}</h1>
               <p className="mt-1 text-tinta-suave">{formatarQuando(leitura.chamada.data_hora_inicio)}</p>
             </header>
-            {leitura.chamada.alunos.length === 0 ? (
+            {leitura.chamada.alunos.length === 0 && leitura.chamada.avisaram.length === 0 ? (
               <p className="text-tinta-suave">Nenhum aluno previsto para esta aula.</p>
             ) : (
               <ul className="flex flex-col gap-3">
@@ -147,6 +147,15 @@ export default async function PaginaLinkDoProfessor({
                     )}
                   </li>
                 ))}
+                {leitura.chamada.avisaram.map((a) => (
+                  <li
+                    key={a.aluno_id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-cartao border border-borda bg-superficie-2 p-4"
+                  >
+                    <span className="font-medium text-tinta-suave">{a.nome}</span>
+                    <span className="text-sm text-tinta-suave">Avisou que não vem</span>
+                  </li>
+                ))}
               </ul>
             )}
             <p className="text-sm text-tinta-suave">
@@ -156,7 +165,11 @@ export default async function PaginaLinkDoProfessor({
         ) : leitura.chamada.alunos.length === 0 ? (
           <Aviso
             titulo={leitura.chamada.turma_nome}
-            texto="Nenhum aluno para marcar nesta aula. Quem avisou que não vem já está em Reposições."
+            texto={
+              leitura.chamada.avisaram.length > 0
+                ? `Nenhum aluno para marcar nesta aula: ${leitura.chamada.avisaram.map((a) => a.nome).join(', ')} avisou que não vem.`
+                : 'Nenhum aluno previsto para esta aula.'
+            }
           />
         ) : (
           <Chamada
@@ -165,6 +178,7 @@ export default async function PaginaLinkDoProfessor({
             turmaNome={leitura.chamada.turma_nome}
             quando={formatarQuando(leitura.chamada.data_hora_inicio)}
             alunos={leitura.chamada.alunos}
+            avisaram={leitura.chamada.avisaram}
             voltarHref={`/p/professor/${token}`}
           />
         )}

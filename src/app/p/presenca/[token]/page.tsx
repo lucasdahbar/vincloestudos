@@ -43,6 +43,7 @@ export default async function PaginaPresenca({
           turmaNome={leitura.aula.turma_nome}
           quando={formatarQuando(leitura.aula.data_hora_inicio)}
           alunos={leitura.aula.alunos}
+          avisaram={leitura.aula.avisaram}
         />
       )}
     </main>

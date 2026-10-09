@@ -2,7 +2,11 @@ import 'server-only'
 import { clienteServidor } from './cliente'
 import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
 import { carregarVigencias } from './vigencias'
-import { calcularFechamento, type PresencaRemunerada } from '@/dominio/pagamentos/fechamento'
+import {
+  calcularFechamento,
+  type DesistenciaPaga,
+  type PresencaRemunerada,
+} from '@/dominio/pagamentos/fechamento'
 import { saldoEStatusDaConta, validarBaixa, type Baixa } from '@/dominio/pagamentos/baixa'
 import { podeCancelarContaPagar, type StatusContaPagar } from '@/dominio/cobrancas/cancelamento'
 import { gerarRelatorioFechamento, type LinhaRelatorio } from '@/dominio/pagamentos/relatorio'
@@ -70,7 +74,68 @@ export async function previaFechamento(professorId: number, ate: string) {
     }
   })
 
-  return calcularFechamento(remuneradas)
+  return calcularFechamento(remuneradas, await desistenciasPagas(professorId, ate, vigencias))
+}
+
+/**
+ * Rodada 3: aulas que nao aconteceram, mas que a gestora cobrou e decidiu pagar
+ * ao professor da turma original ("desistencia paga").
+ *
+ * A reserva contra pagar duas vezes e o proprio item: `pendencia_id` e UNIQUE
+ * em itens_conta_pagar_professor, e cancelar a conta apaga os itens.
+ */
+async function desistenciasPagas(
+  professorId: number,
+  ate: string,
+  vigencias: Awaited<ReturnType<typeof carregarVigencias>>,
+): Promise<DesistenciaPaga[]> {
+  const supabase = await clienteServidor()
+  const [{ data: pendencias }, { data: jaPagas }] = await Promise.all([
+    supabase
+      .from('pendencias_reposicao')
+      .select(`
+        id, aluno_id,
+        aluno:alunos!aluno_id (nome),
+        aula:aulas!aula_origem_id (
+          data_hora_inicio,
+          turma:turmas!turma_id (id, nome, servico_id, professor_id)
+        )
+      `)
+      .eq('status', 'Desistida')
+      .eq('cobrar', true)
+      .eq('pagar_professor', true),
+    supabase.from('itens_conta_pagar_professor').select('pendencia_id').not('pendencia_id', 'is', null),
+  ])
+
+  const pagas = new Set((jaPagas ?? []).map((i) => i.pendencia_id))
+
+  return ((pendencias ?? []) as unknown as {
+    id: number
+    aluno_id: number
+    aluno: { nome: string } | null
+    aula: {
+      data_hora_inicio: string
+      turma: { id: number; nome: string; servico_id: number; professor_id: number } | null
+    } | null
+  }[])
+    .filter((p) => {
+      const dia = p.aula?.data_hora_inicio.slice(0, 10) ?? ''
+      return p.aula?.turma?.professor_id === professorId && dia !== '' && dia <= ate
+    })
+    .map((p) => {
+      const dia = p.aula!.data_hora_inicio.slice(0, 10)
+      return {
+        pendencia_id: p.id,
+        aluno_id: p.aluno_id,
+        aluno_nome: p.aluno?.nome ?? 'Aluno',
+        turma_id: p.aula!.turma!.id,
+        turma_nome: p.aula!.turma!.nome,
+        data_aula: dia,
+        valor_servico: vigencias.valorServico(p.aula!.turma!.servico_id, dia),
+        percentual: vigencias.percentualProfessor(professorId, dia),
+        ja_paga: pagas.has(p.id),
+      }
+    })
 }
 
 export async function gerarContaPagar(
@@ -82,7 +147,7 @@ export async function gerarContaPagar(
   const fechamento = await previaFechamento(professorId, ate)
 
   if (fechamento.itens.length === 0) {
-    return { ok: false, erros: ['Nenhuma presença confirmada e ainda não paga até esta data.'] }
+    return { ok: false, erros: ['Nenhuma aula a pagar até esta data (presença confirmada ou desistência paga).'] }
   }
 
   // O periodo_inicio deixa de ser escolhido pela gestora (P2), mas continua
@@ -107,6 +172,7 @@ export async function gerarContaPagar(
     fechamento.itens.map((i) => ({
       conta_pagar_id: conta.id,
       presenca_id: i.presenca_id,
+      pendencia_id: i.pendencia_id,
       aluno_id: i.aluno_id,
       turma_id: i.turma_id,
       data_aula: i.data_aula,
@@ -127,7 +193,8 @@ export async function gerarContaPagar(
   const { error: erroReserva } = await supabase
     .from('presencas')
     .update({ conta_pagar_id: conta.id })
-    .in('id', fechamento.itens.map((i) => i.presenca_id))
+    // Desistencia paga nao tem presenca: a reserva dela e o proprio item.
+    .in('id', fechamento.itens.flatMap((i) => (i.presenca_id ? [i.presenca_id] : [])))
 
   if (erroReserva) {
     // Sem a reserva a conta não pode existir: ela pagaria de novo no próximo
@@ -374,7 +441,7 @@ export async function relatorioFechamento(contaId: number): Promise<LinhaRelator
   const supabase = await clienteServidor()
   const { data } = await supabase
     .from('itens_conta_pagar_professor')
-    .select('id, data_aula, valor_servico, percentual_aplicado, valor_professor, aluno:alunos!aluno_id (nome), turma:turmas!turma_id (nome), presenca:presencas!presenca_id (aula:aulas!aula_id (data_hora_inicio))')
+    .select('id, data_aula, valor_servico, percentual_aplicado, valor_professor, pendencia_id, aluno:alunos!aluno_id (nome), turma:turmas!turma_id (nome), presenca:presencas!presenca_id (aula:aulas!aula_id (data_hora_inicio)), pendencia:pendencias_reposicao!pendencia_id (aula:aulas!aula_origem_id (data_hora_inicio))')
     .eq('conta_pagar_id', contaId)
     .order('data_aula')
 
@@ -387,11 +454,15 @@ export async function relatorioFechamento(contaId: number): Promise<LinhaRelator
     aluno: { nome: string } | null
     turma: { nome: string } | null
     presenca: { aula: { data_hora_inicio: string } | null } | null
+    pendencia_id: number | null
+    pendencia: { aula: { data_hora_inicio: string } | null } | null
   }[]).map((i) => ({
     data_aula: String(i.data_aula).slice(0, 10),
-    horario_inicio: i.presenca?.aula?.data_hora_inicio?.slice(11, 16) ?? '',
+    horario_inicio:
+      (i.presenca?.aula ?? i.pendencia?.aula)?.data_hora_inicio?.slice(11, 16) ?? '',
     turma_nome: i.turma?.nome ?? 'Turma',
-    aluno_nome: i.aluno?.nome ?? 'Aluno',
+    // O professor precisa saber por que recebe por uma aula sem presenca.
+    aluno_nome: `${i.aluno?.nome ?? 'Aluno'}${i.pendencia_id ? ' (desistência paga)' : ''}`,
     valor_servico: deNumeric(i.valor_servico),
     percentual_aplicado: Number(i.percentual_aplicado),
     valor_professor: deNumeric(i.valor_professor),

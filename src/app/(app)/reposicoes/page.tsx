@@ -5,6 +5,14 @@ import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { Selo } from '@/ui/Selo'
 import { AcoesPendencia } from './ControlesPendencia'
+import { CancelarAviso } from './CancelarAviso'
+
+/** O que a gestora decidiu sobre a aula perdida, para quem olha depois. */
+function decisaoDaDesistencia(cobrar: boolean | null, pagarProfessor: boolean | null): string {
+  if (cobrar === false) return 'Aula não cobrada'
+  if (pagarProfessor) return 'Aula cobrada · desistência paga ao professor'
+  return 'Aula cobrada · professor não recebe'
+}
 
 const TOM: Record<string, 'ativo' | 'encerrado' | 'alerta' | 'neutro'> = {
   Pendente: 'alerta',
@@ -43,7 +51,7 @@ export default async function PaginaReposicoes() {
       {pendencias.length === 0 ? (
         <EstadoVazio
           titulo="Nenhuma reposição pendente"
-          descricao="Quando um aluno falta a uma aula, a reposição aparece aqui automaticamente para você agendar."
+          descricao="Quando um aluno falta ou avisa que não vem, ele aparece aqui para você marcar a reposição ou registrar a desistência."
         />
       ) : (
         <ul className="flex flex-col gap-4">
@@ -59,7 +67,8 @@ export default async function PaginaReposicoes() {
                       {p.aluno?.nome}
                     </Link>
                     <p className="mt-1 text-sm text-tinta-suave">
-                      Faltou em {p.aula_origem?.turma?.nome} ·{' '}
+                      {p.origem === 'Aviso' ? 'Avisou que não vinha a' : 'Faltou em'}{' '}
+                      {p.aula_origem?.turma?.nome} ·{' '}
                       {p.aula_origem
                         ? new Date(p.aula_origem.data_hora_inicio).toLocaleDateString('pt-BR')
                         : '—'}
@@ -67,6 +76,18 @@ export default async function PaginaReposicoes() {
                   </div>
                   <Selo tom={TOM[p.status]}>{p.status}</Selo>
                 </div>
+
+                {p.status === 'Desistida' && (
+                  <p className="mt-2 text-sm text-tinta-suave">
+                    {decisaoDaDesistencia(p.cobrar, p.pagar_professor)}
+                  </p>
+                )}
+
+                {p.origem === 'Aviso' && (p.status === 'Pendente' || p.status === 'Desistida') && (
+                  <div className="mt-2">
+                    <CancelarAviso pendenciaId={p.id} nome={p.aluno?.nome ?? 'O aluno'} />
+                  </div>
+                )}
 
                 {(p.status === 'Pendente' || p.status === 'Agendada') && (
                   <div className="mt-4">
