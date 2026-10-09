@@ -16,5 +16,7 @@ export interface ProvedorAgenda {
     turma: TurmaParaSincronizar,
     de: string,
     ate: string,
+    /** Rodada 4: feriados e recessos da turma na janela. */
+    puladas?: ReadonlySet<string>,
   ): Promise<OcorrenciaAula[]>
 }

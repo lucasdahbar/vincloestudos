@@ -8,7 +8,7 @@ import type { ProvedorAgenda, TurmaParaSincronizar } from './provedor'
  */
 export const recorrenciaLocal: ProvedorAgenda = {
   nome: 'recorrencia-local',
-  async listarOcorrencias(turma: TurmaParaSincronizar, de: string, ate: string) {
-    return materializar(turma, de, ate)
+  async listarOcorrencias(turma: TurmaParaSincronizar, de: string, ate: string, puladas?: ReadonlySet<string>) {
+    return materializar(turma, de, ate, puladas)
   },
 }
