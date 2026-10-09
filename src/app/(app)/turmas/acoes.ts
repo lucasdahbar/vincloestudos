@@ -10,6 +10,7 @@ import { limparAulasDaTurma } from '@/dados/limpeza-aulas'
 import { deveOferecerRenovacao, fimRenovado, resolverFim } from '@/dominio/agenda/recorrencia'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import { validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
+import { avaliarExclusaoTurma } from '@/dominio/turmas/exclusao'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
 import { avisarProfessorDaTurma } from '@/dados/avisos-turma'
 import { apagarEventoDaTurma, sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
@@ -171,75 +172,51 @@ export async function alternarStatusTurma(id: number, status: 'Ativa' | 'Encerra
 export interface PreviaExclusaoTurma {
   podeExcluir: boolean
   motivo: string
-  matriculas: number
-  aulas: number
-  pagamentos: number
 }
 
 /**
  * O que acontece se esta turma for excluida — consultado ANTES de perguntar.
- *
- * As tres chaves estrangeiras que apontam para `turmas` sao `on delete
- * restrict`: matricula, aula e pagamento seguram a turma de proposito, para
- * que ninguem apague historico financeiro por engano. Sem esta previa a
- * gestora so descobriria isso no erro cru do banco.
+ * A regra mora em `dominio/turmas/exclusao.ts` (spec 6.1). Se qualquer
+ * contagem falhar, nao libera: contar 0 por engano apagaria historico.
  */
 export async function consultarExclusaoTurma(id: number): Promise<PreviaExclusaoTurma> {
   await exigirGestora()
   const supabase = await clienteServidor()
+  const cabeca = { count: 'exact' as const, head: true }
 
-  const contar = async (tabela: 'matriculas' | 'aulas' | 'itens_conta_pagar_professor') => {
-    const { count } = await supabase
-      .from(tabela)
-      .select('id', { count: 'exact', head: true })
-      .eq('turma_id', id)
-    return count ?? 0
-  }
-
-  const [matriculas, aulas, pagamentos] = await Promise.all([
-    contar('matriculas'),
-    contar('aulas'),
-    contar('itens_conta_pagar_professor'),
+  const resultados = await Promise.all([
+    supabase.from('matriculas').select('id', cabeca).eq('turma_id', id),
+    supabase.from('presencas').select('id, aula:aulas!inner (turma_id)', cabeca).eq('aula.turma_id', id),
+    supabase
+      .from('pendencias_reposicao')
+      .select('id, aula:aulas!aula_origem_id!inner (turma_id)', cabeca)
+      .eq('aula.turma_id', id),
+    supabase
+      .from('pendencias_reposicao')
+      .select('id, aula:aulas!aula_reposicao_id!inner (turma_id)', cabeca)
+      .eq('aula.turma_id', id),
+    supabase.from('itens_cobranca').select('id, aula:aulas!inner (turma_id)', cabeca).eq('aula.turma_id', id),
+    supabase.from('itens_conta_pagar_professor').select('id', cabeca).eq('turma_id', id),
   ])
 
-  if (pagamentos > 0) {
+  if (resultados.some((r) => r.error)) {
     return {
       podeExcluir: false,
-      motivo:
-        'Esta turma ja entrou no pagamento de um professor. Excluir apagaria historico financeiro, ' +
-        'entao ela so pode ser encerrada.',
-      matriculas,
-      aulas,
-      pagamentos,
+      motivo: 'Não foi possível conferir o histórico da turma agora. Tente de novo.',
     }
   }
 
-  if (matriculas > 0 || aulas > 0) {
-    const partes = [
-      matriculas > 0 && `${matriculas} ${matriculas === 1 ? 'matricula' : 'matriculas'}`,
-      aulas > 0 && `${aulas} ${aulas === 1 ? 'aula' : 'aulas'}`,
-    ].filter(Boolean)
+  const [matriculas, presencas, comoOrigem, comoDestino, cobrancas, pagamentos] = resultados.map(
+    (r) => r.count ?? 0,
+  )
 
-    return {
-      podeExcluir: false,
-      motivo:
-        `Esta turma tem ${partes.join(' e ')}. Encerre a turma em vez de excluir: o evento sai da ` +
-        'agenda do professor e o historico continua de pe.',
-      matriculas,
-      aulas,
-      pagamentos,
-    }
-  }
-
-  return {
-    podeExcluir: true,
-    motivo:
-      'Esta turma nao tem matricula, aula nem pagamento. Excluir apaga o cadastro e retira o ' +
-      'evento da agenda do professor. Nao tem como voltar atras.',
+  return avaliarExclusaoTurma({
     matriculas,
-    aulas,
+    presencas,
+    reposicoes: comoOrigem + comoDestino,
+    cobrancas,
     pagamentos,
-  }
+  })
 }
 
 export async function excluirTurma(id: number): Promise<{ ok: boolean; erro?: string }> {
@@ -257,6 +234,12 @@ export async function excluirTurma(id: number): Promise<{ ok: boolean; erro?: st
   }
 
   const supabase = await clienteServidor()
+
+  // As aulas geradas seguram a turma (on delete restrict). Sem historico, nao
+  // ha o que preservar nelas; os links de presenca saem em cascata.
+  const { error: erroAulas } = await supabase.from('aulas').delete().eq('turma_id', id)
+  if (erroAulas) return { ok: false, erro: erroAulas.message }
+
   const { error } = await supabase.from('turmas').delete().eq('id', id)
   if (error) return { ok: false, erro: error.message }
 
