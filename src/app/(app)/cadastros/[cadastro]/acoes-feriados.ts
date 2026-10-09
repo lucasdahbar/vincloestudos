@@ -58,7 +58,7 @@ export async function importarFeriadosNacionais(ano: number): Promise<ResultadoI
     detalhe: { ano, criados: faltando.length, fonte: 'BrasilAPI' },
   })
 
-  after(() => aplicarMudancaDeCalendario('feriado'))
+  after(() => aplicarMudancaDeCalendario([{ de: `${ano}-01-01`, ate: `${ano}-12-31`, escolaId: null }]))
   revalidatePath('/cadastros/feriados')
   revalidatePath('/agenda')
 

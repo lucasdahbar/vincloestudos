@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
-import { atualizar, criar } from '@/dados/crud'
-import { aplicarMudancaDeCalendario } from '@/dados/limpeza-aulas'
+import { atualizar, criar, obter } from '@/dados/crud'
+import { aplicarMudancaDeCalendario, type MudancaDeCalendario } from '@/dados/limpeza-aulas'
 import { atualizarAlunosNosEventos, turmasDoAluno } from '@/dados/evento-da-turma'
 import { exigirGestora } from '@/dados/sessao'
 import { CADASTROS } from '@/cadastros/definicoes'
@@ -38,6 +38,16 @@ function normalizar(rota: string, valores: Record<string, unknown>) {
   return saida
 }
 
+/** O trecho do calendário que um feriado ou recesso ocupa. */
+function trechoDoCalendario(rota: string, v: Record<string, unknown> | null): MudancaDeCalendario | null {
+  if (!v) return null
+  if (rota === 'feriados' && v.data) return { de: String(v.data), ate: String(v.data), escolaId: null }
+  if (rota === 'recessos' && v.data_inicio && v.data_fim) {
+    return { de: String(v.data_inicio), ate: String(v.data_fim), escolaId: v.escola_id ? Number(v.escola_id) : null }
+  }
+  return null
+}
+
 export async function salvarCadastro(
   rota: string,
   id: number | null,
@@ -59,6 +69,9 @@ export async function salvarCadastro(
   }
 
   try {
+    // Na edição, o trecho antigo também muda (a exceção dele sai do Google).
+    const eCalendario = rota === 'feriados' || rota === 'recessos'
+    const antigo = eCalendario && id !== null ? await obter(definicao, id) : null
     const dados = normalizar(rota, validacao.data as Record<string, unknown>)
     const idFinal = id === null ? await criar(definicao, dados) : (await atualizar(definicao, id, dados), id)
 
@@ -69,7 +82,9 @@ export async function salvarCadastro(
 
     // Rodada 4: a turma recorrente não tem aula em feriado nem em recesso.
     if (rota === 'feriados' || rota === 'recessos') {
-      after(() => aplicarMudancaDeCalendario(rota === 'feriados' ? 'feriado' : 'recesso'))
+      const mudancas = [trechoDoCalendario(rota, dados), trechoDoCalendario(rota, antigo as Record<string, unknown> | null)]
+        .filter((m): m is MudancaDeCalendario => m !== null)
+      after(() => aplicarMudancaDeCalendario(mudancas))
       revalidatePath('/agenda')
     }
 
