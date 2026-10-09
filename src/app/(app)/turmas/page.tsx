@@ -36,7 +36,8 @@ export default async function PaginaTurmas({
   const opcoes = await opcoesDeTurma()
   const hoje = agoraNaEscola(new Date()).slice(0, 10)
   const paraRenovar = ehGestora ? turmas.filter((t) => deveOferecerRenovacao(t, hoje)) : []
-  const novoFim = paraRenovar[0]?.data_fim ? fimRenovado(paraRenovar[0].data_fim, hoje) : null
+  const maisCedo = [...paraRenovar].sort((a, b) => (a.data_fim ?? '').localeCompare(b.data_fim ?? ''))[0]
+  const novoFim = maisCedo?.data_fim ? fimRenovado(maisCedo.data_fim, hoje) : null
 
   return (
     <div className="flex flex-col gap-6">
@@ -54,7 +55,7 @@ export default async function PaginaTurmas({
         <RenovarTurmas
           ids={paraRenovar.map((t) => t.id)}
           ano={novoFim.slice(0, 4)}
-          fim={paraRenovar[0].data_fim!.split('-').reverse().join('/')}
+          fim={maisCedo.data_fim!.split('-').reverse().join('/')}
         />
       )}
 
