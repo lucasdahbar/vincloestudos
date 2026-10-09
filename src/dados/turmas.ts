@@ -1,9 +1,15 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
 import { rotuloDaTurma } from '@/dominio/turmas/quando'
+import { calendarioEscolar } from './calendario'
+import { agoraNaEscola } from '@/dominio/agenda/relogio'
+import type { Feriado } from '@/dominio/agenda/feriados'
+import type { RecessoEscolar } from '@/dominio/agenda/recessos'
+import type { Frequencia } from '@/dominio/tipos'
 
 const SELECT_TURMA = `
   id, nome, modalidade, tipo_recorrencia, data_unica,
+  frequencia, intervalo, data_inicio, data_fim, fim_automatico,
   dias_semana, horario_inicio, horario_fim, status,
   google_calendar_event_id, link_videochamada,
   servico_id, materia_id, escola_id, ano_escolar_id, professor_id,
@@ -20,6 +26,11 @@ export interface TurmaComRelacoes {
   modalidade: 'Presencial' | 'Online'
   tipo_recorrencia: 'Recorrente' | 'Único'
   data_unica: string | null
+  frequencia: Frequencia | null
+  intervalo: number | null
+  data_inicio: string | null
+  data_fim: string | null
+  fim_automatico: boolean
   dias_semana: number[]
   horario_inicio: string
   horario_fim: string
@@ -124,6 +135,9 @@ export interface OpcoesDeTurma {
   escolas: { id: number; nome: string }[]
   anosEscolares: { id: number; nome: string }[]
   professores: { id: number; nome: string }[]
+  /** Rodada 4: para o resumo do formulário e o alerta da aula única. */
+  feriados: Feriado[]
+  recessos: RecessoEscolar[]
 }
 
 export async function opcoesDeTurma(): Promise<OpcoesDeTurma> {
@@ -136,7 +150,14 @@ export async function opcoesDeTurma(): Promise<OpcoesDeTurma> {
     supabase.from('professores').select('id, nome').eq('ativo', true).order('nome'),
   ])
 
+  // Um ano para trás (início retroativo) e dois para a frente.
+  const hoje = agoraNaEscola(new Date()).slice(0, 10)
+  const ano = Number(hoje.slice(0, 4))
+  const calendario = await calendarioEscolar(supabase, `${ano - 1}-01-01`, `${ano + 2}-12-31`)
+
   return {
+    feriados: calendario.feriados,
+    recessos: calendario.recessos,
     servicos: servicos.data ?? [],
     materias: materias.data ?? [],
     escolas: escolas.data ?? [],

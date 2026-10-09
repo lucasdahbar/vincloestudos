@@ -6,6 +6,9 @@ import { headers } from 'next/headers'
 import { clienteServidor } from '@/dados/cliente'
 import { sincronizarAulas } from '@/dados/aulas'
 import { exigirGestora } from '@/dados/sessao'
+import { limparAulasDaTurma } from '@/dados/limpeza-aulas'
+import { resolverFim } from '@/dominio/agenda/recorrencia'
+import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import { validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
 import { avisarProfessorDaTurma } from '@/dados/avisos-turma'
@@ -41,6 +44,23 @@ export async function salvarTurma(
   const erros = validarTurma(entrada, servico)
   if (erros.length > 0) return { ok: false, erros }
 
+  const hojeISO = agoraNaEscola(new Date()).slice(0, 10)
+  const recorrente = entrada.tipo_recorrencia === 'Recorrente'
+
+  // Turma já renovada: salvar de novo sem informar fim não pode encurtá-la.
+  let atual: { data_fim: string | null; fim_automatico: boolean } | null = null
+  if (id !== null && recorrente) {
+    const { data } = await supabase
+      .from('turmas')
+      .select('data_fim, fim_automatico')
+      .eq('id', id)
+      .maybeSingle()
+    if (data) {
+      atual = { data_fim: data.data_fim ? String(data.data_fim) : null, fim_automatico: data.fim_automatico }
+    }
+  }
+  const fim = recorrente ? resolverFim(entrada.data_fim, entrada.data_inicio!, atual, hojeISO) : null
+
   const registro = {
     nome: gerarNomeTurma({ ...nomesParaTitulo, modalidade: entrada.modalidade }),
     servico_id: entrada.servico_id,
@@ -51,7 +71,14 @@ export async function salvarTurma(
     modalidade: entrada.modalidade,
     tipo_recorrencia: entrada.tipo_recorrencia,
     data_unica: entrada.data_unica,
-    dias_semana: entrada.dias_semana,
+    // Rodada 4: os campos da regra só existem na recorrente (constraint
+    // recorrencia_coerente); dia da semana, só na semanal.
+    frequencia: recorrente ? entrada.frequencia : null,
+    intervalo: recorrente ? entrada.intervalo : null,
+    data_inicio: recorrente ? entrada.data_inicio : null,
+    data_fim: fim?.data_fim ?? null,
+    fim_automatico: fim?.fim_automatico ?? false,
+    dias_semana: recorrente && entrada.frequencia === 'Semanal' ? entrada.dias_semana : [],
     horario_inicio: entrada.horario_inicio,
     horario_fim: entrada.horario_fim,
     status: entrada.status,
@@ -69,11 +96,17 @@ export async function salvarTurma(
   // cadastra, abre a agenda e nao ve nada — parece que o sistema perdeu o
   // cadastro. Foi o que aconteceu com duas turmas reais.
   try {
+    // Rodada 4: editar a regra tira as aulas futuras vazias que não cabem
+    // mais nela (spec 4.2). Na criação não há o que limpar.
+    if (id !== null) await limparAulasDaTurma(resposta.data.id)
+
     const hoje = new Date()
-    const fim = new Date(hoje.getFullYear(), hoje.getMonth() + 4, 0)
+    const fimJanela = new Date(hoje.getFullYear(), hoje.getMonth() + 4, 0)
     const iso = (d: Date) =>
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    await sincronizarAulas(iso(hoje), iso(fim))
+    // Início retroativo: as aulas passadas também nascem na hora.
+    const primeira = (recorrente ? entrada.data_inicio : entrada.data_unica) ?? hojeISO
+    await sincronizarAulas(primeira < hojeISO ? primeira : hojeISO, iso(fimJanela))
   } catch (e) {
     // Nao derruba o salvamento: a turma ja esta gravada, e a agenda se
     // recupera sozinha na proxima abertura.
