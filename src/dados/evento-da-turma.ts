@@ -1,5 +1,6 @@
 import 'server-only'
 import { clienteAdmin } from './admin'
+import { calendarioEscolar } from './calendario'
 import {
   apagarEvento,
   atualizarDescricao,
@@ -7,8 +8,11 @@ import {
   sincronizarEvento,
 } from '@/agenda/eventos'
 import { ajustarCoorganizador, criarSala } from '@/agenda/meet'
+import { datasPuladas } from '@/dominio/agenda/datas-puladas'
 import {
   descricaoDoEvento,
+  exdatesDoEvento,
+  regraDoEvento,
   type MatriculaDoEvento,
   type TurmaDoEvento,
 } from '@/dominio/agenda/evento-google'
@@ -20,18 +24,24 @@ import {
   fimDoHorizonte,
 } from '@/dominio/agenda/ocorrencias'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
+import type { Frequencia } from '@/dominio/tipos'
 
 const CAMPOS_TURMA =
-  'id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, modalidade, status, google_calendar_event_id, link_videochamada, google_meet_sala, professor:professores!professor_id (email, google_calendar_id)'
+  'id, nome, tipo_recorrencia, data_unica, frequencia, intervalo, dias_semana, data_inicio, data_fim, horario_inicio, horario_fim, modalidade, status, escola_id, google_calendar_event_id, link_videochamada, google_meet_sala, professor:professores!professor_id (email, google_calendar_id)'
 
 type TurmaLida = {
   nome: string
   tipo_recorrencia: 'Recorrente' | 'Único'
   data_unica: string | null
+  frequencia: Frequencia | null
+  intervalo: number | null
   dias_semana: number[] | null
+  data_inicio: string | null
+  data_fim: string | null
   horario_inicio: string
   horario_fim: string
   modalidade: 'Presencial' | 'Online'
+  escola_id: number | null
 }
 
 /** Hoje no relógio da escola: o servidor roda em UTC, e às 21h já seria amanhã. */
@@ -59,22 +69,62 @@ async function matriculasDaTurma(turmaId: number): Promise<MatriculaDoEvento[]> 
 /** O evento da turma sem os alunos, que mudam de ocorrência para ocorrência. */
 function eventoSemAlunos(
   turma: TurmaLida,
-  inicio: string,
   professorEmail: string | null,
   link: string | null,
+  exdates: string[] = [],
 ): Omit<TurmaDoEvento, 'alunos'> {
+  const dia = (v: string | null) => (v ? String(v).slice(0, 10) : null)
   return {
     nome: turma.nome,
     tipo_recorrencia: turma.tipo_recorrencia,
     data_unica: turma.data_unica,
+    frequencia: turma.frequencia,
+    intervalo: turma.intervalo,
     dias_semana: turma.dias_semana ?? [],
+    data_inicio: dia(turma.data_inicio),
+    data_fim: dia(turma.data_fim),
+    exdates,
     horario_inicio: String(turma.horario_inicio).slice(0, 5),
     horario_fim: String(turma.horario_fim).slice(0, 5),
     modalidade: turma.modalidade,
-    inicio_recorrencia: inicio,
     professor_email: professorEmail,
     link_videochamada: link,
   }
+}
+
+/**
+ * Rodada 4: as datas da regra sem aula no sistema — feriado, recesso, aula
+ * excluída —, que vão como EXDATE no Google.
+ */
+async function exdatesDaTurma(turmaId: number, turma: TurmaLida): Promise<string[]> {
+  const regra = regraDoEvento({ ...eventoSemAlunos(turma, null, null), alunos: [] })
+  if (!regra) return []
+
+  const admin = clienteAdmin()
+  const [calendario, { data: aulas }] = await Promise.all([
+    calendarioEscolar(admin, regra.data_inicio, regra.data_fim),
+    admin
+      .from('aulas')
+      .select('data_hora_inicio, status')
+      .eq('turma_id', turmaId)
+      .gte('data_hora_inicio', `${regra.data_inicio}T00:00:00`)
+      .lte('data_hora_inicio', `${regra.data_fim}T23:59:59`),
+  ])
+
+  const puladas = new Set(
+    datasPuladas(
+      turma.escola_id,
+      calendario.feriados,
+      calendario.recessos,
+      regra.data_inicio,
+      regra.data_fim,
+    ).keys(),
+  )
+  return exdatesDoEvento(
+    regra,
+    puladas,
+    (aulas ?? []).map((a) => ({ data: String(a.data_hora_inicio).slice(0, 10), status: a.status })),
+  )
 }
 
 /**
@@ -175,9 +225,14 @@ export async function sincronizarEventoDaTurma(
   // G3: a sala do Meet vem antes do evento, para o link já entrar nele.
   const link = await prepararSala(turmaId, turma, professor?.email ?? null)
 
-  // A recorrência começa hoje: criar o evento retroativo encheria a agenda do
-  // professor de aulas passadas que ele já deu.
-  const evento = eventoSemAlunos(turma, hojeISO(), professor?.email ?? null, link)
+  // Rodada 4: o evento começa na data de início da turma, que a gestora
+  // escolheu (pode ser no passado), e leva as exceções do calendário.
+  const evento = eventoSemAlunos(
+    turma,
+    professor?.email ?? null,
+    link,
+    await exdatesDaTurma(turmaId, turma),
+  )
   const matriculas = await matriculasDaTurma(turmaId)
 
   const r = await sincronizarEvento({
@@ -193,8 +248,8 @@ export async function sincronizarEventoDaTurma(
     await admin.from('turmas').update({ google_calendar_event_id: r.eventoId }).eq('id', turmaId)
   }
 
-  // Mexer na série (o início muda para hoje) pode desfazer o que cada
-  // ocorrência tinha de próprio: confere todas de novo.
+  // Mexer na série pode desfazer o que cada ocorrência tinha de próprio:
+  // confere todas de novo.
   if (!professor?.google_calendar_id) return { ok: true }
   return ajustarOcorrencias(professor.google_calendar_id, r.eventoId, evento, matriculas)
 }
@@ -234,7 +289,7 @@ export async function atualizarAlunosNoEvento(
     return sincronizarEventoDaTurma(turmaId)
   }
 
-  const evento = eventoSemAlunos(turma, hojeISO(), professor.email, turma.link_videochamada)
+  const evento = eventoSemAlunos(turma, professor.email, turma.link_videochamada)
   const matriculas = await matriculasDaTurma(turmaId)
 
   // Primeiro a série, depois as ocorrências: as que não têm descrição própria
