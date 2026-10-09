@@ -1,4 +1,5 @@
 import { somar, type Centavos } from '@/dominio/dinheiro'
+import type { OrigemAusencia } from '@/dominio/tipos'
 
 export interface AulaFaturavel {
   aula_id: number
@@ -21,7 +22,7 @@ export interface AulaFaturavel {
    * gestora quando a reposicao nao vai acontecer; nulo enquanto ela pode
    * acontecer.
    */
-  ausencia?: { origem: 'Aviso' | 'Falta'; cobrar: boolean | null } | null
+  ausencia?: { origem: OrigemAusencia; cobrar: boolean | null } | null
   /**
    * Rodada 3: esta aula e a reposicao de outra. Valor da aula original, na
    * data dela, para cobrar so a diferenca quando a turma de destino e mais cara.

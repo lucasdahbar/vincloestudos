@@ -1,4 +1,5 @@
 import 'server-only'
+import type { OrigemAusencia } from '@/dominio/tipos'
 import { clienteServidor } from './cliente'
 import { planejarReposicao, validarDesistencia, type Pendencia } from '@/dominio/reposicoes/agendamento'
 import {
@@ -15,7 +16,7 @@ export interface PendenciaComRelacoes {
   aluno_id: number
   aula_origem_id: number
   status: 'Pendente' | 'Agendada' | 'Realizada' | 'Desistida'
-  origem: 'Aviso' | 'Falta'
+  origem: OrigemAusencia
   cobrar: boolean | null
   pagar_professor: boolean | null
   aula_reposicao_id: number | null

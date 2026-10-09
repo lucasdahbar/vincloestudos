@@ -8,8 +8,19 @@ export type StatusTurma = (typeof STATUS_TURMA)[number]
 export const TIPOS_RECORRENCIA = ['Recorrente', 'Único'] as const
 export type TipoRecorrencia = (typeof TIPOS_RECORRENCIA)[number]
 
-export const STATUS_AULA = ['Agendada', 'Realizada', 'Cancelada', 'Feriado'] as const
+/** Rodada 4: de quanto em quanto a turma recorrente se repete. */
+export const FREQUENCIAS = ['Diária', 'Semanal', 'Mensal'] as const
+export type Frequencia = (typeof FREQUENCIAS)[number]
+
+export const STATUS_AULA = ['Agendada', 'Realizada', 'Cancelada', 'Feriado', 'Excluída'] as const
 export type StatusAula = (typeof STATUS_AULA)[number]
+
+/**
+ * Por que o aluno não participou da aula. 'Exclusão' (Rodada 4): a gestora
+ * excluiu a aula e o aluno foi para reposição.
+ */
+export const ORIGENS_AUSENCIA = ['Aviso', 'Falta', 'Exclusão'] as const
+export type OrigemAusencia = (typeof ORIGENS_AUSENCIA)[number]
 
 export const STATUS_MATRICULA = ['Ativa', 'Encerrada'] as const
 export type StatusMatricula = (typeof STATUS_MATRICULA)[number]

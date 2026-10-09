@@ -1,4 +1,5 @@
 import 'server-only'
+import type { OrigemAusencia } from '@/dominio/tipos'
 import { clienteServidor } from './cliente'
 import { deNumeric, formatarBRL, paraNumeric, somar, type Centavos } from '@/dominio/dinheiro'
 import { carregarVigencias } from './vigencias'
@@ -89,7 +90,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
     aluno_id: number
     aula_origem_id: number
     aula_reposicao_id: number | null
-    origem: 'Aviso' | 'Falta'
+    origem: OrigemAusencia
     status: string
     cobrar: boolean | null
     aula_origem: { data_hora_inicio: string; turma: { servico_id: number } | null } | null
@@ -162,7 +163,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
 }
 
 type PendenciaDaCobranca = {
-  origem: 'Aviso' | 'Falta'
+  origem: OrigemAusencia
   status: string
   cobrar: boolean | null
   aula_origem: { data_hora_inicio: string; turma: { servico_id: number } | null } | null

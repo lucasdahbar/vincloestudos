@@ -1,4 +1,5 @@
 import type { Centavos } from '@/dominio/dinheiro'
+import type { OrigemAusencia } from '@/dominio/tipos'
 import type { StatusReposicao } from './agendamento'
 
 /**
@@ -56,7 +57,7 @@ export function creditoDaDesistencia(
  * caminho normal: desistência da reposição ou crédito.
  */
 export function podeCancelarAviso(p: {
-  origem: 'Aviso' | 'Falta'
+  origem: OrigemAusencia
   status: StatusReposicao
   temCredito: boolean
   /** Ja entrou num fechamento do professor como desistencia paga. */
