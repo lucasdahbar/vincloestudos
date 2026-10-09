@@ -164,3 +164,27 @@ describe('Rodada 3: ausencias e reposicoes na cobranca', () => {
     expect(c.valor_total).toBe(10000)
   })
 })
+
+// Rodada 4 (spec 3.3): a aula excluída continua sendo a que o aluno pagou; a
+// reposição dela entra com zero, como qualquer reposição.
+describe('aula excluída', () => {
+  it('é cobrada de quem foi transferido para reposição', () => {
+    const [c] = montarCobrancas([
+      { ...base, status_aula: 'Excluída', ausencia: { origem: 'Exclusão', cobrar: null } },
+    ])
+    expect(c.itens).toHaveLength(1)
+    expect(c.itens[0].descricao).toContain('aula excluída, com reposição')
+  })
+
+  it('não é cobrada sem pendência de exclusão', () => {
+    expect(montarCobrancas([{ ...base, status_aula: 'Excluída' }])).toEqual([])
+  })
+
+  it('não é cobrada se a gestora decidiu não cobrar', () => {
+    expect(
+      montarCobrancas([
+        { ...base, status_aula: 'Excluída', ausencia: { origem: 'Exclusão', cobrar: false } },
+      ]),
+    ).toEqual([])
+  })
+})

@@ -67,7 +67,7 @@ export default async function PaginaReposicoes() {
                       {p.aluno?.nome}
                     </Link>
                     <p className="mt-1 text-sm text-tinta-suave">
-                      {p.origem === 'Aviso' ? 'Avisou que não vinha a' : 'Faltou em'}{' '}
+                      {{ Aviso: 'Avisou que não vinha a', Falta: 'Faltou em', Exclusão: 'Aula excluída de' }[p.origem]}{' '}
                       {p.aula_origem?.turma?.nome} ·{' '}
                       {p.aula_origem
                         ? new Date(p.aula_origem.data_hora_inicio).toLocaleDateString('pt-BR')

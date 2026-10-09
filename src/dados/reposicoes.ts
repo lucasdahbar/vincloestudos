@@ -304,7 +304,7 @@ async function aplicarEfeitoFinanceiro(
   if (!aluno) return { ok: false, erros: ['Aluno não encontrado para gerar o crédito.'] }
 
   const dia = String(aula?.data_hora_inicio ?? '').slice(0, 10)
-  const motivo = p.origem === 'Aviso' ? 'avisou que não viria' : 'faltou'
+  const motivo = { Aviso: 'avisou que não viria', Falta: 'faltou', Exclusão: 'teve a aula excluída' }[p.origem as OrigemAusencia]
 
   const { error } = await supabase.from('creditos').insert({
     responsavel_id: aluno.responsavel_id,
