@@ -26,6 +26,9 @@ export async function calendarioEscolar(
       .gte('data_fim', de),
   ])
 
+  const erro = feriados.error ?? recessos.error
+  if (erro) throw new Error(`Falha ao ler feriados e recessos: ${erro.message}`)
+
   return {
     feriados: (feriados.data ?? []).map((f) => ({ data: String(f.data).slice(0, 10), nome: f.nome })),
     recessos: (recessos.data ?? []).map((r) => ({
