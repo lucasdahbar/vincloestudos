@@ -7,7 +7,7 @@ import { clienteServidor } from '@/dados/cliente'
 import { sincronizarAulas } from '@/dados/aulas'
 import { exigirGestora } from '@/dados/sessao'
 import { limparAulasDaTurma } from '@/dados/limpeza-aulas'
-import { resolverFim } from '@/dominio/agenda/recorrencia'
+import { deveOferecerRenovacao, fimRenovado, resolverFim } from '@/dominio/agenda/recorrencia'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import { validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
@@ -259,6 +259,50 @@ export async function excluirTurma(id: number): Promise<{ ok: boolean; erro?: st
   const supabase = await clienteServidor()
   const { error } = await supabase.from('turmas').delete().eq('id', id)
   if (error) return { ok: false, erro: error.message }
+
+  revalidatePath('/turmas')
+  revalidatePath('/agenda')
+  return { ok: true }
+}
+
+/**
+ * Rodada 4: estende até o fim do ano seguinte as turmas com fim automático.
+ * Confere de novo no servidor quais podem: a lista veio da tela.
+ */
+export async function estenderTurmas(ids: number[]): Promise<{ ok: boolean; erro?: string }> {
+  await exigirGestora()
+  const supabase = await clienteServidor()
+  const hoje = agoraNaEscola(new Date()).slice(0, 10)
+
+  const { data: turmas, error } = await supabase
+    .from('turmas')
+    .select('id, status, tipo_recorrencia, fim_automatico, data_fim')
+    .in('id', ids)
+  if (error) return { ok: false, erro: error.message }
+
+  const alvo = (turmas ?? [])
+    .map((t) => ({ ...t, data_fim: t.data_fim ? String(t.data_fim) : null }))
+    .filter((t) => deveOferecerRenovacao(t, hoje))
+
+  for (const t of alvo) {
+    const { error: erro } = await supabase
+      .from('turmas')
+      .update({ data_fim: fimRenovado(t.data_fim!, hoje) })
+      .eq('id', t.id)
+    if (erro) return { ok: false, erro: erro.message }
+  }
+
+  // O evento de cada turma ganha o novo UNTIL e as exceções do ano novo.
+  after(async () => {
+    for (const t of alvo) {
+      try {
+        const r = await sincronizarEventoDaTurma(t.id)
+        if (!r.ok) console.warn(`evento da turma ${t.id} nao estendido:`, r.motivo)
+      } catch (e) {
+        console.error(`falha ao estender o evento da turma ${t.id}:`, e)
+      }
+    }
+  })
 
   revalidatePath('/turmas')
   revalidatePath('/agenda')
