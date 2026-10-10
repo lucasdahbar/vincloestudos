@@ -167,7 +167,12 @@ export async function registrarChamada(
   }
 
   await concluirReposicoes(admin, aula.aula_id, resultado.presencas)
-  await admin.from('aulas').update({ status: resultado.novoStatusAula }).eq('id', aula.aula_id)
+  // Rodada 4: se a aula foi excluida no meio da chamada, ela continua excluida.
+  await admin
+    .from('aulas')
+    .update({ status: resultado.novoStatusAula })
+    .eq('id', aula.aula_id)
+    .neq('status', 'Excluída')
   await admin.from('presenca_tokens').update({ usado_em: new Date().toISOString() }).eq('token', token)
 
   await admin.from('logs_operacionais').insert({

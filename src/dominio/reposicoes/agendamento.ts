@@ -1,6 +1,6 @@
 import type { StatusAula } from '@/dominio/tipos'
 
-export type StatusReposicao ='Pendente' | 'Agendada' | 'Realizada' | 'Desistida'
+export type StatusReposicao = 'Pendente' | 'Agendada' | 'Realizada' | 'Desistida'
 
 export interface Pendencia {
   id: number
