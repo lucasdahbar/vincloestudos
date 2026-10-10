@@ -9,7 +9,8 @@
  */
 import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
-import { dataDeCadastro, materializar } from '../src/dominio/agenda/materializacao.ts'
+import { materializar } from '../src/dominio/agenda/materializacao.ts'
+import { datasPuladas } from '../src/dominio/agenda/datas-puladas.ts'
 
 const env = Object.fromEntries(
   readFileSync('.env.local', 'utf8')
@@ -28,13 +29,43 @@ if (!de || !ate) {
   process.exit(1)
 }
 
-const { data: turmas } = await db
+const { data: turmas, error: erroTurmas } = await db
   .from('turmas')
-  .select('id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, status, created_at')
+  .select(
+    'id, nome, tipo_recorrencia, data_unica, frequencia, intervalo, dias_semana, data_inicio, data_fim, horario_inicio, horario_fim, status, escola_id',
+  )
   .eq('status', 'Ativa')
+if (erroTurmas) {
+  console.error(`Falha ao ler as turmas: ${erroTurmas.message}`)
+  process.exit(1)
+}
+
+// Feriados e recessos lidos uma vez so (como em src/dados/calendario.ts): um
+// recesso que comecou antes da janela continua valendo dentro dela.
+const [resFeriados, resRecessos] = await Promise.all([
+  db.from('feriados').select('data, nome').gte('data', de).lte('data', ate),
+  db
+    .from('recessos_escola')
+    .select('escola_id, descricao, data_inicio, data_fim')
+    .lte('data_inicio', ate)
+    .gte('data_fim', de),
+])
+const erroCalendario = resFeriados.error ?? resRecessos.error
+if (erroCalendario) {
+  console.error(`Falha ao ler feriados e recessos: ${erroCalendario.message}`)
+  process.exit(1)
+}
+const feriados = (resFeriados.data ?? []).map((f) => ({ data: String(f.data).slice(0, 10), nome: f.nome }))
+const recessos = (resRecessos.data ?? []).map((r) => ({
+  escola_id: r.escola_id,
+  descricao: r.descricao,
+  data_inicio: String(r.data_inicio).slice(0, 10),
+  data_fim: String(r.data_fim).slice(0, 10),
+}))
 
 let total = 0
 for (const t of turmas ?? []) {
+  const puladas = new Set(datasPuladas(t.escola_id, feriados, recessos, de, ate).keys())
   const oc = materializar(
     {
       id: t.id,
@@ -42,14 +73,18 @@ for (const t of turmas ?? []) {
       // silencio: ela nao tem dias_semana, so data_unica.
       tipo_recorrencia: t.tipo_recorrencia,
       data_unica: t.data_unica,
+      frequencia: t.frequencia,
+      intervalo: t.intervalo,
       dias_semana: t.dias_semana ?? [],
+      data_inicio: t.data_inicio ? String(t.data_inicio).slice(0, 10) : null,
+      data_fim: t.data_fim ? String(t.data_fim).slice(0, 10) : null,
       horario_inicio: String(t.horario_inicio).slice(0, 5),
       horario_fim: String(t.horario_fim).slice(0, 5),
       status: t.status,
-      cadastrada_em: dataDeCadastro(t.created_at),
     },
     de,
     ate,
+    puladas,
   )
   if (oc.length === 0) continue
 
