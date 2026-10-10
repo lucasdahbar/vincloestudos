@@ -109,6 +109,7 @@ export async function chamadaDaAula(
     return { ok: false, motivo: 'Esta aula não é de uma turma sua.' }
   }
 
+  if (aula.status === 'Excluída') return { ok: false, motivo: 'Esta aula foi excluída.' }
   if (aula.status !== 'Agendada' && aula.status !== 'Realizada') {
     return { ok: false, motivo: 'Esta aula foi cancelada.' }
   }
