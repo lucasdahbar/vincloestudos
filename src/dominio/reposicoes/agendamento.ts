@@ -1,4 +1,6 @@
-export type StatusReposicao = 'Pendente' | 'Agendada' | 'Realizada' | 'Desistida'
+import type { StatusAula } from '@/dominio/tipos'
+
+export type StatusReposicao ='Pendente' | 'Agendada' | 'Realizada' | 'Desistida'
 
 export interface Pendencia {
   id: number
@@ -11,7 +13,7 @@ export interface Pendencia {
 export interface AulaDestino {
   id: number
   turma_id: number
-  status: 'Agendada' | 'Realizada' | 'Cancelada' | 'Feriado'
+  status: StatusAula
 }
 
 export interface MatriculaExistente {
@@ -50,6 +52,10 @@ export function planejarReposicao(
 
   if (destino.status === 'Cancelada') {
     erros.push('Esta aula está cancelada. Escolha outra.')
+  }
+
+  if (destino.status === 'Excluída') {
+    erros.push('Esta aula foi excluída. Escolha outra.')
   }
 
   const jaMatriculado = matriculasDoAluno.some(

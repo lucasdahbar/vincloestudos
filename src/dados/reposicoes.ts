@@ -220,6 +220,9 @@ export async function registrarAviso(
   if (aula.status === 'Cancelada') {
     return { ok: false, erros: ['Esta aula foi cancelada: não há reposição a fazer.'] }
   }
+  if (aula.status === 'Excluída') {
+    return { ok: false, erros: ['Esta aula foi excluída: não há ausência a registrar.'] }
+  }
   if (pendenciaExistente) {
     return { ok: false, erros: ['Já existe um registro de ausência deste aluno nesta aula.'] }
   }
