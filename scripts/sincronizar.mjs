@@ -4,8 +4,8 @@
  * Existe separado da aplicacao porque a sincronizacao periodica (Operacionais
  * 4.3) vai rodar fora do request: por cron ou job. Por ora e manual.
  *
- * Uso:
- *   node scripts/sincronizar.mjs 2026-08-01 2026-08-31
+ * Uso (tsx, nao node: o dominio importa outros .ts sem extensao):
+ *   npx tsx scripts/sincronizar.mjs 2026-08-01 2026-08-31
  */
 import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
@@ -25,7 +25,7 @@ const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_
 
 const [de, ate] = process.argv.slice(2)
 if (!de || !ate) {
-  console.error('Uso: node scripts/sincronizar.mjs <AAAA-MM-DD> <AAAA-MM-DD>')
+  console.error('Uso: npx tsx scripts/sincronizar.mjs <AAAA-MM-DD> <AAAA-MM-DD>')
   process.exit(1)
 }
 
