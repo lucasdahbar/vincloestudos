@@ -21,6 +21,7 @@ const ESTILO: Record<AulaDoCalendario['status'], string> = {
   Realizada: 'bg-apoio-suave text-apoio border-apoio/30 hover:bg-apoio hover:text-white',
   Cancelada: 'bg-superficie-2 text-tinta-suave border-borda line-through',
   Feriado: 'bg-alerta-suave text-alerta border-alerta/30',
+  Excluída: 'bg-superficie-2 text-tinta-suave border-borda line-through',
 }
 
 function minutos(hhmm: string): number {

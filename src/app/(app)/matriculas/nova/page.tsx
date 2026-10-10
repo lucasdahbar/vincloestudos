@@ -16,7 +16,7 @@ export default async function PaginaNovaMatricula({
     supabase.from('alunos').select('id, nome').eq('ativo', true).order('nome'),
     supabase
       .from('turmas')
-      .select('id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio')
+      .select('id, nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio')
       .eq('status', 'Ativa')
       .order('nome')
       .order('horario_inicio'),

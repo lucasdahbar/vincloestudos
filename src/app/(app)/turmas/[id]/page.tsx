@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation'
 import { obterTurma } from '@/dados/turmas'
 import { listarMatriculas } from '@/dados/matriculas'
 import { exigirSessao } from '@/dados/sessao'
-import { nomesDosDias } from '@/dominio/tipos'
+import { textoDaRegra } from '@/dominio/agenda/recorrencia'
+import { periodoDaTurma } from '@/dominio/turmas/quando'
 import { BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
@@ -27,10 +28,18 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
           <div className="mt-2 flex items-center gap-3">
             <Selo tom={turma.status === 'Ativa' ? 'ativo' : 'encerrado'}>{turma.status}</Selo>
             <span className="text-tinta-suave">
-              {nomesDosDias(turma.dias_semana)} · {turma.horario_inicio.slice(0, 5)} às{' '}
-              {turma.horario_fim.slice(0, 5)}
+              {turma.tipo_recorrencia === 'Único' && turma.data_unica
+                ? `Aula única em ${turma.data_unica.split('-').reverse().join('/')}`
+                : textoDaRegra({
+                    frequencia: turma.frequencia ?? 'Semanal',
+                    intervalo: turma.intervalo ?? 1,
+                    dias_semana: turma.dias_semana,
+                    data_inicio: turma.data_inicio ?? '',
+                  })}{' '}
+              · {turma.horario_inicio.slice(0, 5)} às {turma.horario_fim.slice(0, 5)}
             </span>
           </div>
+          {periodoDaTurma(turma) && <p className="mt-1 text-sm text-tinta-suave">{periodoDaTurma(turma)}</p>}
         </div>
         {ehGestora && (
           <div className="flex flex-wrap gap-3">

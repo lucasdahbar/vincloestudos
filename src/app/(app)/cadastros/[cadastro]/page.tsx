@@ -10,6 +10,10 @@ import { Busca } from '@/ui/Busca'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { ImportarFeriados } from './ImportarFeriados'
 
+// Importar feriados refaz, em `after()`, as aulas e o evento no Google de cada
+// turma afetada, uma por vez. O limite vale para as Server Actions da página.
+export const maxDuration = 300
+
 export function generateStaticParams() {
   return ROTAS_DE_CADASTRO.map((cadastro) => ({ cadastro }))
 }

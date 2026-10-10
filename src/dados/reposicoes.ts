@@ -1,4 +1,5 @@
 import 'server-only'
+import type { OrigemAusencia } from '@/dominio/tipos'
 import { clienteServidor } from './cliente'
 import { planejarReposicao, validarDesistencia, type Pendencia } from '@/dominio/reposicoes/agendamento'
 import {
@@ -15,7 +16,7 @@ export interface PendenciaComRelacoes {
   aluno_id: number
   aula_origem_id: number
   status: 'Pendente' | 'Agendada' | 'Realizada' | 'Desistida'
-  origem: 'Aviso' | 'Falta'
+  origem: OrigemAusencia
   cobrar: boolean | null
   pagar_professor: boolean | null
   aula_reposicao_id: number | null
@@ -219,6 +220,9 @@ export async function registrarAviso(
   if (aula.status === 'Cancelada') {
     return { ok: false, erros: ['Esta aula foi cancelada: não há reposição a fazer.'] }
   }
+  if (aula.status === 'Excluída') {
+    return { ok: false, erros: ['Esta aula foi excluída: não há ausência a registrar.'] }
+  }
   if (pendenciaExistente) {
     return { ok: false, erros: ['Já existe um registro de ausência deste aluno nesta aula.'] }
   }
@@ -303,7 +307,7 @@ async function aplicarEfeitoFinanceiro(
   if (!aluno) return { ok: false, erros: ['Aluno não encontrado para gerar o crédito.'] }
 
   const dia = String(aula?.data_hora_inicio ?? '').slice(0, 10)
-  const motivo = p.origem === 'Aviso' ? 'avisou que não viria' : 'faltou'
+  const motivo = { Aviso: 'avisou que não viria', Falta: 'faltou', Exclusão: 'teve a aula excluída' }[p.origem as OrigemAusencia]
 
   const { error } = await supabase.from('creditos').insert({
     responsavel_id: aluno.responsavel_id,
@@ -330,7 +334,7 @@ export async function cancelarAviso(
   const [{ data: p }, { count: creditos }, { count: pagos }] = await Promise.all([
     supabase
       .from('pendencias_reposicao')
-      .select('id, origem, status')
+      .select('id, origem, status, aula:aulas!aula_origem_id (status)')
       .eq('id', pendenciaId)
       .maybeSingle(),
     supabase
@@ -346,7 +350,9 @@ export async function cancelarAviso(
   if (!p) return { ok: false, erros: ['Aviso não encontrado.'] }
 
   const permissao = podeCancelarAviso({
-    ...p,
+    origem: p.origem,
+    status: p.status,
+    aulaExcluida: (p.aula as unknown as { status: string } | null)?.status === 'Excluída',
     temCredito: (creditos ?? 0) > 0,
     pagoAoProfessor: (pagos ?? 0) > 0,
   })

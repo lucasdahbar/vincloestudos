@@ -80,7 +80,7 @@ async function contextoDaMatricula(matriculaId: number) {
         responsavel:responsaveis!responsavel_id (id, nome, telefone, email)
       ),
       turma:turmas!turma_id (
-        id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, modalidade, link_videochamada
+        id, nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio, horario_fim, modalidade, link_videochamada
       )
     `)
     .eq('id', matriculaId)
@@ -181,7 +181,7 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
     .from('aulas')
     .select(`
       id, data_hora_inicio, link_online, turma_id,
-      turma:turmas!turma_id (id, nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, modalidade, link_videochamada)
+      turma:turmas!turma_id (id, nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio, horario_fim, modalidade, link_videochamada)
     `)
     .eq('status', 'Agendada')
     .gte('data_hora_inicio', `${de}:00`)

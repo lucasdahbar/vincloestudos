@@ -37,7 +37,23 @@ describe('montarAvisoDeTurma (G4)', () => {
   })
 
   it('traz dias da semana e horário quando é recorrente', () => {
-    expect(montarAvisoDeTurma(base).corpo).toContain('Quando: Ter, Qui, das 15:00 às 16:00')
+    expect(montarAvisoDeTurma(base).corpo).toContain('Quando: Terças e quintas, das 15:00 às 16:00')
+  })
+
+  it('mensal diz o dia do mês, não uma lista de dias vazia', () => {
+    const { corpo } = montarAvisoDeTurma({
+      ...base,
+      dias_semana: [],
+      frequencia: 'Mensal',
+      intervalo: 1,
+      data_inicio: '2026-09-15',
+    })
+    expect(corpo).toContain('Quando: Todo dia 15 do mês, das 15:00 às 16:00')
+  })
+
+  it('quinzenal diz o intervalo', () => {
+    const { corpo } = montarAvisoDeTurma({ ...base, frequencia: 'Semanal', intervalo: 2 })
+    expect(corpo).toContain('Quando: Terças e quintas, a cada 2 semanas, das 15:00 às 16:00')
   })
 
   it('traz a data quando a turma não se repete', () => {

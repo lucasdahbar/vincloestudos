@@ -1,4 +1,5 @@
 import type { Centavos } from '@/dominio/dinheiro'
+import type { OrigemAusencia } from '@/dominio/tipos'
 import type { StatusReposicao } from './agendamento'
 
 /**
@@ -56,14 +57,28 @@ export function creditoDaDesistencia(
  * caminho normal: desistência da reposição ou crédito.
  */
 export function podeCancelarAviso(p: {
-  origem: 'Aviso' | 'Falta'
+  origem: OrigemAusencia
   status: StatusReposicao
   temCredito: boolean
   /** Ja entrou num fechamento do professor como desistencia paga. */
   pagoAoProfessor?: boolean
+  /** A aula de origem foi excluída: o aluno depende da reposição. */
+  aulaExcluida?: boolean
 }): { pode: true } | { pode: false; motivo: string } {
+  if (p.origem === 'Exclusão') {
+    return {
+      pode: false,
+      motivo: 'A aula foi excluída e o aluno transferido para reposição. Registre a desistência dela, em Reposições.',
+    }
+  }
   if (p.origem !== 'Aviso') {
     return { pode: false, motivo: 'Só um aviso pode ser cancelado. A falta foi marcada pelo professor.' }
+  }
+  if (p.aulaExcluida) {
+    return {
+      pode: false,
+      motivo: 'A aula deste aviso foi excluída: o aluno precisa da reposição. Registre a desistência se ela não for acontecer.',
+    }
   }
   if (p.status === 'Agendada' || p.status === 'Realizada') {
     return { pode: false, motivo: 'A reposição já foi marcada. Registre a desistência dela, em Reposições.' }

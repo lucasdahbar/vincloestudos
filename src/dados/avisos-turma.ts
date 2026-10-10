@@ -26,7 +26,7 @@ export async function avisarProfessorDaTurma(
   const { data: turma } = await supabase
     .from('turmas')
     .select(
-      'id, nome, modalidade, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, link_videochamada, professor_id, materia:materias!materia_id (nome), escola:escolas!escola_id (nome), ano_escolar:anos_escolares!ano_escolar_id (nome), professor:professores!professor_id (id, nome, email)',
+      'id, nome, modalidade, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio, horario_fim, link_videochamada, professor_id, materia:materias!materia_id (nome), escola:escolas!escola_id (nome), ano_escolar:anos_escolares!ano_escolar_id (nome), professor:professores!professor_id (id, nome, email)',
     )
     .eq('id', turmaId)
     .maybeSingle()
@@ -52,6 +52,9 @@ export async function avisarProfessorDaTurma(
     tipo_recorrencia: turma.tipo_recorrencia,
     data_unica: turma.data_unica,
     dias_semana: turma.dias_semana ?? [],
+    frequencia: turma.frequencia,
+    intervalo: turma.intervalo,
+    data_inicio: turma.data_inicio,
     horario_inicio: String(turma.horario_inicio).slice(0, 5),
     horario_fim: String(turma.horario_fim).slice(0, 5),
     link_videochamada: turma.link_videochamada ?? null,

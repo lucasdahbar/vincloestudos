@@ -5,6 +5,10 @@ import { sincronizarAulas } from '@/dados/aulas'
 import { gerarTokenPresenca, reabrirChamada, tokenDaAula } from '@/dados/presencas'
 import { exigirGestora } from '@/dados/sessao'
 import { clienteServidor } from '@/dados/cliente'
+import { after } from 'next/server'
+import { executarExclusaoAula, previaExclusaoAula, type PreviaExclusaoAula } from '@/dados/exclusao-aula'
+import { sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
+import type { EscolhaRegular, EscolhaReposicao } from '@/dominio/agenda/exclusao-aula'
 
 export async function sincronizar(de: string, ate: string) {
   await exigirGestora()
@@ -43,8 +47,54 @@ export async function mudarStatusAula(
 ) {
   await exigirGestora()
   const supabase = await clienteServidor()
-  const { error } = await supabase.from('aulas').update({ status }).eq('id', aulaId)
+
+  // Aula excluída não volta por aqui: a exclusão já transferiu os alunos para
+  // reposição, e reativá-la os deixaria em dois lugares.
+  const { data: atual, error: erroLeitura } = await supabase
+    .from('aulas')
+    .select('status')
+    .eq('id', aulaId)
+    .maybeSingle()
+  if (erroLeitura) throw new Error(erroLeitura.message)
+  if (!atual) throw new Error('Esta aula não existe mais.')
+  if (atual.status === 'Excluída') throw new Error('Esta aula foi excluída e não pode mudar de status.')
+
+  const { error } = await supabase
+    .from('aulas')
+    .update({ status })
+    .eq('id', aulaId)
+    .neq('status', 'Excluída')
   if (error) throw new Error(error.message)
   revalidatePath('/agenda')
   revalidatePath(`/agenda/aulas/${aulaId}`)
+}
+
+export async function consultarExclusaoAula(aulaId: number): Promise<PreviaExclusaoAula | null> {
+  await exigirGestora()
+  return previaExclusaoAula(aulaId)
+}
+
+export async function excluirAula(
+  aulaId: number,
+  regulares: EscolhaRegular[],
+  reposicoes: EscolhaReposicao[],
+): Promise<{ ok: boolean; erros?: string[] }> {
+  await exigirGestora()
+  const r = await executarExclusaoAula(aulaId, regulares, reposicoes)
+  if (!r.ok) return r
+
+  // A data vira exceção no evento do Google.
+  after(async () => {
+    try {
+      const s = await sincronizarEventoDaTurma(r.turmaId)
+      if (!s.ok) console.warn('evento nao atualizado apos excluir aula:', s.motivo)
+    } catch (e) {
+      console.error('falha ao atualizar o evento apos excluir aula:', e)
+    }
+  })
+
+  revalidatePath('/agenda')
+  revalidatePath(`/agenda/aulas/${aulaId}`)
+  revalidatePath('/reposicoes')
+  return { ok: true }
 }

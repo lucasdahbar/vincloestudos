@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  dataDeCadastro,
   idOcorrenciaLocal,
   materializar,
   type RecorrenciaTurma,
@@ -112,68 +111,73 @@ describe('turma de data única', () => {
   })
 })
 
-// Decisão da gestora (22/09/2026): turma recorrente só tem aula a partir do
-// dia em que foi cadastrada. Sem isso, cadastrar hoje uma turma de segunda e
-// quarta enchia o mês de aulas que nunca aconteceram.
-describe('turma recorrente começa no dia do cadastro', () => {
+// Rodada 4: a turma tem período e frequência, e pula feriado e recesso.
+describe('regra, período e datas puladas', () => {
   const portugues: RecorrenciaTurma = {
     id: 27,
+    frequencia: 'Semanal',
+    intervalo: 1,
     dias_semana: [1, 3], // segunda e quarta
+    data_inicio: '2026-09-22', // uma terça
+    data_fim: '2026-10-07',
     horario_inicio: '20:00',
     horario_fim: '21:00',
     status: 'Ativa',
-    cadastrada_em: '2026-09-22', // uma terça
   }
 
-  it('não gera aula antes do cadastro', () => {
-    const datas = materializar(portugues, '2026-09-01', '2026-09-30').map((o) => o.data)
-    expect(datas).toEqual(['2026-09-23', '2026-09-28', '2026-09-30'])
+  it('só gera dentro do período da turma', () => {
+    const datas = materializar(portugues, '2026-09-01', '2026-10-31').map((o) => o.data)
+    expect(datas).toEqual(['2026-09-23', '2026-09-28', '2026-09-30', '2026-10-05', '2026-10-07'])
   })
 
-  it('inclui o próprio dia do cadastro quando ele tem aula', () => {
+  it('início no passado gera as aulas retroativas', () => {
     const datas = materializar(
-      { ...portugues, cadastrada_em: '2026-09-21' }, // uma segunda
+      { ...portugues, data_inicio: '2026-09-01' },
       '2026-09-01',
-      '2026-09-30',
+      '2026-09-07',
     ).map((o) => o.data)
-    expect(datas[0]).toBe('2026-09-21')
+    expect(datas).toEqual(['2026-09-02', '2026-09-07'])
   })
 
-  it('não gera nada quando a janela inteira é anterior ao cadastro', () => {
-    expect(materializar(portugues, '2026-08-01', '2026-08-31')).toEqual([])
+  it('pula as datas puladas', () => {
+    const datas = materializar(
+      portugues,
+      '2026-09-01',
+      '2026-10-31',
+      new Set(['2026-09-28', '2026-10-05']),
+    ).map((o) => o.data)
+    expect(datas).toEqual(['2026-09-23', '2026-09-30', '2026-10-07'])
   })
 
-  it('não muda nada quando o cadastro é anterior à janela', () => {
-    const com = materializar({ ...portugues, cadastrada_em: '2026-01-10' }, '2026-09-01', '2026-09-30')
-    const sem = materializar({ ...portugues, cadastrada_em: null }, '2026-09-01', '2026-09-30')
-    expect(com).toEqual(sem)
-    expect(com).toHaveLength(9)
+  it('quinzenal pela frequência e intervalo', () => {
+    const datas = materializar(
+      { ...portugues, intervalo: 2, data_fim: '2026-10-31' },
+      '2026-09-01',
+      '2026-10-31',
+    ).map((o) => o.data)
+    // Semana do início (20 a 26/09) vale; a seguinte não; e assim por diante.
+    expect(datas).toEqual(['2026-09-23', '2026-10-05', '2026-10-07', '2026-10-19', '2026-10-21'])
   })
 
-  it('não afeta aula única: a data dela foi escolhida de propósito', () => {
-    // Registrar hoje um aulão que já aconteceu tem de continuar funcionando.
-    const aulaoPassado = {
-      ...portugues,
-      tipo_recorrencia: 'Único' as const,
-      data_unica: '2026-09-15',
+  it('mensal não precisa de dia da semana', () => {
+    const datas = materializar(
+      { ...portugues, frequencia: 'Mensal', dias_semana: [], data_inicio: '2026-09-15', data_fim: '2026-11-30' },
+      '2026-09-01',
+      '2026-11-30',
+    ).map((o) => o.data)
+    expect(datas).toEqual(['2026-09-15', '2026-10-15', '2026-11-15'])
+  })
+
+  it('aula única nunca é pulada: a data foi escolhida de propósito', () => {
+    const aulao: RecorrenciaTurma = {
+      id: 42,
+      tipo_recorrencia: 'Único',
+      data_unica: '2026-11-15',
       dias_semana: [],
+      horario_inicio: '14:00',
+      horario_fim: '17:00',
+      status: 'Ativa',
     }
-    expect(materializar(aulaoPassado, '2026-09-01', '2026-09-30')).toHaveLength(1)
-  })
-})
-
-describe('dataDeCadastro', () => {
-  it('usa o dia de São Paulo, não o de UTC', () => {
-    // 22:30 do dia 22 em São Paulo já é dia 23 em UTC. Cortar a string pelo
-    // dia UTC faria a turma perder a aula do próprio dia do cadastro.
-    expect(dataDeCadastro('2026-09-23T01:30:00+00:00')).toBe('2026-09-22')
-  })
-
-  it('funciona com o formato que o banco devolve', () => {
-    expect(dataDeCadastro('2026-09-22T23:37:56.62628+00:00')).toBe('2026-09-22')
-  })
-
-  it('vira o dia à meia-noite de São Paulo', () => {
-    expect(dataDeCadastro('2026-09-23T03:00:00+00:00')).toBe('2026-09-23')
+    expect(materializar(aulao, '2026-11-01', '2026-11-30', new Set(['2026-11-15']))).toHaveLength(1)
   })
 })

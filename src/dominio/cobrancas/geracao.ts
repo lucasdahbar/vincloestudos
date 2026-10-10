@@ -1,4 +1,5 @@
 import { somar, type Centavos } from '@/dominio/dinheiro'
+import type { OrigemAusencia, StatusAula } from '@/dominio/tipos'
 
 export interface AulaFaturavel {
   aula_id: number
@@ -11,7 +12,7 @@ export interface AulaFaturavel {
   descricao: string
   /** Valor do servico VIGENTE NA DATA DA AULA, em centavos. */
   valor: Centavos
-  status_aula: 'Agendada' | 'Realizada' | 'Cancelada' | 'Feriado'
+  status_aula: StatusAula
   matricula_ativa: boolean
   matricula_reposicao: boolean
   /** Ja presente em algum item de cobranca. */
@@ -21,7 +22,7 @@ export interface AulaFaturavel {
    * gestora quando a reposicao nao vai acontecer; nulo enquanto ela pode
    * acontecer.
    */
-  ausencia?: { origem: 'Aviso' | 'Falta'; cobrar: boolean | null } | null
+  ausencia?: { origem: OrigemAusencia; cobrar: boolean | null } | null
   /**
    * Rodada 3: esta aula e a reposicao de outra. Valor da aula original, na
    * data dela, para cobrar so a diferenca quando a turma de destino e mais cara.
@@ -69,7 +70,11 @@ export function faturavel(aula: AulaFaturavel): boolean {
     // Rodada 3: a gestora decidiu nao cobrar a aula que o aluno perdeu.
     aula.ausencia?.cobrar !== false &&
     !aula.ja_cobrada &&
-    (aula.status_aula === 'Agendada' || aula.status_aula === 'Realizada')
+    (aula.status_aula === 'Agendada' ||
+      aula.status_aula === 'Realizada' ||
+      // Rodada 4: a aula excluída segue cobrada de quem foi para reposição —
+      // é o que faz a reposição entrar com zero (spec 3.3).
+      (aula.status_aula === 'Excluída' && !!aula.ausencia))
   )
 }
 
@@ -91,6 +96,9 @@ function valorEDescricao(a: AulaFaturavel): { valor: Centavos; descricao: string
       valor: Math.max(0, a.valor - a.reposicao_de.valor),
       descricao: `${a.descricao} (reposição da aula de ${ddmm(a.reposicao_de.data)})`,
     }
+  }
+  if (a.ausencia?.origem === 'Exclusão') {
+    return { valor: a.valor, descricao: `${a.descricao} (aula excluída, com reposição)` }
   }
   if (a.ausencia) {
     const motivo = a.ausencia.origem === 'Aviso' ? 'avisou que não vem' : 'faltou'

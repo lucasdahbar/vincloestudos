@@ -2,11 +2,19 @@ import Link from 'next/link'
 import { listarTurmas, opcoesDeTurma } from '@/dados/turmas'
 import { exigirSessao } from '@/dados/sessao'
 import { comoId, comoOpcao, deOpcoes, deValores } from '@/dominio/filtros'
-import { MODALIDADES, STATUS_TURMA, nomesDosDias } from '@/dominio/tipos'
+import { MODALIDADES, STATUS_TURMA } from '@/dominio/tipos'
+import { deveOferecerRenovacao, fimRenovado, textoDaRegra } from '@/dominio/agenda/recorrencia'
+import { agoraNaEscola } from '@/dominio/agenda/relogio'
+import { periodoDaTurma } from '@/dominio/turmas/quando'
 import { BotaoLink } from '@/ui/Botao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { Filtros } from '@/ui/Filtros'
 import { Selo } from '@/ui/Selo'
+import { RenovarTurmas } from './RenovarTurmas'
+
+// Renovar turmas refaz, em `after()`, o evento no Google de cada uma, uma por
+// vez. O limite vale para as Server Actions da página.
+export const maxDuration = 300
 
 export default async function PaginaTurmas({
   searchParams,
@@ -30,6 +38,10 @@ export default async function PaginaTurmas({
   })
 
   const opcoes = await opcoesDeTurma()
+  const hoje = agoraNaEscola(new Date()).slice(0, 10)
+  const paraRenovar = ehGestora ? turmas.filter((t) => deveOferecerRenovacao(t, hoje)) : []
+  const maisCedo = [...paraRenovar].sort((a, b) => (a.data_fim ?? '').localeCompare(b.data_fim ?? ''))[0]
+  const novoFim = maisCedo?.data_fim ? fimRenovado(maisCedo.data_fim, hoje) : null
 
   return (
     <div className="flex flex-col gap-6">
@@ -42,6 +54,14 @@ export default async function PaginaTurmas({
         </div>
         {ehGestora && <BotaoLink href="/turmas/nova">+ Nova turma</BotaoLink>}
       </header>
+
+      {paraRenovar.length > 0 && novoFim && (
+        <RenovarTurmas
+          ids={paraRenovar.map((t) => t.id)}
+          ano={novoFim.slice(0, 4)}
+          fim={maisCedo.data_fim!.split('-').reverse().join('/')}
+        />
+      )}
 
       {/* T2: filtros. So aparecem quando ha turma suficiente para valer a pena
           filtrar — numa lista de tres, o filtro so ocupa espaco. */}
@@ -92,9 +112,15 @@ export default async function PaginaTurmas({
                   <div>
                     {turma.tipo_recorrencia === 'Único' && turma.data_unica
                       ? `Aula única em ${turma.data_unica.split('-').reverse().join('/')}`
-                      : nomesDosDias(turma.dias_semana)}{' '}
+                      : textoDaRegra({
+                          frequencia: turma.frequencia ?? 'Semanal',
+                          intervalo: turma.intervalo ?? 1,
+                          dias_semana: turma.dias_semana,
+                          data_inicio: turma.data_inicio ?? '',
+                        })}{' '}
                     · {turma.horario_inicio.slice(0, 5)} às {turma.horario_fim.slice(0, 5)}
                   </div>
+                  {periodoDaTurma(turma) && <div>{periodoDaTurma(turma)}</div>}
                   <div>
                     {turma.alunos_matriculados}{' '}
                     {turma.alunos_matriculados === 1 ? 'aluno matriculado' : 'alunos matriculados'}

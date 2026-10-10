@@ -20,6 +20,10 @@ const turmaValida: EntradaTurma = {
   modalidade: 'Presencial',
   tipo_recorrencia: 'Recorrente',
   data_unica: null,
+  frequencia: 'Semanal',
+  intervalo: 1,
+  data_inicio: '2026-10-01',
+  data_fim: null,
   dias_semana: [2, 4],
   horario_inicio: '15:00',
   horario_fim: '16:00',
@@ -88,5 +92,66 @@ describe('validarTurma', () => {
   it('rejeita dia da semana fora do intervalo 0 a 6', () => {
     const erros = validarTurma({ ...turmaValida, dias_semana: [2, 9] }, servicoCompleto)
     expect(erros).toContain('Dia da semana inválido.')
+  })
+})
+
+describe('validarTurma — regra e período (Rodada 4)', () => {
+  it('exige data de início na recorrente', () => {
+    expect(validarTurma({ ...turmaValida, data_inicio: null }, servicoCompleto)).toContain(
+      'Informe quando a turma começa.',
+    )
+  })
+
+  it('recusa ano de início absurdo', () => {
+    expect(
+      validarTurma({ ...turmaValida, data_inicio: '0202-10-09', data_fim: null }, servicoCompleto),
+    ).toContain('A data de início parece errada: confira o ano.')
+  })
+
+  it('recusa ano de término absurdo', () => {
+    expect(
+      validarTurma({ ...turmaValida, data_fim: '2200-01-01' }, servicoCompleto),
+    ).toContain('A data de término parece errada: confira o ano.')
+  })
+
+  it('fim não pode ser antes do início', () => {
+    expect(
+      validarTurma({ ...turmaValida, data_fim: '2026-09-30' }, servicoCompleto),
+    ).toContain('A data de término não pode ser antes da data de início.')
+  })
+
+  it('fim vazio é aceito: o sistema usa 31/12', () => {
+    expect(validarTurma({ ...turmaValida, data_fim: null }, servicoCompleto)).toEqual([])
+  })
+
+  it('intervalo de 1 a 99', () => {
+    const msg = 'O intervalo da repetição deve ser um número de 1 a 99.'
+    expect(validarTurma({ ...turmaValida, intervalo: 0 }, servicoCompleto)).toContain(msg)
+    expect(validarTurma({ ...turmaValida, intervalo: 100 }, servicoCompleto)).toContain(msg)
+    expect(validarTurma({ ...turmaValida, intervalo: 1.5 }, servicoCompleto)).toContain(msg)
+  })
+
+  it('mensal e diária não usam dia da semana', () => {
+    expect(
+      validarTurma({ ...turmaValida, frequencia: 'Mensal', dias_semana: [2] }, servicoCompleto),
+    ).toContain('Dias da semana só valem para repetição semanal.')
+    expect(
+      validarTurma({ ...turmaValida, frequencia: 'Mensal', dias_semana: [] }, servicoCompleto),
+    ).toEqual([])
+  })
+
+  it('aula única ignora os campos da recorrente', () => {
+    expect(
+      validarTurma(
+        {
+          ...turmaValida,
+          tipo_recorrencia: 'Único',
+          data_unica: '2026-11-15',
+          dias_semana: [],
+          data_inicio: null,
+        },
+        servicoCompleto,
+      ),
+    ).toEqual([])
   })
 })

@@ -3,7 +3,9 @@ import { clienteServidor } from './cliente'
 import { montarListaDaAula, type AlunoDaAula, type ListaDaAula } from './lista-da-aula'
 import { provedorAtivo } from '@/agenda'
 import { conflitosComFeriado, type ConflitoFeriado } from '@/dominio/agenda/feriados'
-import { dataDeCadastro } from '@/dominio/agenda/materializacao'
+import { datasPuladas } from '@/dominio/agenda/datas-puladas'
+import { calendarioEscolar } from './calendario'
+import type { StatusAula } from '@/dominio/tipos'
 import { conflitosComRecesso, type ConflitoRecesso } from '@/dominio/agenda/recessos'
 
 export interface AulaComTurma {
@@ -12,7 +14,7 @@ export interface AulaComTurma {
   google_calendar_event_id: string
   data_hora_inicio: string
   data_hora_fim: string
-  status: 'Agendada' | 'Realizada' | 'Cancelada' | 'Feriado'
+  status: StatusAula
   link_online: string | null
   observacao: string | null
   turma: { id: number; nome: string; modalidade: string; professor_id: number } | null
@@ -42,10 +44,13 @@ export async function sincronizarAulas(
 
   const { data: turmas, error } = await supabase
     .from('turmas')
-    .select('id, tipo_recorrencia, data_unica, dias_semana, horario_inicio, horario_fim, status, google_calendar_event_id, modalidade, created_at')
+    .select('id, tipo_recorrencia, data_unica, frequencia, intervalo, dias_semana, data_inicio, data_fim, horario_inicio, horario_fim, status, google_calendar_event_id, modalidade, escola_id')
     .eq('status', 'Ativa')
 
   if (error) throw new Error(`Falha ao carregar turmas: ${error.message}`)
+
+  // Rodada 4: feriado e recesso tiram a aula da recorrente (spec 4).
+  const calendario = await calendarioEscolar(supabase, de, ate)
 
   // Todas as ocorrencias de todas as turmas num unico upsert. Uma chamada por
   // turma custava ~2s na abertura da agenda, com cinco turmas — cada uma
@@ -58,21 +63,28 @@ export async function sincronizarAulas(
   }[] = []
 
   for (const turma of turmas ?? []) {
+    const puladas = new Set(
+      datasPuladas(turma.escola_id, calendario.feriados, calendario.recessos, de, ate).keys(),
+    )
     const ocorrencias = await provedor.listarOcorrencias(
       {
         id: turma.id,
         tipo_recorrencia: turma.tipo_recorrencia,
         data_unica: turma.data_unica,
+        frequencia: turma.frequencia,
+        intervalo: turma.intervalo,
         dias_semana: turma.dias_semana ?? [],
+        data_inicio: turma.data_inicio ? String(turma.data_inicio).slice(0, 10) : null,
+        data_fim: turma.data_fim ? String(turma.data_fim).slice(0, 10) : null,
         horario_inicio: String(turma.horario_inicio).slice(0, 5),
         horario_fim: String(turma.horario_fim).slice(0, 5),
         status: 'Ativa',
         google_calendar_event_id: turma.google_calendar_event_id,
         modalidade: turma.modalidade,
-        cadastrada_em: dataDeCadastro(turma.created_at),
       },
       de,
       ate,
+      puladas,
     )
 
     for (const o of ocorrencias) {
@@ -132,6 +144,9 @@ export async function listarAulas(filtros: {
     .select(SELECT_AULA)
     .gte('data_hora_inicio', `${filtros.de}T00:00:00`)
     .lte('data_hora_inicio', `${filtros.ate}T23:59:59`)
+    // Rodada 4: aula excluída fica no banco (segura as reposições), mas não
+    // aparece na agenda.
+    .neq('status', 'Excluída')
 
   if (filtros.turmaId) consulta = consulta.eq('turma_id', filtros.turmaId)
   if (filtros.turmaIds) consulta = consulta.in('turma_id', filtros.turmaIds)

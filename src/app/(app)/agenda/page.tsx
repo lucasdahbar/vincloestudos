@@ -88,6 +88,9 @@ const LEGENDA = [
 /** Os parametros que sao filtro — `vista` e `data` sao navegacao. */
 const CAMPOS_FILTRO = ['professor', 'turma', 'materia', 'escola', 'modalidade', 'status']
 
+/** A agenda não lista aula excluída: filtrar por ela mostraria sempre nada. */
+const STATUS_DO_FILTRO = STATUS_AULA.filter((s) => s !== 'Excluída')
+
 export default async function PaginaAgenda({
   searchParams,
 }: {
@@ -146,7 +149,7 @@ export default async function PaginaAgenda({
         professorId: sessao.papel === 'professor' ? (sessao.professorId ?? -1) : undefined,
         turmaId: comoId(params.turma),
         turmaIds: filtraPelaTurma ? (await turmasResumidas(daTurma)).map((t) => t.id) : undefined,
-        status: comoOpcao(params.status, STATUS_AULA),
+        status: comoOpcao(params.status, STATUS_DO_FILTRO),
       }))(),
     sessao.papel === 'gestora' ? conflitosDeFeriado(ctx.de, ctx.ate) : Promise.resolve([]),
     sessao.papel === 'gestora' ? conflitosDeRecesso(ctx.de, ctx.ate) : Promise.resolve([]),
@@ -243,7 +246,7 @@ export default async function PaginaAgenda({
           { campo: 'materia', rotulo: 'Matéria', opcoes: deOpcoes(opcoes.materias), todos: 'Todas' },
           { campo: 'escola', rotulo: 'Escola', opcoes: deOpcoes(opcoes.escolas), todos: 'Todas' },
           { campo: 'modalidade', rotulo: 'Modalidade', opcoes: deValores(MODALIDADES), todos: 'Todas' },
-          { campo: 'status', rotulo: 'Situação da aula', opcoes: deValores(STATUS_AULA), todos: 'Todas' },
+          { campo: 'status', rotulo: 'Situação da aula', opcoes: deValores(STATUS_DO_FILTRO), todos: 'Todas' },
         ]}
         total={aulas.length}
         contagem={{

@@ -1,4 +1,4 @@
-import type { Modalidade, StatusTurma, TipoRecorrencia } from '@/dominio/tipos'
+import type { Frequencia, Modalidade, StatusTurma, TipoRecorrencia } from '@/dominio/tipos'
 
 export interface ServicoDaTurma {
   permite_materia: boolean
@@ -16,6 +16,14 @@ export interface EntradaTurma {
   tipo_recorrencia: TipoRecorrencia
   /** Preenchido so no modo Único. Data em ISO (AAAA-MM-DD). */
   data_unica: string | null
+  /** Rodada 4: só na Recorrente. */
+  frequencia: Frequencia | null
+  /** "A cada N". Só na Recorrente. */
+  intervalo: number | null
+  /** ISO. Só na Recorrente; pode ser no passado. */
+  data_inicio: string | null
+  /** ISO. Vazio = o sistema usa 31/12 (fim automático). */
+  data_fim: string | null
   dias_semana: number[]
   horario_inicio: string
   horario_fim: string
@@ -72,8 +80,35 @@ export function validarTurma(turma: EntradaTurma, servico: ServicoDaTurma): stri
     if (turma.data_unica) {
       erros.push('A data única só vale para uma aula que não se repete.')
     }
-    if (turma.status === 'Ativa' && turma.dias_semana.length === 0) {
-      erros.push('Escolha ao menos um dia da semana para ativar a turma.')
+    if (!turma.data_inicio) erros.push('Informe quando a turma começa.')
+    const anoErrado = (iso: string) => {
+      const ano = Number(iso.slice(0, 4))
+      return ano < 2000 || ano > 2100
+    }
+    if (turma.data_inicio && anoErrado(turma.data_inicio)) {
+      erros.push('A data de início parece errada: confira o ano.')
+    }
+    if (turma.data_fim && anoErrado(turma.data_fim)) {
+      erros.push('A data de término parece errada: confira o ano.')
+    }
+    if (turma.data_inicio && turma.data_fim && turma.data_fim < turma.data_inicio) {
+      erros.push('A data de término não pode ser antes da data de início.')
+    }
+    if (turma.frequencia === null) erros.push('Escolha de quanto em quanto a turma se repete.')
+    if (
+      turma.intervalo === null ||
+      !Number.isInteger(turma.intervalo) ||
+      turma.intervalo < 1 ||
+      turma.intervalo > 99
+    ) {
+      erros.push('O intervalo da repetição deve ser um número de 1 a 99.')
+    }
+    if (turma.frequencia === 'Semanal') {
+      if (turma.status === 'Ativa' && turma.dias_semana.length === 0) {
+        erros.push('Escolha ao menos um dia da semana para ativar a turma.')
+      }
+    } else if (turma.dias_semana.length > 0) {
+      erros.push('Dias da semana só valem para repetição semanal.')
     }
   }
 

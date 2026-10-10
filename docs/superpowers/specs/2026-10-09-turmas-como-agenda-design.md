@@ -32,7 +32,7 @@ Descartadas: gerar todas as aulas no cadastro como eventos avulsos no Google (ce
 | `intervalo` | smallint, ≥ 1, default 1 | "a cada N" |
 | `data_inicio` | date | obrigatória se Recorrente; pode ser passada ou futura |
 | `data_fim` | date | sempre gravada se Recorrente; `>= data_inicio` |
-| `fim_automatico` | boolean, default false | true quando o gestor não informou fim e o sistema usou 31/12 do ano corrente |
+| `fim_automatico` | boolean, default false | true quando o gestor não informou fim e o sistema usou 31/12 do ano corrente (ou do ano de `data_inicio`, se a turma começa num ano seguinte). Ao editar uma turma já renovada sem informar fim, o fim renovado é mantido |
 
 `dias_semana` continua: obrigatório (≥ 1 dia) quando `frequencia = 'Semanal'`; vazio para 'Diária' e 'Mensal'.
 
@@ -61,7 +61,11 @@ Novo valor em `status_aula`: **'Excluída'**. A aula excluída não é apagada:
 - o upsert com `ignoreDuplicates` não a recria;
 - some da agenda, do calendário, das listas de presença, dos alertas de conflito e de qualquer contagem que hoje considere 'Cancelada' como inexistente. Todo lugar que lista ou conta aulas precisa ser revisado para ignorar 'Excluída'.
 
-Quando a aula excluída ainda não tinha sido materializada (data futura fora da janela já aberta), a exclusão insere a linha já com status 'Excluída'.
+A exclusão parte da página da aula, então a linha sempre existe quando é excluída.
+
+### 3.3 Cobrança da aula excluída
+
+Novo valor em `origem_ausencia`: **'Exclusão'**, para a pendência criada quando a aula do aluno é excluída. A regra de reposição atual diz que a reposição entra na cobrança com R$ 0,00 porque "o aluno já pagou a aula original". Para isso continuar verdadeiro, a aula 'Excluída' **continua faturável para o aluno que tem pendência de origem 'Exclusão'** (salvo se a gestora decidir não cobrar, pelo fluxo de desistência que já existe). Sem pendência, a aula excluída não é cobrada de ninguém.
 
 ## 4. Geração das aulas
 
@@ -118,10 +122,10 @@ Fora disso, a janela orienta a encerrar a turma (comportamento atual).
 
 Consulta antes de perguntar, no mesmo desenho de `ExcluirTurma`:
 
-1. **Bloqueada** se a aula está 'Realizada', tem presença registrada, ou está ligada a cobrança ou pagamento de professor. Mensagem: a aula já aconteceu / já entrou no financeiro e não pode ser excluída.
+1. **Bloqueada** se a aula está 'Realizada' ou 'Excluída', ou tem presença registrada. Mensagem: a aula já aconteceu e não pode ser excluída. Cobrança **não** bloqueia: a cobrança do mês é gerada com as aulas previstas, então quase toda aula do mês corrente já tem item. Como a linha da aula fica (status 'Excluída'), o item continua válido, e a reposição entra com R$ 0,00 (3.3). Pagamento de professor sai da presença, que já bloqueia.
 2. **Sem alunos:** confirmação simples → status 'Excluída' → ressincroniza o Google.
 3. **Com alunos sem presença:** a janela lista os alunos.
-   - Aluno regular: o gestor escolhe a aula de reposição (mesma lista de destinos da tela de Reposições) ou "deixar pendente". Gera `pendencias_reposicao` com origem nesta aula, seguindo `planejarReposicao` (matrícula com `flag_reposicao` quando o destino é outra turma; nunca gera cobrança).
+   - Aluno regular: o gestor escolhe a aula de reposição (mesma lista de destinos da tela de Reposições) ou "deixar pendente". Gera `pendencias_reposicao` com origem nesta aula e `origem = 'Exclusão'` (ver 3.3), seguindo `planejarReposicao`. Aluno que já avisou ausência nesta aula já tem pendência e não entra na lista (matrícula com `flag_reposicao` quando o destino é outra turma; nunca gera cobrança).
    - Aluno que repõe nesta aula: a pendência dele volta para 'Pendente' (e a matrícula de reposição criada só para isso é encerrada), ou o gestor já escolhe outro destino.
    - Ao confirmar, tudo em **uma transação** (função no banco chamada por RPC): reposições criadas/ajustadas e aula marcada 'Excluída'. Depois, ressincroniza o Google.
 4. **Turma de aula única:** excluir a aula segue as mesmas regras; apagar o cadastro da turma segue 6.1.

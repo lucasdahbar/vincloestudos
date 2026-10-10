@@ -109,6 +109,7 @@ export async function chamadaDaAula(
     return { ok: false, motivo: 'Esta aula não é de uma turma sua.' }
   }
 
+  if (aula.status === 'Excluída') return { ok: false, motivo: 'Esta aula foi excluída.' }
   if (aula.status !== 'Agendada' && aula.status !== 'Realizada') {
     return { ok: false, motivo: 'Esta aula foi cancelada.' }
   }
@@ -197,7 +198,12 @@ export async function registrarChamadaDoProfessor(
   }
 
   await concluirReposicoes(admin, aulaId, resultado.presencas)
-  await admin.from('aulas').update({ status: resultado.novoStatusAula }).eq('id', aulaId)
+  // Rodada 4: se a aula foi excluida no meio da chamada, ela continua excluida.
+  await admin
+    .from('aulas')
+    .update({ status: resultado.novoStatusAula })
+    .eq('id', aulaId)
+    .neq('status', 'Excluída')
 
   await admin.from('logs_operacionais').insert({
     acao: 'registrar_chamada',

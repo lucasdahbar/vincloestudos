@@ -1,10 +1,11 @@
 import Link from 'next/link'
+import type { StatusAula } from '@/dominio/tipos'
 
 export interface AulaDoCalendario {
   id: number
   data_hora_inicio: string
   data_hora_fim: string
-  status: 'Agendada' | 'Realizada' | 'Cancelada' | 'Feriado'
+  status: StatusAula
   turma_nome: string
 }
 
@@ -26,6 +27,8 @@ const ESTILO_AULA: Record<AulaDoCalendario['status'], string> = {
   Realizada: 'bg-apoio-suave text-apoio hover:bg-apoio hover:text-white',
   Cancelada: 'bg-superficie-2 text-tinta-suave line-through hover:bg-borda',
   Feriado: 'bg-alerta-suave text-alerta hover:bg-alerta hover:text-white',
+  // Não aparece na agenda (listarAulas filtra); só fecha o tipo.
+  Excluída: 'bg-superficie-2 text-tinta-suave line-through hover:bg-borda',
 }
 
 function iso(d: Date): string {

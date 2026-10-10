@@ -5,7 +5,7 @@ import { rotuloDaTurma, type TurmaComHorario } from '@/dominio/turmas/quando'
 const SELECT_MATRICULA = `
   id, data_inicio, data_fim, flag_reposicao, status, aluno_id, turma_id,
   aluno:alunos!aluno_id (id, nome, ativo),
-  turma:turmas!turma_id (id, nome, status, tipo_recorrencia, data_unica, dias_semana, horario_inicio)
+  turma:turmas!turma_id (id, nome, status, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio)
 `
 
 export interface MatriculaComRelacoes {
@@ -82,7 +82,7 @@ export async function obterMatricula(id: number): Promise<MatriculaParaEditar | 
 
   const { data } = await supabase
     .from('matriculas')
-    .select('id, aluno_id, turma_id, data_inicio, data_fim, flag_reposicao, status, aluno:alunos!aluno_id (nome), turma:turmas!turma_id (nome, tipo_recorrencia, data_unica, dias_semana, horario_inicio)')
+    .select('id, aluno_id, turma_id, data_inicio, data_fim, flag_reposicao, status, aluno:alunos!aluno_id (nome), turma:turmas!turma_id (nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio)')
     .eq('id', id)
     .maybeSingle()
 

@@ -43,6 +43,12 @@ describe('planejarReposicao', () => {
     expect(p.erros).toContain('Esta aula está cancelada. Escolha outra.')
   })
 
+  it('rejeita aula de destino excluida', () => {
+    const p = planejarReposicao(pendencia, { ...outraTurma, status: 'Excluída' }, [])
+    expect(p.erros).toContain('Esta aula foi excluída. Escolha outra.')
+    expect(p.precisaMatricula).toBe(false)
+  })
+
   it('rejeita pendencia ja resolvida', () => {
     for (const status of ['Realizada', 'Desistida'] as const) {
       const p = planejarReposicao({ ...pendencia, status }, mesmaTurma, [])

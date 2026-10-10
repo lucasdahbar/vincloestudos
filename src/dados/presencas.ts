@@ -101,11 +101,15 @@ export async function aulaPorToken(token: string): Promise<
 
   const { data: aula } = await admin
     .from('aulas')
-    .select('id, data_hora_inicio, turma_id, turma:turmas!turma_id (nome)')
+    .select('id, data_hora_inicio, status, turma_id, turma:turmas!turma_id (nome)')
     .eq('id', registro.aula_id)
     .maybeSingle()
 
   if (!aula) return { ok: false, motivo: 'A aula deste link não existe mais.' }
+  // A aula excluida fica no banco, mas nao tem chamada: gravar presenca aqui a
+  // marcaria como Realizada e a traria de volta. A exclusao ja apaga os tokens;
+  // este teste cobre o link aberto antes dela.
+  if (aula.status === 'Excluída') return { ok: false, motivo: 'Esta aula foi excluída.' }
 
   // A mesma lista dos outros links: quem avisou que nao vem fica fora da
   // chamada. Este link montava a propria e gravava "presente" para ele.
@@ -163,7 +167,12 @@ export async function registrarChamada(
   }
 
   await concluirReposicoes(admin, aula.aula_id, resultado.presencas)
-  await admin.from('aulas').update({ status: resultado.novoStatusAula }).eq('id', aula.aula_id)
+  // Rodada 4: se a aula foi excluida no meio da chamada, ela continua excluida.
+  await admin
+    .from('aulas')
+    .update({ status: resultado.novoStatusAula })
+    .eq('id', aula.aula_id)
+    .neq('status', 'Excluída')
   await admin.from('presenca_tokens').update({ usado_em: new Date().toISOString() }).eq('token', token)
 
   await admin.from('logs_operacionais').insert({
