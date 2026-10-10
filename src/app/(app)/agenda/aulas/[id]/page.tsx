@@ -4,6 +4,7 @@ import { listaDaAula, obterAula } from '@/dados/aulas'
 import { tokenDaAula } from '@/dados/presencas'
 import { LinkDeChamada } from './LinkDeChamada'
 import { AvisarFalta } from './AvisarFalta'
+import { ExcluirAula } from './ExcluirAula'
 import { CancelarAviso } from '../../../reposicoes/CancelarAviso'
 
 /** O que aconteceu depois do aviso, do ponto de vista desta aula. */
@@ -167,7 +168,7 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
         </Cartao>
       )}
 
-      {ehGestora && aula.status !== 'Cancelada' && (
+      {ehGestora && aula.status !== 'Cancelada' && aula.status !== 'Excluída' && (
         <LinkDeChamada
           aulaId={aula.id}
           turmaNome={aula.turma?.nome ?? 'a turma'}
@@ -177,6 +178,10 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
           caminhoExistente={token && !token.usado_em ? `/p/presenca/${token.token}` : null}
           jaConfirmada={Boolean(token?.usado_em)}
         />
+      )}
+
+      {ehGestora && aula.status !== 'Excluída' && aula.status !== 'Realizada' && (
+        <ExcluirAula aulaId={aula.id} quando={quando} />
       )}
 
       <Link href="/agenda" className="text-destaque hover:underline">
