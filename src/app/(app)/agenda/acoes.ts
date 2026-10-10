@@ -47,7 +47,23 @@ export async function mudarStatusAula(
 ) {
   await exigirGestora()
   const supabase = await clienteServidor()
-  const { error } = await supabase.from('aulas').update({ status }).eq('id', aulaId)
+
+  // Aula excluída não volta por aqui: a exclusão já transferiu os alunos para
+  // reposição, e reativá-la os deixaria em dois lugares.
+  const { data: atual, error: erroLeitura } = await supabase
+    .from('aulas')
+    .select('status')
+    .eq('id', aulaId)
+    .maybeSingle()
+  if (erroLeitura) throw new Error(erroLeitura.message)
+  if (!atual) throw new Error('Esta aula não existe mais.')
+  if (atual.status === 'Excluída') throw new Error('Esta aula foi excluída e não pode mudar de status.')
+
+  const { error } = await supabase
+    .from('aulas')
+    .update({ status })
+    .eq('id', aulaId)
+    .neq('status', 'Excluída')
   if (error) throw new Error(error.message)
   revalidatePath('/agenda')
   revalidatePath(`/agenda/aulas/${aulaId}`)
