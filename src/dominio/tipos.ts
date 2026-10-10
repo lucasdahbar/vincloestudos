@@ -54,11 +54,3 @@ export const DIAS_SEMANA = [
   { valor: 5, nome: 'Sexta', curto: 'Sex' },
   { valor: 6, nome: 'Sábado', curto: 'Sáb' },
 ] as const
-
-export function nomesDosDias(dias: number[]): string {
-  return dias
-    .slice()
-    .sort((a, b) => a - b)
-    .map((d) => DIAS_SEMANA.find((dia) => dia.valor === d)?.curto ?? '?')
-    .join(', ')
-}
