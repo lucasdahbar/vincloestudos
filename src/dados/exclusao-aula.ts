@@ -134,11 +134,17 @@ export async function executarExclusaoAula(
       erros.push('Uma das aulas escolhidas para reposição não existe mais.')
       return null
     }
+    if (destino.status !== 'Agendada') {
+      erros.push('Uma das aulas escolhidas para reposição não está mais disponível.')
+      return null
+    }
     const { data: mats, error: erroMats } = await supabase
       .from('matriculas')
       .select('aluno_id, turma_id')
       .eq('aluno_id', pendencia.aluno_id)
       .eq('status', 'Ativa')
+      // A reposição que sai junto com esta aula não conta como matrícula.
+      .eq('flag_reposicao', false)
     if (erroMats) throw new Error(erroMats.message)
     const plano = planejarReposicao(
       { ...pendencia, status: 'Pendente' },

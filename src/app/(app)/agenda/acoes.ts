@@ -78,6 +78,7 @@ export async function excluirAula(
   })
 
   revalidatePath('/agenda')
+  revalidatePath(`/agenda/aulas/${aulaId}`)
   revalidatePath('/reposicoes')
   return { ok: true }
 }
