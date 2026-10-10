@@ -133,6 +133,16 @@ export function exdatesDoEvento(
   )
 }
 
+/**
+ * Turma única cuja aula foi excluída: o evento sai da agenda, como o da turma
+ * encerrada. Única não tem EXDATE — a data dela é o evento inteiro.
+ */
+export function unicaSemAula(statusDasAulas: readonly StatusAula[]): boolean {
+  return (
+    statusDasAulas.includes('Excluída') && statusDasAulas.every((s) => s === 'Excluída')
+  )
+}
+
 export function montarEvento(turma: TurmaDoEvento): EventoGoogle {
   const unico = turma.tipo_recorrencia === 'Único'
   const regra = regraDoEvento(turma)

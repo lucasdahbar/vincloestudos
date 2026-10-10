@@ -13,6 +13,7 @@ import {
   descricaoDoEvento,
   exdatesDoEvento,
   regraDoEvento,
+  unicaSemAula,
   type MatriculaDoEvento,
   type TurmaDoEvento,
 } from '@/dominio/agenda/evento-google'
@@ -127,6 +128,13 @@ async function exdatesDaTurma(turmaId: number, turma: TurmaLida): Promise<string
   )
 }
 
+/** Turma única com a aula excluída (a linha fica no banco, com esse status). */
+async function unicaExcluida(turmaId: number, turma: TurmaLida): Promise<boolean> {
+  if (turma.tipo_recorrencia !== 'Único') return false
+  const { data } = await clienteAdmin().from('aulas').select('status').eq('turma_id', turmaId)
+  return unicaSemAula((data ?? []).map((a) => a.status))
+}
+
 /**
  * Os alunos da descrição geral do evento. Aula única tem uma data só: lá vai
  * quem está matriculado nela. Na recorrente, os fixos — os avulsos entram
@@ -210,8 +218,9 @@ export async function sincronizarEventoDaTurma(
     | null
 
   // Turma encerrada some da agenda: deixar o evento seria o professor
-  // continuar vendo aula que não vai acontecer.
-  if (turma.status !== 'Ativa') {
+  // continuar vendo aula que não vai acontecer. O mesmo vale para a turma
+  // única cuja aula foi excluída.
+  if (turma.status !== 'Ativa' || (await unicaExcluida(turmaId, turma))) {
     if (turma.google_calendar_event_id && professor?.google_calendar_id) {
       const r = await apagarEvento(professor.google_calendar_id, turma.google_calendar_event_id)
       if (r.ok) {

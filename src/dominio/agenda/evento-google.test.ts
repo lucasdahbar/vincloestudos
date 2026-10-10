@@ -5,6 +5,7 @@ import {
   montarEvento,
   primeiraOcorrencia,
   regraDoEvento,
+  unicaSemAula,
   type TurmaDoEvento,
 } from './evento-google'
 import type { RegraRecorrencia } from './recorrencia'
@@ -263,5 +264,21 @@ describe('alunos na descrição do evento', () => {
     // turma e matricular um aluno escreveriam textos diferentes.
     const t = turma({ alunos: ['Ana Souza'], link_videochamada: 'https://meet.google.com/x' })
     expect(descricaoDoEvento(t)).toBe(montarEvento(t).description)
+  })
+})
+
+describe('unicaSemAula', () => {
+  it('a aula da turma única foi excluída: o evento sai', () => {
+    expect(unicaSemAula(['Excluída'])).toBe(true)
+  })
+
+  it('ainda há aula que não foi excluída: o evento fica', () => {
+    expect(unicaSemAula(['Agendada'])).toBe(false)
+    expect(unicaSemAula(['Excluída', 'Agendada'])).toBe(false)
+    expect(unicaSemAula(['Cancelada'])).toBe(false)
+  })
+
+  it('sem aula nenhuma (ainda não materializada): o evento fica', () => {
+    expect(unicaSemAula([])).toBe(false)
   })
 })
