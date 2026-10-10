@@ -5,6 +5,10 @@ import { carregarReferencias } from '@/cadastros/motor/referencias'
 import { paraCliente } from '@/cadastros/tipos'
 import { exigirGestora } from '@/dados/sessao'
 
+// Salvar feriado/recesso refaz, em `after()`, as aulas e o evento no Google de
+// cada turma afetada, uma por vez. O limite vale para as Server Actions da página.
+export const maxDuration = 300
+
 export default async function PaginaNovo({
   params,
 }: {

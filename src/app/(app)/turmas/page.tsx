@@ -12,6 +12,10 @@ import { Filtros } from '@/ui/Filtros'
 import { Selo } from '@/ui/Selo'
 import { RenovarTurmas } from './RenovarTurmas'
 
+// Renovar turmas refaz, em `after()`, o evento no Google de cada uma, uma por
+// vez. O limite vale para as Server Actions da página.
+export const maxDuration = 300
+
 export default async function PaginaTurmas({
   searchParams,
 }: {

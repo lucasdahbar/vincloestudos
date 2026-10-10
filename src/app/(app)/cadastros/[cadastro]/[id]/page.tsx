@@ -11,6 +11,10 @@ import { obter } from '@/dados/crud'
 import { tokenDoProfessor } from '@/dados/professores'
 import { exigirGestora } from '@/dados/sessao'
 
+// Salvar feriado/recesso refaz, em `after()`, as aulas e o evento no Google de
+// cada turma afetada, uma por vez. O limite vale para as Server Actions da página.
+export const maxDuration = 300
+
 /**
  * O link permanente do professor, se ele ja tem um.
  *
