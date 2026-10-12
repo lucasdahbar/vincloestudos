@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { avaliarExclusaoTurma, type HistoricoDaTurma } from './exclusao'
 
-const vazio: HistoricoDaTurma = { matriculas: 0, presencas: 0, reposicoes: 0, cobrancas: 0, pagamentos: 0 }
+const vazio: HistoricoDaTurma = {
+  matriculasAtivas: 0,
+  presencas: 0,
+  reposicoes: 0,
+  cobrancas: 0,
+  pagamentos: 0,
+}
 
 describe('avaliarExclusaoTurma', () => {
   it('sem histórico pode excluir, mesmo com aulas geradas', () => {
@@ -16,11 +22,19 @@ describe('avaliarExclusaoTurma', () => {
     expect(r.motivo).toContain('pagamento de um professor')
   })
 
-  it('qualquer matrícula, mesmo encerrada, bloqueia', () => {
-    const r = avaliarExclusaoTurma({ ...vazio, matriculas: 2 })
+  it('matrícula ativa bloqueia', () => {
+    const r = avaliarExclusaoTurma({ ...vazio, matriculasAtivas: 2 })
     expect(r.podeExcluir).toBe(false)
-    expect(r.motivo).toContain('2 matrículas')
+    expect(r.motivo).toContain('2 matrículas ativas')
     expect(r.motivo).toContain('Encerre a turma')
+  })
+
+  it('aluno desmatriculado sem histórico não segura a turma', () => {
+    // Teste de 12/10/2026 (turma 88): matricula desfeita minutos depois,
+    // sem presenca nem cobranca. O que contaria como historico ja e contado
+    // a parte (presenca, reposicao, cobranca, pagamento).
+    const r = avaliarExclusaoTurma(vazio)
+    expect(r.podeExcluir).toBe(true)
   })
 
   it('lista tudo o que segura a turma', () => {

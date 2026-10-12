@@ -112,7 +112,7 @@ Ressincroniza quando: a turma é salva ou renovada, uma aula é excluída, um fe
 
 ### 6.1 Turma inteira
 
-Permitida só se a turma **nunca** teve: matrícula (qualquer status, inclusive de reposição), presença, pendência de reposição (como origem ou destino), cobrança ou item de pagamento de professor. Aulas materializadas sem nenhum desses vínculos **não** impedem mais: são apagadas junto com a turma. O evento do Google sai antes do delete, como hoje.
+Permitida só se a turma não tem matrícula **ativa** (inclusive de reposição) e **nunca** teve: presença, pendência de reposição (como origem ou destino), cobrança ou item de pagamento de professor. Aulas materializadas sem nenhum desses vínculos **não** impedem mais: são apagadas junto com a turma. Matrícula encerrada sem nenhum desses vínculos também não impede: é aluno desmatriculado antes de qualquer coisa acontecer, e é apagada junto (ajuste de 12/10/2026, depois do teste da gestora). O evento do Google sai antes do delete, como hoje.
 
 Fora disso, a janela orienta a encerrar a turma (comportamento atual).
 
