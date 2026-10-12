@@ -185,7 +185,7 @@ export async function consultarExclusaoTurma(id: number): Promise<PreviaExclusao
   const cabeca = { count: 'exact' as const, head: true }
 
   const resultados = await Promise.all([
-    supabase.from('matriculas').select('id', cabeca).eq('turma_id', id),
+    supabase.from('matriculas').select('id', cabeca).eq('turma_id', id).eq('status', 'Ativa'),
     supabase.from('presencas').select('id, aula:aulas!inner (turma_id)', cabeca).eq('aula.turma_id', id),
     supabase
       .from('pendencias_reposicao')
@@ -206,12 +206,11 @@ export async function consultarExclusaoTurma(id: number): Promise<PreviaExclusao
     }
   }
 
-  const [matriculas, presencas, comoOrigem, comoDestino, cobrancas, pagamentos] = resultados.map(
-    (r) => r.count ?? 0,
-  )
+  const [matriculasAtivas, presencas, comoOrigem, comoDestino, cobrancas, pagamentos] =
+    resultados.map((r) => r.count ?? 0)
 
   return avaliarExclusaoTurma({
-    matriculas,
+    matriculasAtivas,
     presencas,
     reposicoes: comoOrigem + comoDestino,
     cobrancas,
@@ -239,6 +238,11 @@ export async function excluirTurma(id: number): Promise<{ ok: boolean; erro?: st
   // ha o que preservar nelas; os links de presenca saem em cascata.
   const { error: erroAulas } = await supabase.from('aulas').delete().eq('turma_id', id)
   if (erroAulas) return { ok: false, erro: erroAulas.message }
+
+  // As matriculas encerradas tambem seguram a turma. A previa ja garantiu que
+  // nenhuma esta ativa nem deixou presenca, reposicao ou cobranca.
+  const { error: erroMatriculas } = await supabase.from('matriculas').delete().eq('turma_id', id)
+  if (erroMatriculas) return { ok: false, erro: erroMatriculas.message }
 
   const { error } = await supabase.from('turmas').delete().eq('id', id)
   if (error) return { ok: false, erro: error.message }

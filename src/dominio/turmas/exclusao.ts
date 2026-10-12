@@ -4,8 +4,13 @@
  * contava, e na prática nenhuma turma podia ser excluída.
  */
 export interface HistoricoDaTurma {
-  /** Qualquer status, inclusive de reposição. */
-  matriculas: number
+  /**
+   * Só as ativas, inclusive de reposição. Matrícula encerrada sem presença,
+   * reposição nem cobrança não é histórico: o aluno foi desmatriculado antes
+   * de qualquer coisa acontecer (teste da gestora, 12/10/2026). O que faria
+   * dela histórico já é contado nos campos abaixo.
+   */
+  matriculasAtivas: number
   presencas: number
   /** Pendências com origem ou destino nas aulas da turma. */
   reposicoes: number
@@ -28,7 +33,7 @@ export function avaliarExclusaoTurma(h: HistoricoDaTurma): { podeExcluir: boolea
   }
 
   const partes = [
-    h.matriculas > 0 && plural(h.matriculas, 'matrícula', 'matrículas'),
+    h.matriculasAtivas > 0 && plural(h.matriculasAtivas, 'matrícula ativa', 'matrículas ativas'),
     h.presencas > 0 && plural(h.presencas, 'presença registrada', 'presenças registradas'),
     h.reposicoes > 0 && plural(h.reposicoes, 'reposição', 'reposições'),
     h.cobrancas > 0 && plural(h.cobrancas, 'aula cobrada', 'aulas cobradas'),
