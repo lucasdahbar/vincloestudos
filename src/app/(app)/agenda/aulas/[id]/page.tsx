@@ -190,7 +190,7 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
 
       {ehGestora && aula.status !== 'Excluída' && aula.status !== 'Realizada' && (
         <div className="flex flex-wrap gap-3">
-          {registradas.length === 0 && (
+          {registradas.length === 0 && aula.status === 'Agendada' && (
             <RemarcarAula
               aulaId={aula.id}
               inicio={String(aula.data_hora_inicio).slice(0, 16)}
