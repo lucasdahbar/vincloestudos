@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { motion } from 'motion/react'
 import { gerar } from './acoes'
+import { resumoDaGeracao } from '@/dominio/cobrancas/rascunho'
 import { Botao } from '@/ui/Botao'
 import { Campo, entradaClasse } from '@/ui/Campo'
 import { Cartao } from '@/ui/Cartao'
@@ -20,7 +21,10 @@ export function PainelGeracao({ mesInicial }: { mesInicial: string }) {
         <h2 className="text-lg">Gerar cobranças do mês</h2>
         <p className="mt-1 text-sm text-tinta-suave">
           Cria uma cobrança por responsável, juntando todos os filhos e todas as turmas. Fica em
-          rascunho para você revisar antes de confirmar. Rodar de novo não duplica nada.
+          rascunho para você revisar antes de confirmar. Cada vez que você gera, o rascunho do mês é
+          refeito: entram as aulas novas, saem as que deixaram de valer (aluno desmatriculado, aula
+          cancelada, “não cobrar”) e os descontos que você deu são mantidos. Cobrança já confirmada
+          não muda.
         </p>
       </div>
 
@@ -40,11 +44,7 @@ export function PainelGeracao({ mesInicial }: { mesInicial: string }) {
           onClick={() =>
             iniciar(async () => {
               const r = await gerar(mes)
-              setResultado(
-                r.itens === 0
-                  ? 'Nada novo a cobrar neste mês — tudo já estava cobrado.'
-                  : `${r.criadas} cobrança(s) criada(s) com ${r.itens} aula(s).`,
-              )
+              setResultado(resumoDaGeracao(r))
               router.refresh()
             })
           }

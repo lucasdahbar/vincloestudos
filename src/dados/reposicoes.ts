@@ -10,6 +10,7 @@ import {
   type StatusCobranca,
 } from '@/dominio/reposicoes/desfecho'
 import { deNumeric, paraNumeric } from '@/dominio/dinheiro'
+import { recalcularTotais } from './cobrancas'
 
 export interface PendenciaComRelacoes {
   id: number
@@ -309,12 +310,30 @@ async function aplicarEfeitoFinanceiro(
 
   const { data: item } = await supabase
     .from('itens_cobranca')
-    .select('valor_final, cobranca:cobrancas!cobranca_id (status)')
+    .select('id, cobranca_id, valor_final, cobranca:cobrancas!cobranca_id (status)')
     .eq('aula_id', p.aula_origem_id)
     .eq('aluno_id', p.aluno_id)
     .maybeSingle()
 
   const cobranca = item?.cobranca as unknown as { status: StatusCobranca } | null
+
+  // Item so em rascunho (14/10/2026): a aula ainda nao foi cobrada de ninguem,
+  // entao nao ha credito — o item sai do rascunho e o total acompanha. Antes
+  // virava credito e o item ficava la: o responsavel pagava e ainda ganhava
+  // o credito.
+  if (item && cobranca?.status === 'Rascunho') {
+    const { error } = await supabase.from('itens_cobranca').delete().eq('id', item.id)
+    if (error) return { ok: false, erros: [`A decisão foi salva, mas o item do rascunho não saiu: ${error.message}`] }
+    await recalcularTotais(item.cobranca_id)
+    // Rascunho que ficou sem nenhum item nao tem o que a gestora confirmar.
+    const { count } = await supabase
+      .from('itens_cobranca')
+      .select('id', { count: 'exact', head: true })
+      .eq('cobranca_id', item.cobranca_id)
+    if (count === 0) await supabase.from('cobrancas').delete().eq('id', item.cobranca_id)
+    return { ok: true }
+  }
+
   const valor = creditoDaDesistencia(
     false,
     item && cobranca
