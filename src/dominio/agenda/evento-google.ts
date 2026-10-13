@@ -124,10 +124,15 @@ function recorrenciaDoEvento(regra: RegraRecorrencia, horario: string, exdates: 
 export function exdatesDoEvento(
   regra: RegraRecorrencia,
   puladas: ReadonlySet<string>,
-  aulas: { data: string; status: StatusAula }[],
+  /**
+   * `data` e o dia que a regra deu a aula. Remarcada (13/10/2026): saiu desse
+   * dia — conta como excluida dele, e ganha um evento avulso no dia novo.
+   */
+  aulas: { data: string; status: StatusAula; remarcada?: boolean }[],
 ): string[] {
-  const ativas = new Set(aulas.filter((a) => a.status !== 'Excluída').map((a) => a.data))
-  const excluidas = new Set(aulas.filter((a) => a.status === 'Excluída').map((a) => a.data))
+  const saiu = (a: (typeof aulas)[number]) => a.status === 'Excluída' || a.remarcada === true
+  const ativas = new Set(aulas.filter((a) => !saiu(a)).map((a) => a.data))
+  const excluidas = new Set(aulas.filter(saiu).map((a) => a.data))
   return datasDaRegra(regra, regra.data_inicio, regra.data_fim).filter(
     (d) => !ativas.has(d) && (excluidas.has(d) || puladas.has(d)),
   )

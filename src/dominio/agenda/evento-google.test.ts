@@ -226,6 +226,14 @@ describe('exdatesDoEvento', () => {
     // 09/09 é quarta: não é da regra, não entra.
     expect(r).toEqual(['2026-09-08', '2026-09-15'])
   })
+
+  it('aula remarcada: o dia de sempre vira exceção (ela ganha evento avulso)', () => {
+    const r = exdatesDoEvento(regra, new Set(), [
+      { data: '2026-09-17', status: 'Agendada', remarcada: true },
+      { data: '2026-09-22', status: 'Agendada' },
+    ])
+    expect(r).toEqual(['2026-09-17'])
+  })
 })
 
 describe('link da videochamada no evento (G3)', () => {
