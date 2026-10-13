@@ -5,6 +5,7 @@ import {
   montarEvento,
   primeiraOcorrencia,
   regraDoEvento,
+  eventoSaiDaAgenda,
   unicaSemAula,
   type TurmaDoEvento,
 } from './evento-google'
@@ -280,5 +281,36 @@ describe('unicaSemAula', () => {
 
   it('sem aula nenhuma (ainda não materializada): o evento fica', () => {
     expect(unicaSemAula([])).toBe(false)
+  })
+})
+
+describe('eventoSaiDaAgenda', () => {
+  const recorrente = { tipo_recorrencia: 'Recorrente' as const, data_fim: '2026-10-13' }
+  const unica = { tipo_recorrencia: 'Único' as const, data_fim: null }
+
+  it('turma ativa fica', () => {
+    expect(eventoSaiDaAgenda({ ...recorrente, status: 'Ativa' }, ['Agendada'], '2026-10-14')).toBe(false)
+  })
+
+  it('recorrente encerrada pelo encerramento fica, com as aulas passadas', () => {
+    expect(eventoSaiDaAgenda({ ...recorrente, status: 'Encerrada' }, [], '2026-10-14')).toBe(false)
+  })
+
+  it('recorrente encerrada sem data (de antes do encerramento) sai inteira', () => {
+    expect(
+      eventoSaiDaAgenda({ ...recorrente, status: 'Encerrada', data_fim: '2026-12-31' }, [], '2026-10-14'),
+    ).toBe(true)
+  })
+
+  it('aula única encerrada antes de acontecer sai', () => {
+    expect(eventoSaiDaAgenda({ ...unica, status: 'Encerrada' }, [], '2026-10-14')).toBe(true)
+  })
+
+  it('aula única que aconteceu fica, mesmo encerrada', () => {
+    expect(eventoSaiDaAgenda({ ...unica, status: 'Encerrada' }, ['Realizada'], '2026-10-14')).toBe(false)
+  })
+
+  it('aula única com a aula excluída sai', () => {
+    expect(eventoSaiDaAgenda({ ...unica, status: 'Ativa' }, ['Excluída'], '2026-10-14')).toBe(true)
   })
 })

@@ -143,6 +143,31 @@ export function unicaSemAula(statusDasAulas: readonly StatusAula[]): boolean {
   )
 }
 
+/**
+ * Encerrar turma (13/10/2026): o evento sai da agenda do professor ou fica?
+ *
+ * A recorrente encerrada pelo encerramento termina na vespera da data
+ * informada, e as aulas passadas ficam na agenda — antes, encerrar apagava o
+ * evento inteiro. Encerrada sem data no passado (de antes do encerramento)
+ * continua saindo inteira. A aula unica sai quando nao tem mais aula que vale.
+ */
+export function eventoSaiDaAgenda(
+  turma: {
+    status: 'Ativa' | 'Encerrada'
+    tipo_recorrencia: 'Recorrente' | 'Único'
+    data_fim: string | null
+  },
+  statusDasAulas: readonly StatusAula[],
+  hoje: string,
+): boolean {
+  if (turma.tipo_recorrencia === 'Único') {
+    const semAula = !statusDasAulas.some((s) => s !== 'Excluída')
+    return unicaSemAula(statusDasAulas) || (turma.status !== 'Ativa' && semAula)
+  }
+  if (turma.status === 'Ativa') return false
+  return !turma.data_fim || turma.data_fim >= hoje
+}
+
 export function montarEvento(turma: TurmaDoEvento): EventoGoogle {
   const unico = turma.tipo_recorrencia === 'Único'
   const regra = regraDoEvento(turma)
