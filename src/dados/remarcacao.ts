@@ -2,7 +2,6 @@ import 'server-only'
 import { clienteServidor } from './cliente'
 import { calendarioEscolar } from './calendario'
 import { alertaDaData } from '@/dominio/agenda/datas-puladas'
-import { idOcorrenciaLocal } from '@/dominio/agenda/materializacao'
 import { planejarRemarcacao, type NovoHorario } from '@/dominio/agenda/remarcacao'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 
@@ -69,35 +68,30 @@ export async function remarcarAulaNoBanco(
     if (alerta) return { ok: false, alerta }
   }
 
-  if (turma.tipo_recorrencia === 'Único') {
-    // A turma de aula única é aquela aula: muda a própria turma, e a chave da
-    // aula acompanha — senão a geração automática criaria outra no dia novo.
-    const { error: erroTurma } = await supabase
-      .from('turmas')
-      .update({ data_unica: nova.data, horario_inicio: nova.inicio, horario_fim: nova.fim })
-      .eq('id', aula.turma_id)
-    if (erroTurma) return { ok: false, erros: [erroTurma.message] }
-
-    const { error: erroAula } = await supabase
-      .from('aulas')
-      .update({
-        data_hora_inicio: plano.inicio,
-        data_hora_fim: plano.fim,
-        data_hora_original: null,
-        google_calendar_event_id: idOcorrenciaLocal(aula.turma_id, nova.data, nova.inicio),
-      })
-      .eq('id', aulaId)
-    if (erroAula) return { ok: false, erros: [erroAula.message] }
-    return { ok: true, turmaId: aula.turma_id }
-  }
-
-  const { error: erroAula } = await supabase
+  // Uma gravação só, também na turma de aula única: a turma fica como está
+  // (a data dela é a original) e a aula guarda o horário de antes. Mudar a
+  // turma junto exigiria trocar a chave da aula, e a reposição marcada nela
+  // (matrícula só na data original) cairia da lista.
+  const { data: gravadas, error: erroAula } = await supabase
     .from('aulas')
     .update({ data_hora_inicio: plano.inicio, data_hora_fim: plano.fim, data_hora_original: plano.original })
     .eq('id', aulaId)
     // Se a chamada foi feita no meio do caminho, a aula não muda.
-    .eq('status', aula.status)
+    .eq('status', 'Agendada')
+    .select('id')
   if (erroAula) return { ok: false, erros: [erroAula.message] }
+  if (!gravadas || gravadas.length === 0) {
+    return { ok: false, erros: ['A aula mudou enquanto a remarcação era feita. Abra a aula de novo.'] }
+  }
+
+  // Lembrete já na fila foi montado com o dia antigo: sai, e o próximo
+  // enfileiramento o refaz com o dia novo.
+  await supabase
+    .from('notificacoes')
+    .delete()
+    .eq('referencia_tipo', 'aulas')
+    .eq('referencia_id', aulaId)
+    .in('status', ['Pendente', 'Pronta'])
 
   return { ok: true, turmaId: aula.turma_id }
 }

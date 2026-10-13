@@ -13,7 +13,10 @@ Uma aula específica de uma turma muda de dia e horário. Todo o resto segue com
 - **(decidido)** Pode ir para outro mês: a cobrança continua no mês **original**.
 - **(decidido)** Data nova em feriado ou recesso: só avisa, como na aula única.
 - **(decidido)** Sem aviso automático aos responsáveis: o lembrete de aula já sai com a data nova.
-- **(decidido)** Turma de aula única: remarcar a aula muda a própria turma (data e horário), porque ela só tem aquela aula.
+- **(decidido)** Só aula **Agendada**: cancelada ou de feriado não é remarcada.
+- **(decidido, revisto na revisão)** Turma de aula única: a aula é remarcada como qualquer outra, e a turma continua com a data original. Mudar a turma junto trocava a chave da aula — a reposição marcada nela (matrícula só na data original) caía da lista, e havia risco de aula duplicada. O evento do Google dela vai para o dia novo.
+- Lembrete já na fila da aula remarcada é descartado e refeito com o dia novo; quem recebe são os alunos da data original.
+- Encerrar a turma conta a aula remarcada pela data original e a marca como Excluída (o evento avulso sai). Excluir a turma apaga também os eventos avulsos.
 
 ## Modelo
 

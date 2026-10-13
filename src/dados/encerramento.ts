@@ -39,6 +39,8 @@ async function situacao(
   falhou(erroTurma)
   if (!turma) throw new Error('Esta turma não existe mais.')
 
+  // Datas pela regra da turma (data_hora_referencia): a aula remarcada conta
+  // pelo dia de sempre, como na funcao encerrar_turma.
   // Na recorrente so interessa o que vem a partir da data. Ler a turma
   // inteira esbarraria no limite de 1000 linhas do Supabase (presencas e
   // itens de cobranca de um ano todo) e a previa diria "pode" a toa. A aula
@@ -50,12 +52,12 @@ async function situacao(
 
   const [aulas, presencas, matriculas, chegando, itens, pendencias] = await Promise.all([
     aPartir(
-      supabase.from('aulas').select('id, data_hora_inicio, status').eq('turma_id', turmaId),
-      'data_hora_inicio',
+      supabase.from('aulas').select('id, data_hora_referencia, status').eq('turma_id', turmaId),
+      'data_hora_referencia',
     ),
     aPartir(
-      supabase.from('presencas').select('aula_id, aula:aulas!inner (turma_id, data_hora_inicio)').eq('aula.turma_id', turmaId),
-      'aula.data_hora_inicio',
+      supabase.from('presencas').select('aula_id, aula:aulas!inner (turma_id, data_hora_referencia)').eq('aula.turma_id', turmaId),
+      'aula.data_hora_referencia',
     ),
     supabase
       .from('matriculas')
@@ -66,27 +68,27 @@ async function situacao(
     aPartir(
       supabase
         .from('pendencias_reposicao')
-        .select('aluno:alunos!aluno_id (nome), aula:aulas!aula_reposicao_id!inner (turma_id, data_hora_inicio)')
+        .select('aluno:alunos!aluno_id (nome), aula:aulas!aula_reposicao_id!inner (turma_id, data_hora_referencia)')
         .eq('aula.turma_id', turmaId)
         .eq('status', 'Agendada'),
-      'aula.data_hora_inicio',
+      'aula.data_hora_referencia',
     ),
     aPartir(
       supabase
         .from('itens_cobranca')
         .select(
-          'aluno_id, aula_id, aluno:alunos!aluno_id (nome), cobranca:cobrancas!inner (status), aula:aulas!inner (turma_id, data_hora_inicio, status)',
+          'aluno_id, aula_id, aluno:alunos!aluno_id (nome), cobranca:cobrancas!inner (status), aula:aulas!inner (turma_id, data_hora_referencia, status)',
         )
         .eq('aula.turma_id', turmaId)
         .neq('cobranca.status', 'Cancelada'),
-      'aula.data_hora_inicio',
+      'aula.data_hora_referencia',
     ),
     aPartir(
       supabase
         .from('pendencias_reposicao')
-        .select('aluno_id, aula_origem_id, aula:aulas!aula_origem_id!inner (turma_id, data_hora_inicio)')
+        .select('aluno_id, aula_origem_id, aula:aulas!aula_origem_id!inner (turma_id, data_hora_referencia)')
         .eq('aula.turma_id', turmaId),
-      'aula.data_hora_inicio',
+      'aula.data_hora_referencia',
     ),
   ])
   for (const r of [aulas, presencas, matriculas, chegando, itens, pendencias]) falhou(r.error)
@@ -103,21 +105,21 @@ async function situacao(
     data_fim: turma.data_fim ? dia(turma.data_fim) : null,
     data_unica: turma.data_unica ? dia(turma.data_unica) : null,
     aulas: (aulas.data ?? []).map((a) => ({
-      data: dia(a.data_hora_inicio),
+      data: dia(a.data_hora_referencia),
       status: a.status as StatusAula,
       temPresenca: comPresenca.has(a.id as number),
     })),
     matriculasAtivas: matriculas.count ?? 0,
     reposicoesChegando: (chegando.data ?? []).map((p) => ({
       aluno: nome(p.aluno),
-      data: dia((p.aula as unknown as { data_hora_inicio: string }).data_hora_inicio),
+      data: dia((p.aula as unknown as { data_hora_referencia: string }).data_hora_referencia),
     })),
     cobrancas: (itens.data ?? []).map((i) => {
-      const aula = i.aula as unknown as { data_hora_inicio: string; status: StatusAula }
+      const aula = i.aula as unknown as { data_hora_referencia: string; status: StatusAula }
       const cobranca = i.cobranca as unknown as { status: string }
       return {
         aluno: nome(i.aluno),
-        data: dia(aula.data_hora_inicio),
+        data: dia(aula.data_hora_referencia),
         confirmada: cobranca.status !== 'Rascunho',
         // Aula ja excluida tambem resolve: os alunos dela ja foram para reposicao.
         temReposicao:

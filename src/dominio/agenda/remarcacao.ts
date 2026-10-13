@@ -45,6 +45,7 @@ export function planejarRemarcacao(
   if (aula.status === 'Realizada' || aula.temPresenca) {
     return { ok: false, erros: ['Esta aula já aconteceu: não dá para remarcar.'] }
   }
+  if (aula.status !== 'Agendada') return { ok: false, erros: ['Só uma aula agendada pode ser remarcada.'] }
 
   const formato = /^\d{4}-\d{2}-\d{2}$/.test(nova.data) && /^\d{2}:\d{2}$/.test(nova.inicio) && /^\d{2}:\d{2}$/.test(nova.fim)
   if (!formato) return { ok: false, erros: ['Informe a nova data, o início e o término.'] }

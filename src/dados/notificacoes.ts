@@ -180,7 +180,7 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
   const { data: aulas } = await supabase
     .from('aulas')
     .select(`
-      id, data_hora_inicio, link_online, turma_id,
+      id, data_hora_inicio, data_hora_fim, data_hora_referencia, link_online, turma_id,
       turma:turmas!turma_id (id, nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio, horario_fim, modalidade, link_videochamada)
     `)
     .eq('status', 'Agendada')
@@ -190,6 +190,8 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
   const linhas = (aulas ?? []) as unknown as {
     id: number
     data_hora_inicio: string
+    data_hora_fim: string
+    data_hora_referencia: string
     link_online: string | null
     turma_id: number
     turma: {
@@ -217,7 +219,9 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
   let total = 0
 
   for (const aula of online) {
-    const dia = aula.data_hora_inicio.slice(0, 10)
+    // Quem recebe e quem esta matriculado na data da aula pela regra: a
+    // remarcada (13/10/2026) segue com os alunos do dia original.
+    const dia = String(aula.data_hora_referencia).slice(0, 10)
     const { data: mats } = await supabase
       .from('matriculas')
       .select(`
@@ -256,8 +260,9 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
           turma: {
             nome: aula.turma!.nome,
             quando: quandoDaTurma(aula.turma!),
-            horario_inicio: String(aula.turma!.horario_inicio).slice(0, 5),
-            horario_fim: String(aula.turma!.horario_fim).slice(0, 5),
+            // O horario desta aula: a remarcada nao esta no horario da turma.
+            horario_inicio: String(aula.data_hora_inicio).slice(11, 16),
+            horario_fim: String(aula.data_hora_fim).slice(11, 16),
             modalidade: 'Online',
           },
           link: null,

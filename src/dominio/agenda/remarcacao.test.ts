@@ -65,6 +65,11 @@ describe('planejarRemarcacao', () => {
     expect(r).toEqual({ ok: false, erros: ['Esta aula foi excluída.'] })
   })
 
+  it('aula cancelada ou de feriado não é remarcada', () => {
+    const r = planejarRemarcacao(aula({ status: 'Cancelada' }), { data: '2026-10-16', inicio: '16:00', fim: '17:00' }, agora)
+    expect(r).toEqual({ ok: false, erros: ['Só uma aula agendada pode ser remarcada.'] })
+  })
+
   it('término antes do início', () => {
     const r = planejarRemarcacao(aula(), { data: '2026-10-16', inicio: '16:00', fim: '15:00' }, agora)
     expect(r).toEqual({ ok: false, erros: ['O término deve ser depois do início.'] })
