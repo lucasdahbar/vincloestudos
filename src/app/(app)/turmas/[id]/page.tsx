@@ -52,6 +52,7 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
                 id={turma.id}
                 nome={turma.nome}
                 unica={turma.tipo_recorrencia === 'Único'}
+                fimAtual={turma.data_fim}
               />
             )}
             <ExcluirTurma id={turma.id} nome={turma.nome} />

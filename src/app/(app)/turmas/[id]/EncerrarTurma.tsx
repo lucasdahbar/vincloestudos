@@ -1,12 +1,13 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { consultarEncerramento, encerrarTurma } from '../acoes'
 import type { PreviaEncerramento } from '@/dados/encerramento'
 import { Botao } from '@/ui/Botao'
 import { entradaClasse } from '@/ui/Campo'
+import { somarDias } from '@/dominio/agenda/recorrencia'
 
 /** Hoje no relógio da escola, no navegador. */
 const hojeNaEscola = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
@@ -21,20 +22,42 @@ const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um :
  * pergunta. A recorrente pede a data a partir da qual não há mais aula; a aula
  * única não pede (o sistema decide pela aula ter acontecido ou não).
  */
-export function EncerrarTurma({ id, nome, unica }: { id: number; nome: string; unica: boolean }) {
+export function EncerrarTurma({
+  id,
+  nome,
+  unica,
+  fimAtual,
+}: {
+  id: number
+  nome: string
+  unica: boolean
+  /** Último dia da turma recorrente hoje, em ISO. */
+  fimAtual: string | null
+}) {
   const router = useRouter()
   const [aberto, setAberto] = useState(false)
-  const [data, setData] = useState(hojeNaEscola)
+  // Turma cujo fim marcado já passou: o encerramento natural é no dia seguinte
+  // a ele. Hoje estenderia a turma, e o sistema recusaria.
+  const [data, setData] = useState(() => {
+    const hoje = hojeNaEscola()
+    return fimAtual && fimAtual < hoje ? somarDias(fimAtual, 1) : hoje
+  })
   const [previa, setPrevia] = useState<PreviaEncerramento | null>(null)
   const [erros, setErros] = useState<string[]>([])
   const [pendente, iniciar] = useTransition()
+  // Só vale a resposta da última consulta: trocar a data no meio de uma
+  // consulta não pode mostrar a prévia da data antiga.
+  const consulta = useRef(0)
 
   function verificar(dataEscolhida: string | null) {
     setErros([])
+    const minha = ++consulta.current
     iniciar(async () => {
       try {
-        setPrevia(await consultarEncerramento(id, dataEscolhida))
+        const r = await consultarEncerramento(id, dataEscolhida)
+        if (minha === consulta.current) setPrevia(r)
       } catch {
+        if (minha !== consulta.current) return
         setPrevia(null)
         setErros(['Não foi possível conferir a turma agora. Tente de novo.'])
       }
@@ -108,6 +131,7 @@ export function EncerrarTurma({ id, nome, unica }: { id: number; nome: string; u
                       onChange={(e) => {
                         setData(e.target.value)
                         setPrevia(null)
+                        consulta.current++
                       }}
                       className={entradaClasse}
                     />
@@ -146,12 +170,14 @@ export function EncerrarTurma({ id, nome, unica }: { id: number; nome: string; u
                     <li>
                       {avaliada.avaliacao.aulasQueSaem > 0
                         ? 'A aula sai da agenda do sistema e da agenda do professor.'
-                        : 'A aula já aconteceu e continua no histórico.'}
+                        : 'Nenhuma aula sai da agenda: a turma só passa a constar como encerrada.'}
                     </li>
                   ) : (
                     <li>
-                      A última aula fica em {ddmmaaaa(avaliada.avaliacao.vespera)} ou antes. As aulas a
-                      partir de {ddmmaaaa(avaliada.data)} saem da agenda do sistema e do professor.
+                      A última aula fica em {ddmmaaaa(avaliada.avaliacao.vespera)} ou antes.{' '}
+                      {avaliada.avaliacao.aulasQueSaem > 0
+                        ? `${plural(avaliada.avaliacao.aulasQueSaem, 'aula sai', 'aulas saem')} da agenda do sistema e do professor (a partir de ${ddmmaaaa(avaliada.data)}).`
+                        : 'Nenhuma aula já lançada sai da agenda.'}
                     </li>
                   )}
                   {avaliada.avaliacao.alunos > 0 && (
@@ -187,6 +213,11 @@ export function EncerrarTurma({ id, nome, unica }: { id: number; nome: string; u
                 {podeEncerrar && (
                   <Botao aparencia="perigo" disabled={pendente} onClick={confirmar}>
                     {pendente ? 'Encerrando…' : 'Sim, encerrar'}
+                  </Botao>
+                )}
+                {unica && !podeEncerrar && (
+                  <Botao aparencia="secundario" disabled={pendente} onClick={() => verificar(null)}>
+                    {pendente ? 'Verificando…' : 'Verificar de novo'}
                   </Botao>
                 )}
                 <Botao aparencia="secundario" onClick={() => setAberto(false)}>

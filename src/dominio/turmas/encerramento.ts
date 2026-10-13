@@ -12,6 +12,8 @@ export interface SituacaoEncerramento {
   tipo_recorrencia: TipoRecorrencia
   /** Recorrente: primeiro dia da turma. */
   data_inicio: string | null
+  /** Recorrente: último dia da turma hoje. */
+  data_fim: string | null
   /** Aula unica: a data dela. */
   data_unica: string | null
   aulas: { data: string; status: StatusAula; temPresenca: boolean }[]
@@ -62,6 +64,16 @@ export function avaliarEncerramento(s: SituacaoEncerramento, data: string): Aval
     motivos.push(
       `A turma começa em ${ddmmaaaa(s.data_inicio)}: encerrar nessa data a deixaria sem aula ` +
         'nenhuma. Nesse caso, use Excluir turma (desmatricule os alunos antes, se houver).',
+    )
+  }
+
+  // Uma data alem do fim atual estenderia a turma em vez de encerra-la (ano
+  // digitado errado, ou o fim marcado para o futuro que ja passou). O dia
+  // seguinte ao fim atual vale: e o que encerra a turma que ja terminou.
+  if (s.tipo_recorrencia === 'Recorrente' && s.data_fim && data > somarDias(s.data_fim, 1)) {
+    motivos.push(
+      `A turma já termina em ${ddmmaaaa(s.data_fim)}. Para encerrar, escolha uma data até ` +
+        `${ddmmaaaa(somarDias(s.data_fim, 1))}.`,
     )
   }
 

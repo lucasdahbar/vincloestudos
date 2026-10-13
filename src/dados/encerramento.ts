@@ -22,7 +22,10 @@ export type PreviaEncerramento =
  * Le tudo o que a regra precisa. Qualquer erro de leitura estoura: contar
  * "nenhuma cobranca" por engano liberaria um encerramento que nao podia.
  */
-async function situacao(turmaId: number): Promise<SituacaoEncerramento & { status: string }> {
+async function situacao(
+  turmaId: number,
+  dataInformada: string | null,
+): Promise<SituacaoEncerramento & { status: string }> {
   const supabase = await clienteServidor()
   const falhou = (e: { message: string } | null) => {
     if (e) throw new Error(`Falha ao conferir a turma: ${e.message}`)
@@ -30,37 +33,61 @@ async function situacao(turmaId: number): Promise<SituacaoEncerramento & { statu
 
   const { data: turma, error: erroTurma } = await supabase
     .from('turmas')
-    .select('id, status, tipo_recorrencia, data_inicio, data_unica')
+    .select('id, status, tipo_recorrencia, data_inicio, data_fim, data_unica')
     .eq('id', turmaId)
     .maybeSingle()
   falhou(erroTurma)
   if (!turma) throw new Error('Esta turma não existe mais.')
 
+  // Na recorrente so interessa o que vem a partir da data. Ler a turma
+  // inteira esbarraria no limite de 1000 linhas do Supabase (presencas e
+  // itens de cobranca de um ano todo) e a previa diria "pode" a toa. A aula
+  // unica le tudo: a data depende de a aula ter acontecido.
+  const desde =
+    turma.tipo_recorrencia === 'Recorrente' && dataInformada ? `${dataInformada}T00:00:00` : null
+  const aPartir = <T extends { gte: (c: string, v: string) => T }>(q: T, coluna: string) =>
+    desde ? q.gte(coluna, desde) : q
+
   const [aulas, presencas, matriculas, chegando, itens, pendencias] = await Promise.all([
-    supabase.from('aulas').select('id, data_hora_inicio, status').eq('turma_id', turmaId),
-    supabase.from('presencas').select('aula_id, aula:aulas!inner (turma_id)').eq('aula.turma_id', turmaId),
+    aPartir(
+      supabase.from('aulas').select('id, data_hora_inicio, status').eq('turma_id', turmaId),
+      'data_hora_inicio',
+    ),
+    aPartir(
+      supabase.from('presencas').select('aula_id, aula:aulas!inner (turma_id, data_hora_inicio)').eq('aula.turma_id', turmaId),
+      'aula.data_hora_inicio',
+    ),
     supabase
       .from('matriculas')
       .select('id', { count: 'exact', head: true })
       .eq('turma_id', turmaId)
       .eq('status', 'Ativa')
       .eq('flag_reposicao', false),
-    supabase
-      .from('pendencias_reposicao')
-      .select('aluno:alunos!aluno_id (nome), aula:aulas!aula_reposicao_id!inner (turma_id, data_hora_inicio)')
-      .eq('aula.turma_id', turmaId)
-      .eq('status', 'Agendada'),
-    supabase
-      .from('itens_cobranca')
-      .select(
-        'aluno_id, aula_id, aluno:alunos!aluno_id (nome), cobranca:cobrancas!inner (status), aula:aulas!inner (turma_id, data_hora_inicio, status)',
-      )
-      .eq('aula.turma_id', turmaId)
-      .neq('cobranca.status', 'Cancelada'),
-    supabase
-      .from('pendencias_reposicao')
-      .select('aluno_id, aula_origem_id, aula:aulas!aula_origem_id!inner (turma_id)')
-      .eq('aula.turma_id', turmaId),
+    aPartir(
+      supabase
+        .from('pendencias_reposicao')
+        .select('aluno:alunos!aluno_id (nome), aula:aulas!aula_reposicao_id!inner (turma_id, data_hora_inicio)')
+        .eq('aula.turma_id', turmaId)
+        .eq('status', 'Agendada'),
+      'aula.data_hora_inicio',
+    ),
+    aPartir(
+      supabase
+        .from('itens_cobranca')
+        .select(
+          'aluno_id, aula_id, aluno:alunos!aluno_id (nome), cobranca:cobrancas!inner (status), aula:aulas!inner (turma_id, data_hora_inicio, status)',
+        )
+        .eq('aula.turma_id', turmaId)
+        .neq('cobranca.status', 'Cancelada'),
+      'aula.data_hora_inicio',
+    ),
+    aPartir(
+      supabase
+        .from('pendencias_reposicao')
+        .select('aluno_id, aula_origem_id, aula:aulas!aula_origem_id!inner (turma_id, data_hora_inicio)')
+        .eq('aula.turma_id', turmaId),
+      'aula.data_hora_inicio',
+    ),
   ])
   for (const r of [aulas, presencas, matriculas, chegando, itens, pendencias]) falhou(r.error)
 
@@ -73,6 +100,7 @@ async function situacao(turmaId: number): Promise<SituacaoEncerramento & { statu
     status: turma.status,
     tipo_recorrencia: turma.tipo_recorrencia,
     data_inicio: turma.data_inicio ? dia(turma.data_inicio) : null,
+    data_fim: turma.data_fim ? dia(turma.data_fim) : null,
     data_unica: turma.data_unica ? dia(turma.data_unica) : null,
     aulas: (aulas.data ?? []).map((a) => ({
       data: dia(a.data_hora_inicio),
@@ -103,11 +131,14 @@ export async function previaEncerramento(
   turmaId: number,
   dataInformada: string | null,
 ): Promise<PreviaEncerramento> {
-  const s = await situacao(turmaId)
+  const dataValida = (d: string | null) => d !== null && /^\d{4}-\d{2}-\d{2}$/.test(d)
+  const informada = dataValida(dataInformada) ? dataInformada : null
+
+  const s = await situacao(turmaId, informada)
   if (s.status !== 'Ativa') return { tipo: 'invalida', motivo: 'Esta turma já está encerrada.' }
 
-  const data = dataDoEncerramento(s, dataInformada)
-  if (!data || !/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+  const data = dataDoEncerramento(s, informada)
+  if (!data || !dataValida(data)) {
     return { tipo: 'invalida', motivo: 'Informe a data a partir da qual a turma não tem mais aula.' }
   }
 

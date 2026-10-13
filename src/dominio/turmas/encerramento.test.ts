@@ -16,6 +16,7 @@ const aula = (data: string, over: Partial<SituacaoEncerramento['aulas'][number]>
 const turma = (over: Partial<SituacaoEncerramento> = {}): SituacaoEncerramento => ({
   tipo_recorrencia: 'Recorrente',
   data_inicio: '2026-10-07',
+  data_fim: '2026-12-31',
   data_unica: null,
   aulas: [aula('2026-10-07', { status: 'Realizada', temPresenca: true }), aula('2026-10-14'), aula('2026-10-21')],
   matriculasAtivas: 2,
@@ -37,6 +38,7 @@ describe('dataDoEncerramento', () => {
     const unica = turma({
       tipo_recorrencia: 'Único',
       data_inicio: null,
+      data_fim: null,
       data_unica: '2026-10-20',
       aulas: [aula('2026-10-20')],
     })
@@ -47,6 +49,7 @@ describe('dataDoEncerramento', () => {
     const unica = turma({
       tipo_recorrencia: 'Único',
       data_inicio: null,
+      data_fim: null,
       data_unica: '2026-10-07',
       aulas: [aula('2026-10-07', { status: 'Realizada', temPresenca: true })],
     })
@@ -79,6 +82,16 @@ describe('avaliarEncerramento', () => {
     const r = avaliarEncerramento(turma({ aulas: [] }), '2026-10-07')
     expect(r.pode).toBe(false)
     if (!r.pode) expect(r.motivos[0]).toContain('Excluir turma')
+  })
+
+  it('data depois do fim atual estenderia a turma: bloqueia', () => {
+    const r = avaliarEncerramento(turma(), '2027-03-01')
+    expect(r.pode).toBe(false)
+    if (!r.pode) expect(r.motivos[0]).toContain('até 01/01/2027')
+  })
+
+  it('o dia seguinte ao fim atual ainda vale (turma que já terminou)', () => {
+    expect(avaliarEncerramento(turma(), '2027-01-01').pode).toBe(true)
   })
 
   it('reposição de outra turma marcada depois da data bloqueia', () => {
