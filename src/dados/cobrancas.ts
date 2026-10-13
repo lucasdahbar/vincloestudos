@@ -5,6 +5,7 @@ import { deNumeric, formatarBRL, paraNumeric, somar, type Centavos } from '@/dom
 import { carregarVigencias } from './vigencias'
 import { podeCancelarCobranca, type StatusCobranca } from '@/dominio/cobrancas/cancelamento'
 import { montarCobrancas, type AulaFaturavel } from '@/dominio/cobrancas/geracao'
+import { planejarRascunho, type ItemDoRascunho } from '@/dominio/cobrancas/rascunho'
 import { gerarTextoCobranca, type ItemDoTexto } from '@/dominio/cobrancas/texto'
 
 export interface CobrancaResumo {
@@ -28,6 +29,26 @@ export function limitesDoMes(mes: string): { primeiro: string; ultimo: string } 
 }
 
 /**
+ * Lê todas as linhas de uma consulta, de mil em mil. O Supabase devolve no
+ * máximo mil por chamada, calado: com o rascunho refeito a cada geração, uma
+ * leitura truncada viraria "essa aula não existe" e apagaria itens certos.
+ * Qualquer erro estoura, e nada é gravado.
+ */
+export async function lerTudo<T>(
+  pagina: (de: number, ate: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const todas: T[] = []
+  for (;;) {
+    const { data, error } = await pagina(todas.length, todas.length + 999)
+    if (error) throw new Error(`Falha ao levantar a base da cobrança: ${error.message}`)
+    // Avança pelo que veio, não por mil: se o servidor devolver menos por
+    // página, nenhuma linha é pulada.
+    if (!data || data.length === 0) return todas
+    todas.push(...data)
+  }
+}
+
+/**
  * Levanta as aulas do mês com tudo que a regra de faturamento precisa decidir.
  * O valor vem de `valor_servico_em`, resolvido para a data de cada aula — nunca
  * do valor corrente do serviço, que pode ter mudado desde então.
@@ -35,26 +56,30 @@ export function limitesDoMes(mes: string): { primeiro: string; ultimo: string } 
 async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
   const supabase = await clienteServidor()
   const { primeiro, ultimo } = limitesDoMes(mes)
+  const de = `${primeiro}T00:00:00`
+  const ate = `${ultimo}T23:59:59`
 
-  const { data: aulas, error } = await supabase
-    .from('aulas')
-    .select(`
-      id, data_hora_inicio, data_hora_referencia, status, turma_id,
-      turma:turmas!turma_id (
-        id, nome, servico_id,
-        servico:servicos!servico_id (id, nome),
-        materia:materias!materia_id (nome),
-        ano_escolar:anos_escolares!ano_escolar_id (nome)
-      )
-    `)
-    // Aula remarcada (13/10/2026) continua cobrada no mes e pela matricula da
-    // data original, mesmo que tenha ido para outro mes.
-    .gte('data_hora_referencia', `${primeiro}T00:00:00`)
-    .lte('data_hora_referencia', `${ultimo}T23:59:59`)
+  const aulas = await lerTudo((a, b) =>
+    supabase
+      .from('aulas')
+      .select(`
+        id, data_hora_inicio, data_hora_referencia, status, turma_id,
+        turma:turmas!turma_id (
+          id, nome, servico_id,
+          servico:servicos!servico_id (id, nome),
+          materia:materias!materia_id (nome),
+          ano_escolar:anos_escolares!ano_escolar_id (nome)
+        )
+      `)
+      // Aula remarcada (13/10/2026) continua cobrada no mes e pela matricula da
+      // data original, mesmo que tenha ido para outro mes.
+      .gte('data_hora_referencia', de)
+      .lte('data_hora_referencia', ate)
+      .order('id')
+      .range(a, b),
+  )
 
-  if (error) throw new Error(`Falha ao carregar aulas: ${error.message}`)
-
-  const linhas = (aulas ?? []) as unknown as {
+  const linhas = aulas as unknown as {
     id: number
     data_hora_inicio: string
     data_hora_referencia: string
@@ -72,16 +97,35 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
 
   if (linhas.length === 0) return []
 
-  const [{ data: matriculas }, { data: cobradas }, { data: pendencias }] = await Promise.all([
-    supabase
-      .from('matriculas')
-      .select('aluno_id, turma_id, status, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (id, nome, responsavel_id, responsavel:responsaveis!responsavel_id (id, nome))'),
-    supabase.from('itens_cobranca').select('aula_id, aluno_id'),
+  const [matriculas, cobradas, pendencias] = await Promise.all([
+    lerTudo((a, b) =>
+      supabase
+        .from('matriculas')
+        .select('id, aluno_id, turma_id, status, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (id, nome, responsavel_id, responsavel:responsaveis!responsavel_id (id, nome))')
+        .order('id')
+        .range(a, b),
+    ),
+    // So a cobranca confirmada (ou ja enviada, parcial, quitada) marca a aula
+    // como cobrada. O rascunho nao: ele e refeito a cada geracao (14/10/2026).
+    lerTudo((a, b) =>
+      supabase
+        .from('itens_cobranca')
+        .select('id, aula_id, aluno_id, cobranca:cobrancas!inner (status), aula:aulas!inner (data_hora_referencia)')
+        .not('cobranca.status', 'in', '(Rascunho,Cancelada)')
+        .gte('aula.data_hora_referencia', de)
+        .lte('aula.data_hora_referencia', ate)
+        .order('id')
+        .range(a, b),
+    ),
     // Rodada 3: as ausencias (para anotar ou tirar da cobranca) e as
     // reposicoes (para cobrar zero ou a diferenca).
-    supabase
-      .from('pendencias_reposicao')
-      .select('aluno_id, aula_origem_id, aula_reposicao_id, origem, status, cobrar, aula_origem:aulas!aula_origem_id (data_hora_referencia, turma:turmas!turma_id (servico_id))'),
+    lerTudo((a, b) =>
+      supabase
+        .from('pendencias_reposicao')
+        .select('id, aluno_id, aula_origem_id, aula_reposicao_id, origem, status, cobrar, aula_origem:aulas!aula_origem_id (data_hora_referencia, turma:turmas!turma_id (servico_id))')
+        .order('id')
+        .range(a, b),
+    ),
   ])
 
   // Por aluno, nao por aula: numa turma em grupo, a aula ja cobrada de um
@@ -153,7 +197,12 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
         descricao: partes.join(' — '),
         valor: vigencias.valorServico(aula.turma?.servico_id ?? 0, dia),
         status_aula: aula.status,
-        matricula_ativa: m.status === 'Ativa',
+        // Vale na data da aula (a janela acima). Matricula encerrada COM data de
+        // saida continua valendo ate ela: o aluno que saiu no meio do mes
+        // pagou as aulas que teve (14/10/2026 — com o rascunho refeito a cada
+        // geracao, exigir status Ativa tirava essas aulas do rascunho).
+        // Encerrada sem data de saida nao tem ate quando valer.
+        matricula_ativa: m.status === 'Ativa' || m.data_fim !== null,
         matricula_reposicao: m.flag_reposicao,
         ja_cobrada: jaCobradas.has(chave(aula.id, m.aluno_id)),
         ausencia: ausenciaDe(ausencias.get(chave(aula.id, m.aluno_id))),
@@ -189,71 +238,119 @@ function reposicaoDe(
 
 /**
  * Gera as cobranças do mês em Rascunho, para a gestora revisar.
- * Reprocessar o mesmo mês não duplica item: aulas já cobradas são ignoradas na
- * montagem, e `UNIQUE(itens_cobranca.aula_id)` fecha a porta no banco.
+ *
+ * Cada clique refaz o rascunho do mês (pedido do tio, 14/10/2026): o sistema
+ * levanta de novo todas as aulas do mês que ainda não estão em cobrança
+ * confirmada e acerta o rascunho a elas — acrescenta o que faltava, atualiza
+ * valor e descrição, e tira o que deixou de valer (aluno desmatriculado, aula
+ * cancelada, "não cobrar"). O desconto digitado à mão é mantido. Cobrança
+ * confirmada nunca é tocada: o que faltar vai numa cobrança complementar (C1).
+ *
+ * Reprocessar não duplica: `UNIQUE(itens_cobranca.aula_id, aluno_id)` fecha a
+ * porta no banco. Cada responsável é aplicado numa transação só.
  */
-export async function gerarCobrancasDoMes(
-  mes: string,
-): Promise<{ criadas: number; itens: number }> {
+export async function gerarCobrancasDoMes(mes: string): Promise<{
+  criadas: number
+  adicionados: number
+  removidos: number
+  atualizados: number
+  /** Responsáveis cujo rascunho não pôde ser refeito (os demais foram). */
+  falhas: string[]
+}> {
   const supabase = await clienteServidor()
+  const { primeiro, ultimo } = limitesDoMes(mes)
+  const de = `${primeiro}T00:00:00`
+  const ate = `${ultimo}T23:59:59`
+
   const montadas = montarCobrancas(await aulasDoMes(mes))
-  const { primeiro } = limitesDoMes(mes)
 
-  let criadas = 0
-  let itens = 0
-
-  for (const c of montadas) {
-    // C1 (Rodada 2): passa a existir mais de uma cobranca por responsavel no
-    // mesmo mes. Um rascunho aberto continua sendo reaproveitado; se as
-    // anteriores ja foram confirmadas, as aulas novas (matricula feita no meio
-    // do mes) viram uma cobranca COMPLEMENTAR, sem tocar no que ja foi enviado.
-    const { data: doMes } = await supabase
-      .from('cobrancas')
-      .select('id, status')
-      .eq('responsavel_id', c.responsavel_id)
-      .eq('mes_referencia', primeiro)
+  // O que ja esta nos rascunhos do mes. So itens de aulas do proprio mes:
+  // o que esta fora dele nao e recalculado aqui e nao pode ser apagado.
+  const doRascunho = (await lerTudo((a, b) =>
+    supabase
+      .from('itens_cobranca')
+      .select(
+        'id, aula_id, aluno_id, descricao, valor_original, desconto, cobranca:cobrancas!inner (responsavel_id, status, mes_referencia), aula:aulas!inner (data_hora_referencia)',
+      )
+      .eq('cobranca.status', 'Rascunho')
+      .eq('cobranca.mes_referencia', primeiro)
+      .gte('aula.data_hora_referencia', de)
+      .lte('aula.data_hora_referencia', ate)
       .order('id')
+      .range(a, b),
+  )) as unknown as {
+    id: number
+    aula_id: number
+    aluno_id: number
+    descricao: string
+    valor_original: string
+    desconto: string
+    cobranca: { responsavel_id: number }
+  }[]
 
-    const rascunho = (doMes ?? []).find((x) => x.status === 'Rascunho')
-    const jaTeveOutra = (doMes ?? []).length > 0
+  const noRascunho = new Map<number, ItemDoRascunho[]>()
+  for (const i of doRascunho) {
+    const lista = noRascunho.get(i.cobranca.responsavel_id) ?? []
+    lista.push({
+      id: i.id,
+      aula_id: i.aula_id,
+      aluno_id: i.aluno_id,
+      descricao: i.descricao,
+      valor_original: deNumeric(i.valor_original),
+      desconto: deNumeric(i.desconto),
+    })
+    noRascunho.set(i.cobranca.responsavel_id, lista)
+  }
 
-    let cobrancaId = rascunho?.id
-    if (!cobrancaId) {
-      const { data, error } = await supabase
-        .from('cobrancas')
-        .insert({
-          responsavel_id: c.responsavel_id,
-          mes_referencia: primeiro,
-          complementar: jaTeveOutra,
-          valor_bruto: paraNumeric(c.valor_bruto),
-          valor_desconto: paraNumeric(c.valor_desconto),
-          valor_total: paraNumeric(c.valor_total),
-        })
-        .select('id')
-        .single()
-      if (error) throw new Error(`Falha ao criar cobrança: ${error.message}`)
-      cobrancaId = data.id
-      criadas++
-    }
+  const devidas = new Map(montadas.map((c) => [c.responsavel_id, c]))
+  // Tambem quem tem rascunho mas nao tem mais nada a cobrar: o rascunho dele
+  // precisa esvaziar.
+  const responsaveis = new Set([...devidas.keys(), ...noRascunho.keys()])
 
-    const { error: erroItens } = await supabase.from('itens_cobranca').insert(
-      c.itens.map((i) => ({
-        cobranca_id: cobrancaId,
-        aluno_id: i.aluno_id,
-        aula_id: i.aula_id,
+  const total = { criadas: 0, adicionados: 0, removidos: 0, atualizados: 0, falhas: [] as string[] }
+
+  for (const responsavelId of responsaveis) {
+    const plano = planejarRascunho(
+      noRascunho.get(responsavelId) ?? [],
+      devidas.get(responsavelId)?.itens ?? [],
+    )
+    if (plano.apagar.length === 0 && plano.atualizar.length === 0 && plano.inserir.length === 0) continue
+
+    const { data, error } = await supabase.rpc('aplicar_plano_rascunho', {
+      p_responsavel_id: responsavelId,
+      p_mes: primeiro,
+      p_apagar: plano.apagar,
+      p_atualizar: plano.atualizar.map((i) => ({
+        id: i.id,
         descricao: i.descricao,
         valor_original: paraNumeric(i.valor_original),
         desconto: paraNumeric(i.desconto),
         valor_final: paraNumeric(i.valor_final),
       })),
-    )
-    if (erroItens) throw new Error(`Falha ao gravar itens: ${erroItens.message}`)
-    itens += c.itens.length
+      p_inserir: plano.inserir.map((i) => ({
+        aula_id: i.aula_id,
+        aluno_id: i.aluno_id,
+        descricao: i.descricao,
+        valor_original: paraNumeric(i.valor_original),
+        desconto: paraNumeric(i.desconto),
+        valor_final: paraNumeric(i.valor_final),
+      })),
+    })
+    if (error) {
+      // Cada responsavel e uma transacao: o que falhou ficou como estava, e os
+      // outros seguem. A tela mostra quantos nao foram.
+      total.falhas.push(`responsável ${responsavelId}: ${error.message}`)
+      continue
+    }
 
-    await recalcularTotais(cobrancaId)
+    const r = data as { criada: boolean; apagados: number; atualizados: number; inseridos: number }
+    if (r.criada) total.criadas++
+    total.adicionados += r.inseridos
+    total.removidos += r.apagados
+    total.atualizados += r.atualizados
   }
 
-  return { criadas, itens }
+  return total
 }
 
 /** Recalcula os totais a partir dos itens. Chamar após qualquer ajuste. */
@@ -398,8 +495,18 @@ export async function ajustarDesconto(itemId: number, desconto: Centavos): Promi
 /** Confirma a cobrança e gera o texto do WhatsApp (Operacionais 6.3). */
 export async function confirmarCobranca(id: number, usuario: string): Promise<void> {
   const supabase = await clienteServidor()
+
+  // Quando a cobranca foi lida: gerar de novo refaz o rascunho, e o texto do
+  // WhatsApp sai dos itens lidos aqui. Se algo mexer na cobranca entre esta
+  // leitura e a gravacao, a confirmacao e recusada em vez de sair com um texto
+  // de itens que ja nao existem (14/10/2026).
+  const { data: lida } = await supabase
+    .from('cobrancas')
+    .select('updated_at')
+    .eq('id', id)
+    .maybeSingle()
   const cobranca = await obterCobranca(id)
-  if (!cobranca) throw new Error('Cobrança não encontrada.')
+  if (!cobranca || !lida) throw new Error('Cobrança não encontrada.')
 
   // C5 (Rodada 2): a chave Pix vem da conta de recebimento escolhida nesta
   // cobranca. Antes vinha da "primeira conta ativa com chave" — se a gestora
@@ -439,10 +546,17 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
     itens: itensTexto,
   })
 
-  await supabase
+  const { data: confirmadas, error } = await supabase
     .from('cobrancas')
     .update({ status: 'Confirmada', texto_whatsapp: texto })
     .eq('id', id)
+    .eq('status', 'Rascunho')
+    .eq('updated_at', lida.updated_at)
+    .select('id')
+  if (error) throw new Error(error.message)
+  if (!confirmadas || confirmadas.length === 0) {
+    throw new Error('A cobrança mudou enquanto você confirmava. Abra-a de novo e confira antes de confirmar.')
+  }
 
   await supabase.from('logs_operacionais').insert({
     acao: 'confirmar_cobranca',

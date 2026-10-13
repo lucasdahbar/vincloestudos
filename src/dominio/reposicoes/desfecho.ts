@@ -38,14 +38,18 @@ export type StatusCobranca =
  * ainda não foi, e sai da próxima cobrança; já foi, recebida ou não, e vira
  * crédito do responsável.
  *
- * Cobrança cancelada não conta: cancelar libera as aulas para serem cobradas
+ * Rascunho e cobrança cancelada não contam: rascunho ainda não foi cobrado (o
+ * item sai dele), e cancelar libera as aulas para serem cobradas
  * de novo (C7), então é o mesmo que nunca ter cobrado.
  */
 export function creditoDaDesistencia(
   cobrar: boolean,
   itemCobrado: { valor_final: Centavos; cobranca_status: StatusCobranca } | null,
 ): Centavos {
-  if (cobrar || !itemCobrado || itemCobrado.cobranca_status === 'Cancelada') return 0
+  // Rascunho (14/10/2026) tambem nao e aula cobrada: ainda nao foi para o
+  // responsavel, e o item sai dele.
+  if (cobrar || !itemCobrado) return 0
+  if (itemCobrado.cobranca_status === 'Cancelada' || itemCobrado.cobranca_status === 'Rascunho') return 0
   return Math.max(0, itemCobrado.valor_final)
 }
 
