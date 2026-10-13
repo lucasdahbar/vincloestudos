@@ -75,12 +75,14 @@ export async function aulasDisponiveis(de: string) {
 export async function agendarReposicao(
   pendenciaId: number,
   aulaDestinoId: number,
-): Promise<{ ok: boolean; erros?: string[] }> {
+): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[] }> {
   const supabase = await clienteServidor()
 
   const { data: p } = await supabase
     .from('pendencias_reposicao')
-    .select('id, aluno_id, aula_origem_id, status, aula_origem:aulas!aula_origem_id (turma_id)')
+    .select(
+      'id, aluno_id, aula_origem_id, status, matricula_reposicao_id, aula_origem:aulas!aula_origem_id (turma_id), matricula:matriculas!matricula_reposicao_id (turma_id)',
+    )
     .eq('id', pendenciaId)
     .maybeSingle()
 
@@ -105,14 +107,30 @@ export async function agendarReposicao(
     status: p.status,
   }
 
+  // So as regulares: a matricula de reposicao de uma remarcacao (a antiga, que
+  // sai logo abaixo) nao pode passar por "ja matriculado" na turma de destino.
   const { data: matriculas } = await supabase
     .from('matriculas')
     .select('aluno_id, turma_id')
     .eq('aluno_id', p.aluno_id)
     .eq('status', 'Ativa')
+    .eq('flag_reposicao', false)
 
   const plano = planejarReposicao(pendencia, destino, matriculas ?? [])
   if (plano.erros.length > 0) return { ok: false, erros: plano.erros }
+
+  // Remarcacao: a matricula da reposicao anterior valia so para aquela aula.
+  // Sai antes da nova, para o aluno nao continuar na lista da aula antiga (e
+  // para nao bater na trava de sobreposicao quando a data e a mesma).
+  const anterior = p.matricula as unknown as { turma_id: number } | null
+  if (p.matricula_reposicao_id) {
+    await supabase
+      .from('pendencias_reposicao')
+      .update({ matricula_reposicao_id: null })
+      .eq('id', pendenciaId)
+    const { error } = await supabase.from('matriculas').delete().eq('id', p.matricula_reposicao_id)
+    if (error) return { ok: false, erros: [error.message] }
+  }
 
   let matriculaId: number | null = null
   if (plano.precisaMatricula && plano.matricula) {
@@ -138,7 +156,9 @@ export async function agendarReposicao(
     .eq('id', pendenciaId)
 
   if (error) return { ok: false, erros: [error.message] }
-  return { ok: true }
+  // As turmas cuja lista de alunos mudou, para atualizar o evento no Google.
+  const turmasAfetadas = [...new Set([destino.turma_id, ...(anterior ? [anterior.turma_id] : [])])]
+  return { ok: true, turmasAfetadas }
 }
 
 /**
@@ -148,11 +168,13 @@ export async function agendarReposicao(
 export async function desistirReposicao(
   pendenciaId: number,
   decisao: Decisao,
-): Promise<{ ok: boolean; erros?: string[] }> {
+): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[] }> {
   const supabase = await clienteServidor()
   const { data: p } = await supabase
     .from('pendencias_reposicao')
-    .select('id, aluno_id, aula_origem_id, status, matricula_reposicao_id')
+    .select(
+      'id, aluno_id, aula_origem_id, status, matricula_reposicao_id, matricula:matriculas!matricula_reposicao_id (turma_id)',
+    )
     .eq('id', pendenciaId)
     .maybeSingle()
 
@@ -176,11 +198,13 @@ export async function desistirReposicao(
 
   // Reposição que estava marcada: o aluno sai da aula de destino. A matrícula
   // de reposição existia só para aquela data.
+  const destino = p.matricula as unknown as { turma_id: number } | null
   if (p.matricula_reposicao_id) {
     await supabase.from('matriculas').delete().eq('id', p.matricula_reposicao_id)
   }
 
-  return aplicarEfeitoFinanceiro(pendenciaId)
+  const r = await aplicarEfeitoFinanceiro(pendenciaId)
+  return { ...r, turmasAfetadas: destino ? [destino.turma_id] : [] }
 }
 
 /**
