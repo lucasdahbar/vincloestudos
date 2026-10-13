@@ -48,6 +48,8 @@ export interface TurmaComRelacoes {
   ano_escolar: { id: number; nome: string } | null
   professor: { id: number; nome: string; google_calendar_id: string | null } | null
   alunos_matriculados?: number
+  /** Alunos de outras turmas que vêm repor numa aula desta, de hoje em diante. */
+  reposicoes_marcadas?: number
 }
 
 /** T2: os filtros que a listagem de turmas oferece. */
@@ -76,20 +78,35 @@ export async function listarTurmas(
 
   const turmas = (data ?? []) as unknown as TurmaComRelacoes[]
 
-  // Contagem de matriculas ativas e nao-reposicao, exibida na listagem.
+  // Contagem exibida na listagem: matriculas regulares ativas e, a parte, as
+  // reposicoes que ainda vao acontecer (correcao de 13/10/2026: a turma que so
+  // tinha aluno de reposicao aparecia como vazia). A matricula de reposicao
+  // vale so para a data da aula, entao a de data passada nao conta mais.
+  const hoje = agoraNaEscola(new Date()).slice(0, 10)
   const { data: contagens } = await supabase
     .from('matriculas')
-    .select('turma_id')
+    .select('turma_id, flag_reposicao, data_fim')
     .eq('status', 'Ativa')
-    .eq('flag_reposicao', false)
 
-  const porTurma = new Map<number, number>()
-  for (const linha of contagens ?? []) {
-    const id = (linha as { turma_id: number }).turma_id
-    porTurma.set(id, (porTurma.get(id) ?? 0) + 1)
+  const regulares = new Map<number, number>()
+  const reposicoes = new Map<number, number>()
+  for (const linha of (contagens ?? []) as {
+    turma_id: number
+    flag_reposicao: boolean
+    data_fim: string | null
+  }[]) {
+    if (!linha.flag_reposicao) {
+      regulares.set(linha.turma_id, (regulares.get(linha.turma_id) ?? 0) + 1)
+    } else if (linha.data_fim && String(linha.data_fim).slice(0, 10) >= hoje) {
+      reposicoes.set(linha.turma_id, (reposicoes.get(linha.turma_id) ?? 0) + 1)
+    }
   }
 
-  return turmas.map((t) => ({ ...t, alunos_matriculados: porTurma.get(t.id) ?? 0 }))
+  return turmas.map((t) => ({
+    ...t,
+    alunos_matriculados: regulares.get(t.id) ?? 0,
+    reposicoes_marcadas: reposicoes.get(t.id) ?? 0,
+  }))
 }
 
 /**

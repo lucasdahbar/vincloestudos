@@ -9,6 +9,7 @@ import { BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { Selo } from '@/ui/Selo'
+import { EncerrarTurma } from './EncerrarTurma'
 import { ExcluirTurma } from './ExcluirTurma'
 
 export default async function PaginaTurma({ params }: { params: Promise<{ id: string }> }) {
@@ -46,6 +47,14 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
             <BotaoLink href={`/turmas/${turma.id}/editar`} aparencia="secundario">
               Editar turma
             </BotaoLink>
+            {turma.status === 'Ativa' && (
+              <EncerrarTurma
+                id={turma.id}
+                nome={turma.nome}
+                unica={turma.tipo_recorrencia === 'Único'}
+                fimAtual={turma.data_fim}
+              />
+            )}
             <ExcluirTurma id={turma.id} nome={turma.nome} />
           </div>
         )}

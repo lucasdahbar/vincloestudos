@@ -25,13 +25,13 @@ export async function previaExclusaoAula(aulaId: number): Promise<PreviaExclusao
   const supabase = await clienteServidor()
   const { data: aula, error: erroAula } = await supabase
     .from('aulas')
-    .select('id, turma_id, status, data_hora_inicio')
+    .select('id, turma_id, status, data_hora_inicio, data_hora_referencia')
     .eq('id', aulaId)
     .maybeSingle()
   if (erroAula) throw new Error(erroAula.message)
   if (!aula) return null
 
-  const data = dia(aula.data_hora_inicio)
+  const data = dia(aula.data_hora_referencia)
   const [presencas, matriculas, repondo, avisos] = await Promise.all([
     supabase.from('presencas').select('id', { count: 'exact', head: true }).eq('aula_id', aulaId),
     supabase
@@ -91,7 +91,9 @@ export async function executarExclusaoAula(
   aulaId: number,
   regulares: EscolhaRegular[],
   reposicoes: EscolhaReposicao[],
-): Promise<{ ok: true; turmaId: number } | { ok: false; erros: string[] }> {
+): Promise<
+  { ok: true; turmaId: number; turmasDestino: number[] } | { ok: false; erros: string[] }
+> {
   const previa = await previaExclusaoAula(aulaId)
   if (!previa) return { ok: false, erros: ['Esta aula não existe mais.'] }
 
@@ -110,7 +112,7 @@ export async function executarExclusaoAula(
 
   // `.in` com lista vazia não traz nada, sem erro: não precisa de atalho.
   const [rDestinos, rPendencias] = await Promise.all([
-    supabase.from('aulas').select('id, turma_id, status, data_hora_inicio').in('id', destinoIds),
+    supabase.from('aulas').select('id, turma_id, status, data_hora_inicio, data_hora_referencia').in('id', destinoIds),
     supabase
       .from('pendencias_reposicao')
       .select('id, aluno_id, aula_origem_id, status, aula_origem:aulas!aula_origem_id (turma_id)')
@@ -155,7 +157,7 @@ export async function executarExclusaoAula(
     return {
       aula_destino_id: destinoId,
       matricula_turma_id: plano.precisaMatricula ? destino.turma_id : null,
-      matricula_data: plano.precisaMatricula ? dia(destino.data_hora_inicio) : null,
+      matricula_data: plano.precisaMatricula ? dia(destino.data_hora_referencia) : null,
     }
   }
 
@@ -195,5 +197,10 @@ export async function executarExclusaoAula(
   })
   if (error) return { ok: false, erros: [error.message] }
 
-  return { ok: true, turmaId: previa.turmaId }
+  // As turmas que receberam alunos para repor: o evento delas ganha o aluno na
+  // ocorrencia do dia (correcao de 13/10/2026).
+  const turmasDestino = [...new Set((destinos ?? []).map((d) => d.turma_id as number))].filter(
+    (t) => t !== previa.turmaId,
+  )
+  return { ok: true, turmaId: previa.turmaId, turmasDestino }
 }

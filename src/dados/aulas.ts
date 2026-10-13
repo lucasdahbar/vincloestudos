@@ -15,15 +15,24 @@ export interface AulaComTurma {
   data_hora_inicio: string
   data_hora_fim: string
   status: StatusAula
+  /** Remarcada (13/10/2026): o horário que a regra da turma deu a ela. */
+  data_hora_original: string | null
   link_online: string | null
   observacao: string | null
-  turma: { id: number; nome: string; modalidade: string; professor_id: number } | null
+  turma: {
+    id: number
+    nome: string
+    modalidade: string
+    professor_id: number
+    tipo_recorrencia: 'Recorrente' | 'Único'
+    horario_fim: string
+  } | null
 }
 
 const SELECT_AULA = `
   id, turma_id, google_calendar_event_id, data_hora_inicio, data_hora_fim,
-  status, link_online, observacao,
-  turma:turmas!turma_id (id, nome, modalidade, professor_id)
+  status, link_online, observacao, data_hora_original,
+  turma:turmas!turma_id (id, nome, modalidade, professor_id, tipo_recorrencia, horario_fim)
 `
 
 /**
@@ -177,7 +186,7 @@ export async function listaDaAula(aulaId: number): Promise<ListaDaAula> {
   const supabase = await clienteServidor()
   const { data: aula } = await supabase
     .from('aulas')
-    .select('id, turma_id, data_hora_inicio')
+    .select('id, turma_id, data_hora_inicio, data_hora_referencia')
     .eq('id', aulaId)
     .maybeSingle()
 

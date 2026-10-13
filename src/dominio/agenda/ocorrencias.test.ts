@@ -36,13 +36,20 @@ describe('alunosNaData', () => {
     expect(alunosNaData([futura], '2026-10-19')).toEqual(['Caio'])
   })
 
-  it('deixa de fora matrícula encerrada e de reposição', () => {
-    expect(
-      alunosNaData(
-        [matricula({ status: 'Encerrada' }), matricula({ flag_reposicao: true })],
-        '2026-10-05',
-      ),
-    ).toEqual([])
+  it('deixa de fora matrícula encerrada', () => {
+    expect(alunosNaData([matricula({ status: 'Encerrada' })], '2026-10-05')).toEqual([])
+  })
+
+  it('quem repõe aparece só no dia da reposição, marcado', () => {
+    // Correcao de 13/10/2026: o professor precisa saber que o aluno vem.
+    const repondo = matricula({
+      nome: 'Davi',
+      flag_reposicao: true,
+      data_inicio: '2026-10-05',
+      data_fim: '2026-10-05',
+    })
+    expect(alunosNaData([fixa, repondo], '2026-10-05')).toEqual(['Ana Souza', 'Davi (reposição)'])
+    expect(alunosNaData([fixa, repondo], '2026-10-12')).toEqual(['Ana Souza'])
   })
 
   it('ordena por nome, respeitando acento', () => {
@@ -107,5 +114,14 @@ describe('fimDoHorizonte', () => {
     // Senão a ocorrência daquele dia herdaria a lista errada da série.
     const longe = matricula({ data_inicio: '2027-12-01', data_fim: '2027-12-20' })
     expect(fimDoHorizonte([longe], '2026-10-05')).toBe('2027-12-27')
+  })
+
+  it('conta a data da reposição', () => {
+    const repondo = matricula({
+      flag_reposicao: true,
+      data_inicio: '2027-12-20',
+      data_fim: '2027-12-20',
+    })
+    expect(fimDoHorizonte([repondo], '2026-10-05')).toBe('2027-12-27')
   })
 })

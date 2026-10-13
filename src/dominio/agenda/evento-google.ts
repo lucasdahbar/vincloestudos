@@ -27,6 +27,11 @@ export interface TurmaDoEvento {
   data_fim: string | null
   /** Datas da regra que não têm aula no sistema (ver `exdatesDoEvento`). */
   exdates?: string[]
+  /**
+   * Evento avulso de aula remarcada (13/10/2026): o horário de sempre dela,
+   * AAAA-MM-DDTHH:MM. Vai na descrição para o professor saber de onde veio.
+   */
+  remarcadaDe?: string | null
   /** HH:MM. */
   horario_inicio: string
   horario_fim: string
@@ -124,10 +129,15 @@ function recorrenciaDoEvento(regra: RegraRecorrencia, horario: string, exdates: 
 export function exdatesDoEvento(
   regra: RegraRecorrencia,
   puladas: ReadonlySet<string>,
-  aulas: { data: string; status: StatusAula }[],
+  /**
+   * `data` e o dia que a regra deu a aula. Remarcada (13/10/2026): saiu desse
+   * dia — conta como excluida dele, e ganha um evento avulso no dia novo.
+   */
+  aulas: { data: string; status: StatusAula; remarcada?: boolean }[],
 ): string[] {
-  const ativas = new Set(aulas.filter((a) => a.status !== 'Excluída').map((a) => a.data))
-  const excluidas = new Set(aulas.filter((a) => a.status === 'Excluída').map((a) => a.data))
+  const saiu = (a: (typeof aulas)[number]) => a.status === 'Excluída' || a.remarcada === true
+  const ativas = new Set(aulas.filter((a) => !saiu(a)).map((a) => a.data))
+  const excluidas = new Set(aulas.filter(saiu).map((a) => a.data))
   return datasDaRegra(regra, regra.data_inicio, regra.data_fim).filter(
     (d) => !ativas.has(d) && (excluidas.has(d) || puladas.has(d)),
   )
@@ -141,6 +151,31 @@ export function unicaSemAula(statusDasAulas: readonly StatusAula[]): boolean {
   return (
     statusDasAulas.includes('Excluída') && statusDasAulas.every((s) => s === 'Excluída')
   )
+}
+
+/**
+ * Encerrar turma (13/10/2026): o evento sai da agenda do professor ou fica?
+ *
+ * A recorrente encerrada pelo encerramento termina na vespera da data
+ * informada, e as aulas passadas ficam na agenda — antes, encerrar apagava o
+ * evento inteiro. Encerrada sem data no passado (de antes do encerramento)
+ * continua saindo inteira. A aula unica sai quando nao tem mais aula que vale.
+ */
+export function eventoSaiDaAgenda(
+  turma: {
+    status: 'Ativa' | 'Encerrada'
+    tipo_recorrencia: 'Recorrente' | 'Único'
+    data_fim: string | null
+  },
+  statusDasAulas: readonly StatusAula[],
+  hoje: string,
+): boolean {
+  if (turma.tipo_recorrencia === 'Único') {
+    const semAula = !statusDasAulas.some((s) => s !== 'Excluída')
+    return unicaSemAula(statusDasAulas) || (turma.status !== 'Ativa' && semAula)
+  }
+  if (turma.status === 'Ativa') return false
+  return !turma.data_fim || turma.data_fim >= hoje
 }
 
 export function montarEvento(turma: TurmaDoEvento): EventoGoogle {
@@ -183,8 +218,10 @@ export function montarEvento(turma: TurmaDoEvento): EventoGoogle {
  */
 export function descricaoDoEvento(turma: TurmaDoEvento): string {
   const regra = regraDoEvento(turma)
-  const quando =
-    turma.tipo_recorrencia === 'Único'
+  const de = turma.remarcadaDe
+  const quando = de
+    ? `Aula remarcada (era ${de.slice(8, 10)}/${de.slice(5, 7)} às ${de.slice(11, 16)})`
+    : turma.tipo_recorrencia === 'Único'
       ? 'Aula única'
       : regra
         ? `${textoDaRegra(regra)}, até ${ddmmaaaa(regra.data_fim)}`

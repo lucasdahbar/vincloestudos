@@ -13,7 +13,7 @@ import {
   descricaoDoEvento,
   exdatesDoEvento,
   regraDoEvento,
-  unicaSemAula,
+  eventoSaiDaAgenda,
   type MatriculaDoEvento,
   type TurmaDoEvento,
 } from '@/dominio/agenda/evento-google'
@@ -56,7 +56,8 @@ async function matriculasDaTurma(turmaId: number): Promise<MatriculaDoEvento[]> 
     .select('status, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (nome)')
     .eq('turma_id', turmaId)
     .eq('status', 'Ativa')
-    .eq('flag_reposicao', false)
+  // Inclusive as de reposicao (correcao de 13/10/2026): `ocorrencias.ts` as
+  // poe so na ocorrencia do dia, marcadas.
 
   return (data ?? []).map((m) => ({
     nome: (m.aluno as unknown as { nome: string } | null)?.nome ?? 'Aluno',
@@ -106,10 +107,11 @@ async function exdatesDaTurma(turmaId: number, turma: TurmaLida): Promise<string
     calendarioEscolar(admin, regra.data_inicio, regra.data_fim),
     admin
       .from('aulas')
-      .select('data_hora_inicio, status')
+      .select('data_hora_referencia, data_hora_original, status')
       .eq('turma_id', turmaId)
-      .gte('data_hora_inicio', `${regra.data_inicio}T00:00:00`)
-      .lte('data_hora_inicio', `${regra.data_fim}T23:59:59`),
+      // Pelo dia da regra: a aula remarcada sai do dia de sempre (13/10/2026).
+      .gte('data_hora_referencia', `${regra.data_inicio}T00:00:00`)
+      .lte('data_hora_referencia', `${regra.data_fim}T23:59:59`),
   ])
 
   const puladas = new Set(
@@ -124,15 +126,151 @@ async function exdatesDaTurma(turmaId: number, turma: TurmaLida): Promise<string
   return exdatesDoEvento(
     regra,
     puladas,
-    (aulas ?? []).map((a) => ({ data: String(a.data_hora_inicio).slice(0, 10), status: a.status })),
+    (aulas ?? []).map((a) => ({
+      data: String(a.data_hora_referencia).slice(0, 10),
+      status: a.status,
+      remarcada: a.data_hora_original !== null,
+    })),
   )
 }
 
-/** Turma única com a aula excluída (a linha fica no banco, com esse status). */
-async function unicaExcluida(turmaId: number, turma: TurmaLida): Promise<boolean> {
-  if (turma.tipo_recorrencia !== 'Único') return false
+/**
+ * Remarcar uma aula (13/10/2026): cada aula remarcada da turma recorrente
+ * ganha um evento avulso no dia novo, e o dia de sempre vira EXDATE da série
+ * (`exdatesDaTurma`). Não se usa a edição de ocorrência do Google porque
+ * regravar a série, ao salvar a turma, pode desfazê-la. Desfeita a
+ * remarcação, excluída a aula ou fora a série inteira, o avulso sai.
+ *
+ * Devolve as falhas, sem estourar: o evento é reflexo da aula.
+ */
+async function sincronizarAvulsos(
+  turmaId: number,
+  turma: TurmaLida,
+  googleCalendarId: string,
+  professorEmail: string | null,
+  link: string | null,
+  matriculas: MatriculaDoEvento[] | null,
+  apagarTodos = false,
+): Promise<string[]> {
+  if (turma.tipo_recorrencia !== 'Recorrente') return []
+
+  const admin = clienteAdmin()
+  const { data: aulas, error } = await admin
+    .from('aulas')
+    .select('id, data_hora_inicio, data_hora_fim, data_hora_original, status, google_evento_avulso_id')
+    .eq('turma_id', turmaId)
+    .or('data_hora_original.not.is.null,google_evento_avulso_id.not.is.null')
+  if (error) return [error.message]
+  if (!aulas || aulas.length === 0) return []
+
+  const mats = matriculas ?? (await matriculasDaTurma(turmaId))
+  const falhas: string[] = []
+
+  for (const a of aulas) {
+    const fica = !apagarTodos && a.data_hora_original !== null && a.status !== 'Excluída'
+
+    if (fica) {
+      const inicio = String(a.data_hora_inicio)
+      // Aula que já passou e já tem evento: não há o que mudar nele. Sem isto,
+      // cada matrícula salva regravaria todas as remarcações da história.
+      if (a.google_evento_avulso_id && inicio.slice(0, 10) < hojeISO()) continue
+      const original = String(a.data_hora_original).slice(0, 16)
+      const r = await sincronizarEvento({
+        ...eventoSemAlunos(turma, professorEmail, link),
+        tipo_recorrencia: 'Único',
+        data_unica: inicio.slice(0, 10),
+        frequencia: null,
+        intervalo: null,
+        dias_semana: [],
+        data_inicio: null,
+        data_fim: null,
+        exdates: [],
+        horario_inicio: inicio.slice(11, 16),
+        horario_fim: String(a.data_hora_fim).slice(11, 16),
+        remarcadaDe: original,
+        // Quem estava matriculado no dia de sempre — a turma segue igual.
+        alunos: alunosNaData(mats, original.slice(0, 10)),
+        google_calendar_id: googleCalendarId,
+        evento_id: a.google_evento_avulso_id,
+      })
+      if (!r.ok) {
+        falhas.push(r.motivo)
+        continue
+      }
+      if (r.eventoId !== a.google_evento_avulso_id) {
+        await admin.from('aulas').update({ google_evento_avulso_id: r.eventoId }).eq('id', a.id)
+      }
+    } else if (a.google_evento_avulso_id) {
+      const r = await apagarEvento(googleCalendarId, a.google_evento_avulso_id)
+      if (!r.ok) {
+        falhas.push(r.motivo ?? 'O Google recusou a exclusão.')
+        continue
+      }
+      await admin.from('aulas').update({ google_evento_avulso_id: null }).eq('id', a.id)
+    }
+  }
+
+  return falhas
+}
+
+/**
+ * Turma de aula única com a aula remarcada: o evento dela (que é o da turma)
+ * vai para o dia e horário novos. A turma continua com a data original — é
+ * por ela que vale a lista de alunos.
+ */
+async function comAulaUnicaRemarcada(
+  turmaId: number,
+  turma: TurmaLida,
+  evento: Omit<TurmaDoEvento, 'alunos'>,
+): Promise<Omit<TurmaDoEvento, 'alunos'>> {
+  if (turma.tipo_recorrencia !== 'Único') return evento
+  const { data } = await clienteAdmin()
+    .from('aulas')
+    .select('data_hora_inicio, data_hora_fim, data_hora_original')
+    .eq('turma_id', turmaId)
+    .not('data_hora_original', 'is', null)
+    .neq('status', 'Excluída')
+    .limit(1)
+    .maybeSingle()
+  if (!data) return evento
+  const inicio = String(data.data_hora_inicio)
+  return {
+    ...evento,
+    data_unica: inicio.slice(0, 10),
+    horario_inicio: inicio.slice(11, 16),
+    horario_fim: String(data.data_hora_fim).slice(11, 16),
+    remarcadaDe: String(data.data_hora_original).slice(0, 16),
+  }
+}
+
+/** Junta o resultado da série com as falhas dos eventos avulsos. */
+function comAvulsos(
+  r: { ok: boolean; motivo?: string },
+  falhas: string[],
+): { ok: boolean; motivo?: string } {
+  if (falhas.length === 0) return r
+  return {
+    ok: false,
+    motivo: r.motivo ?? `${falhas.length} aula(s) remarcada(s) não atualizada(s) no Google: ${falhas[0]}`,
+  }
+}
+
+/** O evento sai da agenda? A regra mora em `eventoSaiDaAgenda`. */
+async function eventoSai(
+  turmaId: number,
+  turma: TurmaLida & { status: 'Ativa' | 'Encerrada' },
+): Promise<boolean> {
+  if (turma.status === 'Ativa' && turma.tipo_recorrencia === 'Recorrente') return false
   const { data } = await clienteAdmin().from('aulas').select('status').eq('turma_id', turmaId)
-  return unicaSemAula((data ?? []).map((a) => a.status))
+  return eventoSaiDaAgenda(
+    {
+      status: turma.status,
+      tipo_recorrencia: turma.tipo_recorrencia,
+      data_fim: turma.data_fim ? String(turma.data_fim).slice(0, 10) : null,
+    },
+    (data ?? []).map((a) => a.status),
+    hojeISO(),
+  )
 }
 
 /**
@@ -217,18 +355,22 @@ export async function sincronizarEventoDaTurma(
     | { email: string | null; google_calendar_id: string | null }
     | null
 
-  // Turma encerrada some da agenda: deixar o evento seria o professor
-  // continuar vendo aula que não vai acontecer. O mesmo vale para a turma
-  // única cuja aula foi excluída.
-  if (turma.status !== 'Ativa' || (await unicaExcluida(turmaId, turma))) {
+  // Aula que não vai acontecer não pode ficar na agenda do professor. Desde
+  // o encerramento com data (13/10/2026), a recorrente encerrada fica, mas
+  // termina na véspera — as aulas passadas continuam lá.
+  if (await eventoSai(turmaId, turma)) {
+    // Com a série, saem os eventos das aulas remarcadas.
+    const falhas = professor?.google_calendar_id
+      ? await sincronizarAvulsos(turmaId, turma, professor.google_calendar_id, null, null, [], true)
+      : []
     if (turma.google_calendar_event_id && professor?.google_calendar_id) {
       const r = await apagarEvento(professor.google_calendar_id, turma.google_calendar_event_id)
       if (r.ok) {
         await admin.from('turmas').update({ google_calendar_event_id: null }).eq('id', turmaId)
       }
-      return r
+      return comAvulsos(r, falhas)
     }
-    return { ok: true }
+    return comAvulsos({ ok: true }, falhas)
   }
 
   // G3: a sala do Meet vem antes do evento, para o link já entrar nele.
@@ -236,11 +378,10 @@ export async function sincronizarEventoDaTurma(
 
   // Rodada 4: o evento começa na data de início da turma, que a gestora
   // escolheu (pode ser no passado), e leva as exceções do calendário.
-  const evento = eventoSemAlunos(
+  const evento = await comAulaUnicaRemarcada(
+    turmaId,
     turma,
-    professor?.email ?? null,
-    link,
-    await exdatesDaTurma(turmaId, turma),
+    eventoSemAlunos(turma, professor?.email ?? null, link, await exdatesDaTurma(turmaId, turma)),
   )
   const matriculas = await matriculasDaTurma(turmaId)
 
@@ -260,7 +401,16 @@ export async function sincronizarEventoDaTurma(
   // Mexer na série pode desfazer o que cada ocorrência tinha de próprio:
   // confere todas de novo.
   if (!professor?.google_calendar_id) return { ok: true }
-  return ajustarOcorrencias(professor.google_calendar_id, r.eventoId, evento, matriculas)
+  const ajuste = await ajustarOcorrencias(professor.google_calendar_id, r.eventoId, evento, matriculas)
+  const falhas = await sincronizarAvulsos(
+    turmaId,
+    turma,
+    professor.google_calendar_id,
+    professor.email,
+    link,
+    matriculas,
+  )
+  return comAvulsos(ajuste, falhas)
 }
 
 /**
@@ -298,7 +448,11 @@ export async function atualizarAlunosNoEvento(
     return sincronizarEventoDaTurma(turmaId)
   }
 
-  const evento = eventoSemAlunos(turma, professor.email, turma.link_videochamada)
+  const evento = await comAulaUnicaRemarcada(
+    turmaId,
+    turma,
+    eventoSemAlunos(turma, professor.email, turma.link_videochamada),
+  )
   const matriculas = await matriculasDaTurma(turmaId)
 
   // Primeiro a série, depois as ocorrências: as que não têm descrição própria
@@ -311,12 +465,22 @@ export async function atualizarAlunosNoEvento(
   if (!r.ok && r.naoExiste) return sincronizarEventoDaTurma(turmaId)
   if (!r.ok) return r
 
-  return ajustarOcorrencias(
+  const ajuste = await ajustarOcorrencias(
     professor.google_calendar_id,
     turma.google_calendar_event_id,
     evento,
     matriculas,
   )
+  // A aula remarcada tem evento próprio: a lista de alunos dela também muda.
+  const falhas = await sincronizarAvulsos(
+    turmaId,
+    turma,
+    professor.google_calendar_id,
+    professor.email,
+    turma.link_videochamada,
+    matriculas,
+  )
+  return comAvulsos(ajuste, falhas)
 }
 
 /** As turmas em que o aluno aparece no evento, para quando o próprio aluno muda. */
@@ -326,7 +490,6 @@ export async function turmasDoAluno(alunoId: number): Promise<number[]> {
     .select('turma_id')
     .eq('aluno_id', alunoId)
     .eq('status', 'Ativa')
-    .eq('flag_reposicao', false)
 
   return [...new Set((data ?? []).map((m) => m.turma_id as number))]
 }
@@ -365,8 +528,20 @@ export async function apagarEventoDaTurma(
     .maybeSingle()
 
   const professor = turma?.professor as unknown as { google_calendar_id: string | null } | null
-  if (!turma?.google_calendar_event_id || !professor?.google_calendar_id) return { ok: true }
+  if (!professor?.google_calendar_id) return { ok: true }
 
+  // As aulas remarcadas têm evento próprio (13/10/2026): saem também, antes
+  // de as aulas serem apagadas — depois não haveria de onde ler os ids.
+  const { data: avulsas } = await admin
+    .from('aulas')
+    .select('google_evento_avulso_id')
+    .eq('turma_id', turmaId)
+    .not('google_evento_avulso_id', 'is', null)
+  for (const a of avulsas ?? []) {
+    await apagarEvento(professor.google_calendar_id, a.google_evento_avulso_id as string)
+  }
+
+  if (!turma?.google_calendar_event_id) return { ok: true }
   return apagarEvento(professor.google_calendar_id, turma.google_calendar_event_id)
 }
 

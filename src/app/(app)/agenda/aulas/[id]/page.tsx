@@ -5,6 +5,7 @@ import { tokenDaAula } from '@/dados/presencas'
 import { LinkDeChamada } from './LinkDeChamada'
 import { AvisarFalta } from './AvisarFalta'
 import { ExcluirAula } from './ExcluirAula'
+import { RemarcarAula } from './RemarcarAula'
 import { CancelarAviso } from '../../../reposicoes/CancelarAviso'
 
 /** O que aconteceu depois do aviso, do ponto de vista desta aula. */
@@ -26,6 +27,8 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
   if (!aula) notFound()
 
   const ehGestora = sessao.papel === 'gestora'
+  // Remarcada (13/10/2026): o horário que a regra da turma deu a ela.
+  const original = aula.data_hora_original ? String(aula.data_hora_original).slice(0, 16) : null
   const quando = new Date(aula.data_hora_inicio).toLocaleDateString('pt-BR', {
     weekday: 'long',
     day: '2-digit',
@@ -76,6 +79,11 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
               minute: '2-digit',
             })}
           </span>
+          {original && (
+            <Selo tom="alerta">
+              Remarcada (era {original.slice(8, 10)}/{original.slice(5, 7)} às {original.slice(11, 16)})
+            </Selo>
+          )}
         </div>
       </header>
 
@@ -181,7 +189,22 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
       )}
 
       {ehGestora && aula.status !== 'Excluída' && aula.status !== 'Realizada' && (
-        <ExcluirAula aulaId={aula.id} quando={quando} />
+        <div className="flex flex-wrap gap-3">
+          {registradas.length === 0 && aula.status === 'Agendada' && (
+            <RemarcarAula
+              aulaId={aula.id}
+              inicio={String(aula.data_hora_inicio).slice(0, 16)}
+              fim={String(aula.data_hora_fim).slice(0, 16)}
+              original={original}
+              fimOriginal={
+                original && aula.turma
+                  ? `${original.slice(0, 10)}T${String(aula.turma.horario_fim).slice(0, 5)}`
+                  : null
+              }
+            />
+          )}
+          <ExcluirAula aulaId={aula.id} quando={quando} />
+        </div>
       )}
 
       <Link href="/agenda" className="text-destaque hover:underline">

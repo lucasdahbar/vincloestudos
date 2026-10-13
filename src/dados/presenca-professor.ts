@@ -96,7 +96,7 @@ export async function chamadaDaAula(
   const admin = clienteAdmin()
   const { data: aula } = await admin
     .from('aulas')
-    .select('id, data_hora_inicio, data_hora_fim, status, turma_id, turma:turmas!turma_id (nome, professor_id)')
+    .select('id, data_hora_inicio, data_hora_fim, data_hora_referencia, status, turma_id, turma:turmas!turma_id (nome, professor_id)')
     .eq('id', aulaId)
     .maybeSingle()
 

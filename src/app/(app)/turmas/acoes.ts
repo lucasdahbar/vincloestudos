@@ -14,6 +14,11 @@ import { avaliarExclusaoTurma } from '@/dominio/turmas/exclusao'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
 import { avisarProfessorDaTurma } from '@/dados/avisos-turma'
 import { apagarEventoDaTurma, sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
+import {
+  executarEncerramento,
+  previaEncerramento,
+  type PreviaEncerramento,
+} from '@/dados/encerramento'
 
 export interface ResultadoTurma {
   ok: boolean
@@ -150,23 +155,42 @@ export async function salvarTurma(
   return { ok: true, id: resposta.data.id }
 }
 
-export async function alternarStatusTurma(id: number, status: 'Ativa' | 'Encerrada') {
+/**
+ * Encerrar turma (pedido do tio, 13/10/2026). Substitui o antigo
+ * `alternarStatusTurma`, que mudava o status sem data e sem conferir alunos
+ * nem cobranças — e que nenhuma tela chamava.
+ */
+export async function consultarEncerramento(
+  id: number,
+  data: string | null,
+): Promise<PreviaEncerramento> {
   await exigirGestora()
-  const supabase = await clienteServidor()
-  const { error } = await supabase.from('turmas').update({ status }).eq('id', id)
-  if (error) throw new Error(error.message)
+  return previaEncerramento(id, data)
+}
 
-  // G2: turma encerrada sai da agenda do professor; reativada, volta.
+export async function encerrarTurma(
+  id: number,
+  data: string | null,
+): Promise<{ ok: boolean; erros?: string[] }> {
+  await exigirGestora()
+  const r = await executarEncerramento(id, data)
+  if (!r.ok) return r
+
+  // O evento passa a terminar na véspera (ou sai, na aula única).
   after(async () => {
     try {
-      await sincronizarEventoDaTurma(id)
+      const s = await sincronizarEventoDaTurma(id)
+      if (!s.ok) console.warn('evento nao atualizado apos encerrar a turma:', s.motivo)
     } catch (e) {
-      console.error('falha ao atualizar o evento da turma:', e)
+      console.error('falha ao atualizar o evento apos encerrar a turma:', e)
     }
   })
 
-  revalidatePath('/turmas')
-  revalidatePath(`/turmas/${id}`)
+  revalidatePath('/turmas', 'layout')
+  revalidatePath('/agenda', 'layout')
+  revalidatePath('/matriculas')
+  revalidatePath('/cobrancas', 'layout')
+  return { ok: true }
 }
 
 export interface PreviaExclusaoTurma {
