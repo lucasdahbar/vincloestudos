@@ -44,7 +44,11 @@ export function PainelGeracao({ mesInicial }: { mesInicial: string }) {
           onClick={() =>
             iniciar(async () => {
               const r = await gerar(mes)
-              setResultado(resumoDaGeracao(r))
+              setResultado(
+                r.falhas.length === 0
+                  ? resumoDaGeracao(r)
+                  : `${resumoDaGeracao(r)} Atenção: ${r.falhas.length} ${r.falhas.length === 1 ? 'responsável não foi atualizado' : 'responsáveis não foram atualizados'} (${r.falhas[0]}). Gere de novo; se persistir, avise o suporte.`,
+              )
               router.refresh()
             })
           }

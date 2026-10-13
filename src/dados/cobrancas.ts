@@ -254,6 +254,8 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
   adicionados: number
   removidos: number
   atualizados: number
+  /** Responsáveis cujo rascunho não pôde ser refeito (os demais foram). */
+  falhas: string[]
 }> {
   const supabase = await clienteServidor()
   const { primeiro, ultimo } = limitesDoMes(mes)
@@ -305,7 +307,7 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
   // precisa esvaziar.
   const responsaveis = new Set([...devidas.keys(), ...noRascunho.keys()])
 
-  const total = { criadas: 0, adicionados: 0, removidos: 0, atualizados: 0 }
+  const total = { criadas: 0, adicionados: 0, removidos: 0, atualizados: 0, falhas: [] as string[] }
 
   for (const responsavelId of responsaveis) {
     const plano = planejarRascunho(
@@ -335,7 +337,10 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
       })),
     })
     if (error) {
-      throw new Error(`Falha ao refazer o rascunho do responsável ${responsavelId}: ${error.message}`)
+      // Cada responsavel e uma transacao: o que falhou ficou como estava, e os
+      // outros seguem. A tela mostra quantos nao foram.
+      total.falhas.push(`responsável ${responsavelId}: ${error.message}`)
+      continue
     }
 
     const r = data as { criada: boolean; apagados: number; atualizados: number; inseridos: number }
@@ -490,8 +495,18 @@ export async function ajustarDesconto(itemId: number, desconto: Centavos): Promi
 /** Confirma a cobrança e gera o texto do WhatsApp (Operacionais 6.3). */
 export async function confirmarCobranca(id: number, usuario: string): Promise<void> {
   const supabase = await clienteServidor()
+
+  // Quando a cobranca foi lida: gerar de novo refaz o rascunho, e o texto do
+  // WhatsApp sai dos itens lidos aqui. Se algo mexer na cobranca entre esta
+  // leitura e a gravacao, a confirmacao e recusada em vez de sair com um texto
+  // de itens que ja nao existem (14/10/2026).
+  const { data: lida } = await supabase
+    .from('cobrancas')
+    .select('updated_at')
+    .eq('id', id)
+    .maybeSingle()
   const cobranca = await obterCobranca(id)
-  if (!cobranca) throw new Error('Cobrança não encontrada.')
+  if (!cobranca || !lida) throw new Error('Cobrança não encontrada.')
 
   // C5 (Rodada 2): a chave Pix vem da conta de recebimento escolhida nesta
   // cobranca. Antes vinha da "primeira conta ativa com chave" — se a gestora
@@ -531,10 +546,17 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
     itens: itensTexto,
   })
 
-  await supabase
+  const { data: confirmadas, error } = await supabase
     .from('cobrancas')
     .update({ status: 'Confirmada', texto_whatsapp: texto })
     .eq('id', id)
+    .eq('status', 'Rascunho')
+    .eq('updated_at', lida.updated_at)
+    .select('id')
+  if (error) throw new Error(error.message)
+  if (!confirmadas || confirmadas.length === 0) {
+    throw new Error('A cobrança mudou enquanto você confirmava. Abra-a de novo e confira antes de confirmar.')
+  }
 
   await supabase.from('logs_operacionais').insert({
     acao: 'confirmar_cobranca',

@@ -270,7 +270,9 @@ export function EditorItens({
           disabled={pendente || itens.length === 0}
           onClick={() =>
             iniciar(async () => {
-              await confirmar(cobrancaId)
+              setErro(null)
+              const r = await confirmar(cobrancaId)
+              if (!r.ok) setErro(r.erro ?? 'Não foi possível confirmar.')
               router.refresh()
             })
           }

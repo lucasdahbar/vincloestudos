@@ -32,11 +32,20 @@ export async function salvarDesconto(itemId: number, cobrancaId: number, valorTe
   }
 }
 
-export async function confirmar(cobrancaId: number) {
+export async function confirmar(cobrancaId: number): Promise<{ ok: boolean; erro?: string }> {
   const sessao = await exigirGestora()
-  await confirmarCobranca(cobrancaId, sessao.nome)
-  revalidatePath(`/cobrancas/${cobrancaId}`)
-  revalidatePath('/cobrancas')
+  try {
+    await confirmarCobranca(cobrancaId, sessao.nome)
+  } catch (erro) {
+    // Devolve a mensagem em vez de estourar: em producao um erro lancado numa
+    // action vira tela de erro generica (ex.: "a cobranca mudou enquanto voce
+    // confirmava").
+    return { ok: false, erro: erro instanceof Error ? erro.message : 'Não foi possível confirmar.' }
+  } finally {
+    revalidatePath(`/cobrancas/${cobrancaId}`)
+    revalidatePath('/cobrancas')
+  }
+  return { ok: true }
 }
 
 export async function marcarEnviada(cobrancaId: number) {
