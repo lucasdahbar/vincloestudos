@@ -56,7 +56,8 @@ async function matriculasDaTurma(turmaId: number): Promise<MatriculaDoEvento[]> 
     .select('status, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (nome)')
     .eq('turma_id', turmaId)
     .eq('status', 'Ativa')
-    .eq('flag_reposicao', false)
+  // Inclusive as de reposicao (correcao de 13/10/2026): `ocorrencias.ts` as
+  // poe so na ocorrencia do dia, marcadas.
 
   return (data ?? []).map((m) => ({
     nome: (m.aluno as unknown as { nome: string } | null)?.nome ?? 'Aluno',
@@ -326,7 +327,6 @@ export async function turmasDoAluno(alunoId: number): Promise<number[]> {
     .select('turma_id')
     .eq('aluno_id', alunoId)
     .eq('status', 'Ativa')
-    .eq('flag_reposicao', false)
 
   return [...new Set((data ?? []).map((m) => m.turma_id as number))]
 }

@@ -1,6 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
+import { atualizarAlunosNosEventos } from '@/dados/evento-da-turma'
 import {
   agendarReposicao,
   cancelarAviso,
@@ -20,15 +22,21 @@ function revalidarTudo() {
 export async function agendar(pendenciaId: number, aulaDestinoId: number) {
   await exigirGestora()
   const r = await agendarReposicao(pendenciaId, aulaDestinoId)
+  // Correcao de 13/10/2026: quem repoe aparece no evento do professor, na
+  // ocorrencia do dia. Remarcar tambem tira o aluno da aula anterior.
+  if (r.turmasAfetadas?.length) after(() => atualizarAlunosNosEventos(r.turmasAfetadas!))
   revalidarTudo()
-  return r
+  revalidatePath('/turmas', 'layout')
+  return { ok: r.ok, erros: r.erros }
 }
 
 export async function desistir(pendenciaId: number, decisao: Decisao) {
   await exigirGestora()
   const r = await desistirReposicao(pendenciaId, decisao)
+  if (r.turmasAfetadas?.length) after(() => atualizarAlunosNosEventos(r.turmasAfetadas!))
   revalidarTudo()
-  return r
+  revalidatePath('/turmas', 'layout')
+  return { ok: r.ok, erros: r.erros }
 }
 
 /** Registra que o aluno avisou que não vem a uma aula específica. */

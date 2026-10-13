@@ -18,26 +18,38 @@ export interface OcorrenciaNoGoogle {
   descricao: string | null
 }
 
-/** Entra na lista: matrícula ativa e regular. Reposição tem sua própria aula. */
-const conta = (m: MatriculaDoEvento) => m.status === 'Ativa' && !m.flag_reposicao
+/**
+ * Entra na lista: matrícula ativa, inclusive de reposição. Correção de
+ * 13/10/2026: antes a reposição ficava de fora, e o professor não sabia que o
+ * aluno viria. A matrícula de reposição vale só na data da aula de destino,
+ * então ela aparece só naquela ocorrência.
+ */
+const conta = (m: MatriculaDoEvento) => m.status === 'Ativa'
 
 const porNome = (nomes: string[]) => nomes.sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+const nomeNaLista = (m: MatriculaDoEvento) => (m.flag_reposicao ? `${m.nome} (reposição)` : m.nome)
 
 /** Os alunos matriculados naquele dia. */
 export function alunosNaData(matriculas: MatriculaDoEvento[], data: string): string[] {
   return porNome(
     matriculas
       .filter((m) => conta(m) && m.data_inicio <= data && (m.data_fim === null || m.data_fim >= data))
-      .map((m) => m.nome),
+      .map(nomeNaLista),
   )
 }
 
 /**
  * A lista da descrição geral da série: os alunos sem data para sair. É o que
  * vale nas ocorrências além do horizonte, onde não há mais mudança prevista.
+ * Reposição nunca entra aqui: ela é de um dia só.
  */
 export function alunosDaSerie(matriculas: MatriculaDoEvento[]): string[] {
-  return porNome(matriculas.filter((m) => conta(m) && m.data_fim === null).map((m) => m.nome))
+  return porNome(
+    matriculas
+      .filter((m) => conta(m) && !m.flag_reposicao && m.data_fim === null)
+      .map((m) => m.nome),
+  )
 }
 
 /** As ocorrências cuja descrição no Google não bate com a turma daquele dia. */

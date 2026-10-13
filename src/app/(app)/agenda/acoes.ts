@@ -7,7 +7,7 @@ import { exigirGestora } from '@/dados/sessao'
 import { clienteServidor } from '@/dados/cliente'
 import { after } from 'next/server'
 import { executarExclusaoAula, previaExclusaoAula, type PreviaExclusaoAula } from '@/dados/exclusao-aula'
-import { sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
+import { atualizarAlunosNosEventos, sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
 import type { EscolhaRegular, EscolhaReposicao } from '@/dominio/agenda/exclusao-aula'
 
 export async function sincronizar(de: string, ate: string) {
@@ -91,6 +91,8 @@ export async function excluirAula(
     } catch (e) {
       console.error('falha ao atualizar o evento apos excluir aula:', e)
     }
+    // Quem foi repor em outra turma passa a constar no evento dela.
+    await atualizarAlunosNosEventos(r.turmasDestino)
   })
 
   revalidatePath('/agenda')

@@ -124,6 +124,8 @@ export default async function PaginaTurmas({
                   <div>
                     {turma.alunos_matriculados}{' '}
                     {turma.alunos_matriculados === 1 ? 'aluno matriculado' : 'alunos matriculados'}
+                    {(turma.reposicoes_marcadas ?? 0) > 0 &&
+                      ` · ${turma.reposicoes_marcadas} em reposição`}
                   </div>
                 </dl>
               </Link>

@@ -91,7 +91,9 @@ export async function executarExclusaoAula(
   aulaId: number,
   regulares: EscolhaRegular[],
   reposicoes: EscolhaReposicao[],
-): Promise<{ ok: true; turmaId: number } | { ok: false; erros: string[] }> {
+): Promise<
+  { ok: true; turmaId: number; turmasDestino: number[] } | { ok: false; erros: string[] }
+> {
   const previa = await previaExclusaoAula(aulaId)
   if (!previa) return { ok: false, erros: ['Esta aula não existe mais.'] }
 
@@ -195,5 +197,10 @@ export async function executarExclusaoAula(
   })
   if (error) return { ok: false, erros: [error.message] }
 
-  return { ok: true, turmaId: previa.turmaId }
+  // As turmas que receberam alunos para repor: o evento delas ganha o aluno na
+  // ocorrencia do dia (correcao de 13/10/2026).
+  const turmasDestino = [...new Set((destinos ?? []).map((d) => d.turma_id as number))].filter(
+    (t) => t !== previa.turmaId,
+  )
+  return { ok: true, turmaId: previa.turmaId, turmasDestino }
 }
