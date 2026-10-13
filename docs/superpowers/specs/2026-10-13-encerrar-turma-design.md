@@ -19,6 +19,8 @@ A gestora informa a **data de encerramento**: o primeiro dia **sem** aula. A tur
 - **Aula já dada a partir da data** (presença registrada ou status Realizada): bloqueia e informa a primeira data possível (dia seguinte à última aula dada).
 - **Aluno de outra turma com reposição marcada** numa aula a partir da data: bloqueia e pede para remarcar antes.
 - **Data no primeiro dia da turma ou antes**: bloqueia; a turma não teria aula nenhuma — o caminho é excluir (ou desmatricular e excluir).
+- **Data depois do dia seguinte ao fim atual**: bloqueia, porque estenderia a turma (ano digitado errado, por exemplo). O dia seguinte ao fim vale.
+- **Encerramento com data futura não vira "Encerrada" sozinho** (não há rotina agendada): a turma segue Ativa com o fim na véspera. Quando o fim passa, a janela já sugere o dia seguinte a ele, e encerrar de novo fecha a turma e as matrículas.
 
 ## Efeitos (decidido)
 
