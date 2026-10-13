@@ -9,6 +9,8 @@ import { after } from 'next/server'
 import { executarExclusaoAula, previaExclusaoAula, type PreviaExclusaoAula } from '@/dados/exclusao-aula'
 import { atualizarAlunosNosEventos, sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
 import type { EscolhaRegular, EscolhaReposicao } from '@/dominio/agenda/exclusao-aula'
+import type { NovoHorario } from '@/dominio/agenda/remarcacao'
+import { remarcarAulaNoBanco } from '@/dados/remarcacao'
 
 export async function sincronizar(de: string, ate: string) {
   await exigirGestora()
@@ -98,5 +100,32 @@ export async function excluirAula(
   revalidatePath('/agenda')
   revalidatePath(`/agenda/aulas/${aulaId}`)
   revalidatePath('/reposicoes')
+  return { ok: true }
+}
+
+/**
+ * Remarcar uma aula (pedido do tio, 13/10/2026): muda só dia e horário dela.
+ * Alunos, cobrança e reposição seguem como estavam; o Google acompanha.
+ */
+export async function remarcarAula(
+  aulaId: number,
+  nova: NovoHorario,
+  confirmouAlerta: boolean,
+): Promise<{ ok: boolean; erros?: string[]; alerta?: string }> {
+  await exigirGestora()
+  const r = await remarcarAulaNoBanco(aulaId, nova, confirmouAlerta)
+  if (!r.ok) return 'alerta' in r ? { ok: false, alerta: r.alerta } : r
+
+  after(async () => {
+    try {
+      const s = await sincronizarEventoDaTurma(r.turmaId)
+      if (!s.ok) console.warn('evento nao atualizado apos remarcar a aula:', s.motivo)
+    } catch (e) {
+      console.error('falha ao atualizar o evento apos remarcar a aula:', e)
+    }
+  })
+
+  revalidatePath('/agenda', 'layout')
+  revalidatePath(`/turmas/${r.turmaId}`)
   return { ok: true }
 }
