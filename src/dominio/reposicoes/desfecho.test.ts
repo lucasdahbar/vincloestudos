@@ -42,6 +42,13 @@ describe('creditoDaDesistencia', () => {
     expect(creditoDaDesistencia(false, { valor_final: 9000, cobranca_status: 'Cancelada' })).toBe(0)
   })
 
+  it('item em rascunho não é aula cobrada: não gera crédito', () => {
+    // Rascunho ainda nao foi para o responsavel. Antes gerava credito e deixava
+    // o item no rascunho: a gestora confirmava e o responsavel pagava e ainda
+    // ganhava o credito. O item simplesmente sai do rascunho.
+    expect(creditoDaDesistencia(false, { valor_final: 9000, cobranca_status: 'Rascunho' })).toBe(0)
+  })
+
   it('item de valor zero não gera crédito', () => {
     expect(creditoDaDesistencia(false, { valor_final: 0, cobranca_status: 'Enviada' })).toBe(0)
   })
