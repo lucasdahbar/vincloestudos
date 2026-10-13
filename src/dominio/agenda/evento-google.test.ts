@@ -322,3 +322,24 @@ describe('eventoSaiDaAgenda', () => {
     expect(eventoSaiDaAgenda({ ...unica, status: 'Ativa' }, ['Excluída'], '2026-10-14')).toBe(true)
   })
 })
+
+describe('evento avulso da aula remarcada', () => {
+  it('a descrição diz de onde a aula veio', () => {
+    const avulso = turma({
+      tipo_recorrencia: 'Único',
+      data_unica: '2026-10-16',
+      frequencia: null,
+      intervalo: null,
+      dias_semana: [],
+      data_inicio: null,
+      data_fim: null,
+      horario_inicio: '16:00',
+      horario_fim: '17:00',
+      remarcadaDe: '2026-10-14T15:00',
+    })
+    const e = montarEvento(avulso)
+    expect(e.recurrence).toBeUndefined()
+    expect(e.start.dateTime).toBe('2026-10-16T16:00:00')
+    expect(e.description).toContain('Aula remarcada (era 14/10 às 15:00), das 16:00 às 17:00.')
+  })
+})

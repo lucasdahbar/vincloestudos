@@ -63,7 +63,7 @@ export async function limparAulasDaTurma(turmaId: number): Promise<number> {
 
   const { data: aulas, error: erroAulas } = await db
     .from('aulas')
-    .select('id, data_hora_inicio, status')
+    .select('id, data_hora_inicio, data_hora_original, status')
     .eq('turma_id', turmaId)
     .eq('status', 'Agendada')
     .gte('data_hora_inicio', agora)
@@ -106,7 +106,10 @@ export async function limparAulasDaTurma(turmaId: number): Promise<number> {
         data,
         horario: String(a.data_hora_inicio).slice(11, 16),
         status: a.status,
-        vinculada: tocadas.has(a.id as number) || temAlunoNaData(data, mats),
+        // Aula remarcada a mao (13/10/2026) nunca sai pela limpeza: o dia e o
+        // horario dela foram escolhidos de proposito.
+        vinculada:
+          tocadas.has(a.id as number) || temAlunoNaData(data, mats) || a.data_hora_original !== null,
       }
     }),
     validas,

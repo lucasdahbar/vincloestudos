@@ -177,7 +177,7 @@ export async function listaDaAula(aulaId: number): Promise<ListaDaAula> {
   const supabase = await clienteServidor()
   const { data: aula } = await supabase
     .from('aulas')
-    .select('id, turma_id, data_hora_inicio')
+    .select('id, turma_id, data_hora_inicio, data_hora_referencia')
     .eq('id', aulaId)
     .maybeSingle()
 

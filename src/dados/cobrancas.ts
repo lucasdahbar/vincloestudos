@@ -39,7 +39,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
   const { data: aulas, error } = await supabase
     .from('aulas')
     .select(`
-      id, data_hora_inicio, status, turma_id,
+      id, data_hora_inicio, data_hora_referencia, status, turma_id,
       turma:turmas!turma_id (
         id, nome, servico_id,
         servico:servicos!servico_id (id, nome),
@@ -47,14 +47,17 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
         ano_escolar:anos_escolares!ano_escolar_id (nome)
       )
     `)
-    .gte('data_hora_inicio', `${primeiro}T00:00:00`)
-    .lte('data_hora_inicio', `${ultimo}T23:59:59`)
+    // Aula remarcada (13/10/2026) continua cobrada no mes e pela matricula da
+    // data original, mesmo que tenha ido para outro mes.
+    .gte('data_hora_referencia', `${primeiro}T00:00:00`)
+    .lte('data_hora_referencia', `${ultimo}T23:59:59`)
 
   if (error) throw new Error(`Falha ao carregar aulas: ${error.message}`)
 
   const linhas = (aulas ?? []) as unknown as {
     id: number
     data_hora_inicio: string
+    data_hora_referencia: string
     status: StatusAula
     turma_id: number
     turma: {
@@ -78,7 +81,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
     // reposicoes (para cobrar zero ou a diferenca).
     supabase
       .from('pendencias_reposicao')
-      .select('aluno_id, aula_origem_id, aula_reposicao_id, origem, status, cobrar, aula_origem:aulas!aula_origem_id (data_hora_inicio, turma:turmas!turma_id (servico_id))'),
+      .select('aluno_id, aula_origem_id, aula_reposicao_id, origem, status, cobrar, aula_origem:aulas!aula_origem_id (data_hora_referencia, turma:turmas!turma_id (servico_id))'),
   ])
 
   // Por aluno, nao por aula: numa turma em grupo, a aula ja cobrada de um
@@ -93,7 +96,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
     origem: OrigemAusencia
     status: string
     cobrar: boolean | null
-    aula_origem: { data_hora_inicio: string; turma: { servico_id: number } | null } | null
+    aula_origem: { data_hora_referencia: string; turma: { servico_id: number } | null } | null
   }[]
   const ausencias = new Map(pends.map((p) => [chave(p.aula_origem_id, p.aluno_id), p]))
   const reposicoes = new Map(
@@ -124,7 +127,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
   const faturaveis: AulaFaturavel[] = []
 
   for (const aula of linhas) {
-    const dia = aula.data_hora_inicio.slice(0, 10)
+    const dia = String(aula.data_hora_referencia).slice(0, 10)
     const doTurma = mats.filter(
       (m) =>
         m.turma_id === aula.turma_id &&
@@ -166,7 +169,7 @@ type PendenciaDaCobranca = {
   origem: OrigemAusencia
   status: string
   cobrar: boolean | null
-  aula_origem: { data_hora_inicio: string; turma: { servico_id: number } | null } | null
+  aula_origem: { data_hora_referencia: string; turma: { servico_id: number } | null } | null
 }
 
 /** A ausencia do aluno nesta aula, se houve. Cancelar o aviso apaga o registro. */
@@ -180,7 +183,7 @@ function reposicaoDe(
   vigencias: Awaited<ReturnType<typeof carregarVigencias>>,
 ): AulaFaturavel['reposicao_de'] {
   if (!p?.aula_origem?.turma) return null
-  const dia = p.aula_origem.data_hora_inicio.slice(0, 10)
+  const dia = String(p.aula_origem.data_hora_referencia).slice(0, 10)
   return { data: dia, valor: vigencias.valorServico(p.aula_origem.turma.servico_id, dia) }
 }
 

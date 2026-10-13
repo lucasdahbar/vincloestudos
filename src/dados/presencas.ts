@@ -101,7 +101,7 @@ export async function aulaPorToken(token: string): Promise<
 
   const { data: aula } = await admin
     .from('aulas')
-    .select('id, data_hora_inicio, status, turma_id, turma:turmas!turma_id (nome)')
+    .select('id, data_hora_inicio, data_hora_referencia, status, turma_id, turma:turmas!turma_id (nome)')
     .eq('id', registro.aula_id)
     .maybeSingle()
 

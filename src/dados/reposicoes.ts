@@ -90,12 +90,12 @@ export async function agendarReposicao(
 
   const { data: destino } = await supabase
     .from('aulas')
-    .select('id, turma_id, status, data_hora_inicio')
+    .select('id, turma_id, status, data_hora_inicio, data_hora_referencia')
     .eq('id', aulaDestinoId)
     .maybeSingle()
 
   if (!destino) return { ok: false, erros: ['Aula de destino não encontrada.'] }
-  const diaDestino = String(destino.data_hora_inicio).slice(0, 10)
+  const diaDestino = String(destino.data_hora_referencia).slice(0, 10)
 
   const origem = p.aula_origem as unknown as { turma_id: number } | null
 
@@ -229,7 +229,7 @@ export async function registrarAviso(
   const [{ data: aula }, { data: pendenciaExistente }] = await Promise.all([
     supabase
       .from('aulas')
-      .select('id, turma_id, status, data_hora_inicio')
+      .select('id, turma_id, status, data_hora_inicio, data_hora_referencia')
       .eq('id', aulaOrigemId)
       .maybeSingle(),
     supabase
@@ -253,7 +253,7 @@ export async function registrarAviso(
 
   // O aluno tem de estar matriculado na turma na data da aula: sem isso, a
   // pendência ficaria pendurada numa aula que nunca foi dele.
-  const dia = String(aula.data_hora_inicio).slice(0, 10)
+  const dia = String(aula.data_hora_referencia).slice(0, 10)
   const { data: matriculas } = await supabase
     .from('matriculas')
     .select('id, data_fim')

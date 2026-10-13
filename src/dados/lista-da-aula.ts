@@ -36,9 +36,15 @@ export interface ListaDaAula {
 
 export async function montarListaDaAula(
   db: SupabaseClient,
-  aula: { id: number; turma_id: number; data_hora_inicio: string },
+  aula: {
+    id: number
+    turma_id: number
+    data_hora_inicio: string
+    /** Remarcada (13/10/2026): a matricula vale pela data original. */
+    data_hora_referencia?: string | null
+  },
 ): Promise<ListaDaAula> {
-  const dia = String(aula.data_hora_inicio).slice(0, 10)
+  const dia = String(aula.data_hora_referencia ?? aula.data_hora_inicio).slice(0, 10)
 
   const [{ data: matriculas }, { data: avisos }] = await Promise.all([
     db

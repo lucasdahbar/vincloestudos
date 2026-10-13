@@ -27,6 +27,11 @@ export interface TurmaDoEvento {
   data_fim: string | null
   /** Datas da regra que não têm aula no sistema (ver `exdatesDoEvento`). */
   exdates?: string[]
+  /**
+   * Evento avulso de aula remarcada (13/10/2026): o horário de sempre dela,
+   * AAAA-MM-DDTHH:MM. Vai na descrição para o professor saber de onde veio.
+   */
+  remarcadaDe?: string | null
   /** HH:MM. */
   horario_inicio: string
   horario_fim: string
@@ -213,8 +218,10 @@ export function montarEvento(turma: TurmaDoEvento): EventoGoogle {
  */
 export function descricaoDoEvento(turma: TurmaDoEvento): string {
   const regra = regraDoEvento(turma)
-  const quando =
-    turma.tipo_recorrencia === 'Único'
+  const de = turma.remarcadaDe
+  const quando = de
+    ? `Aula remarcada (era ${de.slice(8, 10)}/${de.slice(5, 7)} às ${de.slice(11, 16)})`
+    : turma.tipo_recorrencia === 'Único'
       ? 'Aula única'
       : regra
         ? `${textoDaRegra(regra)}, até ${ddmmaaaa(regra.data_fim)}`
