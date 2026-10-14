@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { sincronizarAulas } from '@/dados/aulas'
 import { gerarTokenPresenca, reabrirChamada, tokenDaAula } from '@/dados/presencas'
+import { bloqueioDaChamada, corrigirChamadaDaAula } from '@/dados/corrigir-chamada'
+import type { RespostaChamada } from '@/dominio/presencas/registro'
 import { exigirGestora } from '@/dados/sessao'
 import { clienteServidor } from '@/dados/cliente'
 import { after } from 'next/server'
@@ -34,13 +36,41 @@ export async function criarLinkDeChamada(aulaId: number): Promise<string> {
 }
 
 /** Reabre a chamada ja confirmada, para o professor corrigir (Operacionais 5.5). */
-export async function reabrirChamadaDaAula(aulaId: number): Promise<string | null> {
+export async function reabrirChamadaDaAula(
+  aulaId: number,
+): Promise<{ ok: true; caminho: string | null } | { ok: false; erro: string }> {
   await exigirGestora()
+  // Pagamento do professor fechado: a chamada nao se mexe mais (13/10/2026).
+  const bloqueio = await bloqueioDaChamada(aulaId)
+  if (bloqueio) return { ok: false, erro: bloqueio }
+
   const existente = await tokenDaAula(aulaId)
-  if (!existente) return null
+  if (!existente) return { ok: true, caminho: null }
   await reabrirChamada(existente.token)
   revalidatePath(`/agenda/aulas/${aulaId}`)
-  return `/p/presenca/${existente.token}`
+  return { ok: true, caminho: `/p/presenca/${existente.token}` }
+}
+
+/**
+ * A gestora corrige a chamada direto, sem depender do professor (pedido do
+ * tio, 13/10/2026). Bloqueia se o pagamento do professor ja fechou.
+ */
+export async function corrigirChamada(
+  aulaId: number,
+  respostas: RespostaChamada[],
+): Promise<{ ok: boolean; erro?: string }> {
+  const sessao = await exigirGestora()
+  const bloqueio = await bloqueioDaChamada(aulaId)
+  if (bloqueio) return { ok: false, erro: bloqueio }
+
+  const r = await corrigirChamadaDaAula(aulaId, respostas, sessao.nome)
+  if (!r.ok) return { ok: false, erro: r.motivo }
+
+  revalidatePath(`/agenda/aulas/${aulaId}`)
+  revalidatePath('/agenda', 'layout')
+  revalidatePath('/reposicoes')
+  revalidatePath('/pagamentos', 'layout')
+  return { ok: true }
 }
 
 export async function mudarStatusAula(

@@ -20,6 +20,14 @@ interface ItemPrevia {
   valor_professor: number
 }
 
+interface AulaAguardando {
+  aluno_nome: string
+  turma_nome: string
+  data_aula: string
+  desistencia: boolean
+  motivo: string
+}
+
 export function PainelFechamento({ professores }: { professores: { id: number; nome: string }[] }) {
   const router = useRouter()
   // P2: a data padrão é hoje. O sistema varre tudo o que ainda não foi
@@ -29,7 +37,11 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
 
   const [professorId, setProfessorId] = useState<number | null>(professores[0]?.id ?? null)
   const [ate, setAte] = useState(dataDeHoje)
-  const [previa, setPrevia] = useState<{ valor_total: number; itens: ItemPrevia[] } | null>(null)
+  const [previa, setPrevia] = useState<{
+    valor_total: number
+    itens: ItemPrevia[]
+    aguardando: AulaAguardando[]
+  } | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [pendente, iniciar] = useTransition()
 
@@ -38,10 +50,12 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
       <div>
         <h2 className="text-lg">Fechar o período de um professor</h2>
         <p className="mt-1 text-sm text-tinta-suave">
-          Soma o valor de cada aula com presença confirmada até a data escolhida, aplicando o
-          percentual de repasse vigente na data da aula. Ausências e aulas sem chamada não
-          entram, e presenças que já entraram em outro fechamento também não — então não é
-          preciso informar uma data de início.
+          Soma o valor de cada aula com presença confirmada e cobrança já confirmada até a data
+          escolhida, aplicando o percentual de repasse vigente na data da aula. O valor é o que
+          foi efetivamente cobrado, com os ajustes e descontos que você deu na cobrança. Aulas
+          com presença mas sem cobrança confirmada aparecem à parte, como lembrete, e não
+          entram na soma. Ausências, aulas sem chamada e presenças que já entraram em outro
+          fechamento também não entram — então não é preciso informar uma data de início.
         </p>
       </div>
 
@@ -106,7 +120,9 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
         <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
           {previa.itens.length === 0 ? (
             <p className="rounded-campo bg-superficie-2 px-4 py-3 text-tinta-suave">
-              Nenhuma presença confirmada e ainda não paga até esta data.
+              {previa.aguardando.length > 0
+                ? 'Nenhuma aula com cobrança confirmada até esta data. Veja abaixo as aulas que esperam a cobrança.'
+                : 'Nenhuma presença confirmada e ainda não paga até esta data.'}
             </p>
           ) : (
             <>
@@ -122,7 +138,7 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
                       {i.data_aula.split('-').reverse().join('/')} · {i.turma_nome}
                     </p>
                     <p className="mt-0.5 text-tinta-tenue">
-                      {formatarBRL(i.valor_servico)} x {i.percentual_aplicado}%
+                      {formatarBRL(i.valor_servico)} cobrado x {i.percentual_aplicado}%
                     </p>
                   </li>
                 ))}
@@ -135,7 +151,7 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
                       <th className="px-4 py-2 font-semibold">Data</th>
                       <th className="px-4 py-2 font-semibold">Aluno</th>
                       <th className="px-4 py-2 font-semibold">Turma</th>
-                      <th className="px-4 py-2 font-semibold">Aula</th>
+                      <th className="px-4 py-2 font-semibold">Cobrado</th>
                       <th className="px-4 py-2 font-semibold">%</th>
                       <th className="px-4 py-2 font-semibold">Professor</th>
                     </tr>
@@ -158,6 +174,30 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
                 Total: {formatarBRL(previa.valor_total)}
               </p>
             </>
+          )}
+
+          {previa.aguardando.length > 0 && (
+            <div role="status" className="mt-6 rounded-campo bg-alerta-suave px-4 py-3">
+              <h3 className="text-base font-medium">
+                {previa.aguardando.length}{' '}
+                {previa.aguardando.length === 1 ? 'aula esperando' : 'aulas esperando'} a cobrança
+              </h3>
+              <p className="mt-1 text-sm text-tinta-suave">
+                Tiveram presença confirmada, mas a cobrança ainda não foi confirmada. Não entram no
+                total acima: feche as cobranças para que entrem no próximo cálculo.
+              </p>
+              <ul className="mt-3 flex flex-col gap-2 text-sm">
+                {previa.aguardando.map((a, n) => (
+                  <li key={n} className="flex flex-wrap justify-between gap-x-4">
+                    <span>
+                      {a.data_aula.split('-').reverse().join('/')} · {a.aluno_nome}
+                      {a.desistencia && ' (desistência paga)'} · {a.turma_nome.slice(0, 34)}
+                    </span>
+                    <span className="text-tinta-suave">{a.motivo}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </motion.div>
       )}

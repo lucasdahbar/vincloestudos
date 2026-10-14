@@ -6,7 +6,8 @@ import { clienteServidor } from '@/dados/cliente'
 import { atualizarAlunosNosEventos } from '@/dados/evento-da-turma'
 import { exigirGestora } from '@/dados/sessao'
 import { enfileirarBoasVindas } from '@/dados/notificacoes'
-import { validarMatricula } from '@/dominio/matriculas/regras'
+import { agoraNaEscola } from '@/dominio/agenda/relogio'
+import { comoDesmatricular, matriculaParaAntecipar, validarMatricula } from '@/dominio/matriculas/regras'
 
 export interface EntradaDeMatricula {
   aluno_id: number | null
@@ -20,7 +21,14 @@ export async function salvarMatricula(
   entrada: EntradaDeMatricula,
   /** M1/M2: `null` cria; um id edita a matricula existente. */
   id: number | null = null,
-): Promise<{ ok: boolean; erros?: string[]; id?: number }> {
+  /** A gestora viu a sugestao de antecipar e quer mesmo uma matricula separada. */
+  separadaMesmo = false,
+): Promise<{
+  ok: boolean
+  erros?: string[]
+  id?: number
+  antecipar?: { id: number; data_inicio: string }
+}> {
   await exigirGestora()
   const supabase = await clienteServidor()
 
@@ -42,6 +50,13 @@ export async function salvarMatricula(
 
   if (!aluno) return { ok: false, erros: ['Selecione um aluno válido.'] }
   if (!turma) return { ok: false, erros: ['Selecione uma turma válida.'] }
+
+  // Antes da validacao: a matricula nova em aberto sobrepoe a futura, e o erro
+  // de sobreposicao esconderia a saida certa, que e antecipar.
+  if (!separadaMesmo) {
+    const alvo = matriculaParaAntecipar({ ...entrada, id, alunoAtivo: aluno.ativo }, existentes ?? [])
+    if (alvo?.id != null) return { ok: false, antecipar: { id: alvo.id, data_inicio: alvo.data_inicio } }
+  }
 
   const erros = validarMatricula(
     { ...entrada, id, alunoAtivo: aluno.ativo },
@@ -91,6 +106,19 @@ export async function salvarMatricula(
   return { ok: true, id: resposta.data.id }
 }
 
+/** Caso Giovana: muda so o inicio da matricula que ja existia, com as mesmas validacoes. */
+export async function anteciparMatricula(id: number, data_inicio: string) {
+  await exigirGestora()
+  const supabase = await clienteServidor()
+  const { data: atual } = await supabase
+    .from('matriculas')
+    .select('aluno_id, turma_id, data_fim, flag_reposicao')
+    .eq('id', id)
+    .maybeSingle()
+  if (!atual) return { ok: false, erros: ['Matrícula não encontrada.'] }
+  return salvarMatricula({ ...atual, data_inicio }, id)
+}
+
 /**
  * O trigger de sobreposicao (M1) responde em portugues, mas o Postgres embrulha
  * a mensagem. A gestora nao pode ver "P0001" nem o nome da funcao.
@@ -105,16 +133,28 @@ function traduzir(mensagem: string): string {
 export async function encerrarMatricula(id: number) {
   await exigirGestora()
   const supabase = await clienteServidor()
-  const { data, error } = await supabase
+  const { data: atual, error: erroLeitura } = await supabase
     .from('matriculas')
-    .update({ status: 'Encerrada', data_fim: new Date().toISOString().slice(0, 10) })
+    .select('turma_id, data_inicio')
     .eq('id', id)
-    .select('turma_id')
     .single()
-  if (error) throw new Error(error.message)
+  if (erroLeitura) return { ok: false as const, motivo: erroLeitura.message }
 
-  after(() => atualizarAlunosNosEventos([data.turma_id]))
+  // O servidor roda em UTC: depois das 21h, `toISOString` ja seria amanha.
+  const hoje = agoraNaEscola(new Date()).slice(0, 10)
+  const como = comoDesmatricular(atual, hoje)
+  const { error } =
+    como.acao === 'excluir'
+      ? await supabase.from('matriculas').delete().eq('id', id)
+      : await supabase
+          .from('matriculas')
+          .update({ status: 'Encerrada', data_fim: como.data_fim })
+          .eq('id', id)
+  if (error) return { ok: false as const, motivo: error.message }
+
+  after(() => atualizarAlunosNosEventos([atual.turma_id]))
 
   revalidatePath('/matriculas')
   revalidatePath(`/matriculas/${id}`)
+  return { ok: true as const, excluida: como.acao === 'excluir' }
 }

@@ -473,11 +473,16 @@ export async function ajustarDesconto(itemId: number, desconto: Centavos): Promi
   const supabase = await clienteServidor()
   const { data: item } = await supabase
     .from('itens_cobranca')
-    .select('cobranca_id, valor_original')
+    .select('cobranca_id, valor_original, cobranca:cobrancas!cobranca_id (status)')
     .eq('id', itemId)
     .maybeSingle()
 
   if (!item) throw new Error('Item não encontrado.')
+  // So no rascunho (a tela ja so deixa ali): depois de confirmada, o valor e o
+  // que o professor recebe por cima (13/10/2026).
+  if ((item.cobranca as unknown as { status: string } | null)?.status !== 'Rascunho') {
+    throw new Error('O desconto só pode ser alterado enquanto a cobrança é um rascunho.')
+  }
 
   const original = deNumeric(item.valor_original)
   if (desconto < 0 || desconto > original) {
@@ -590,6 +595,11 @@ export async function aplicarDescontoEmLote(
 
   if (itemIds.length === 0) return { ok: true, aplicados: 0 }
   if (descontoPorItem < 0) return { ok: false, motivo: 'O desconto não pode ser negativo.' }
+
+  const { data: alvo } = await supabase.from('cobrancas').select('status').eq('id', cobrancaId).maybeSingle()
+  if (alvo?.status !== 'Rascunho') {
+    return { ok: false, motivo: 'O desconto só pode ser alterado enquanto a cobrança é um rascunho.' }
+  }
 
   const { data: itens } = await supabase
     .from('itens_cobranca')
@@ -707,6 +717,68 @@ export async function definirContaDeRecebimento(
  * existirem, aquelas aulas contam como ja cobradas e nunca mais entrariam numa
  * geracao — a cobranca cancelada deixaria um buraco permanente no faturamento.
  */
+/**
+ * Quantas aulas desta cobranca ja entraram no pagamento de um professor: a
+ * presenca da propria aula, a de uma reposicao que a tem como original ou a
+ * desistencia paga dela. O valor cobrado e a base do professor (13/10/2026).
+ */
+async function aulasJaPagasAoProfessor(cobrancaId: number): Promise<number> {
+  const supabase = await clienteServidor()
+  const itens = await lerTudo((a, b) =>
+    supabase
+      .from('itens_cobranca')
+      .select('id, aula_id, aluno_id')
+      .eq('cobranca_id', cobrancaId)
+      .order('id')
+      .range(a, b),
+  )
+  if (itens.length === 0) return 0
+
+  const aulas = [...new Set(itens.map((i) => i.aula_id as number))]
+  const pares = new Set(itens.map((i) => `${i.aula_id}:${i.aluno_id}`))
+  let pagas = 0
+
+  // Presenca da propria aula.
+  const presencas = await supabase
+    .from('presencas')
+    .select('aula_id, aluno_id')
+    .in('aula_id', aulas)
+    .not('conta_pagar_id', 'is', null)
+  if (presencas.error) throw new Error(presencas.error.message)
+  pagas += (presencas.data ?? []).filter((p) => pares.has(`${p.aula_id}:${p.aluno_id}`)).length
+
+  // Reposicao (a aula do item e a original) e desistencia paga.
+  const pendencias = await supabase
+    .from('pendencias_reposicao')
+    .select('id, aluno_id, aula_origem_id, aula_reposicao_id')
+    .in('aula_origem_id', aulas)
+  if (pendencias.error) throw new Error(pendencias.error.message)
+  const dosItens = (pendencias.data ?? []).filter((p) => pares.has(`${p.aula_origem_id}:${p.aluno_id}`))
+
+  const reposicoes = dosItens.filter((p) => p.aula_reposicao_id !== null)
+  if (reposicoes.length > 0) {
+    const r = await supabase
+      .from('presencas')
+      .select('aula_id, aluno_id')
+      .in('aula_id', reposicoes.map((p) => p.aula_reposicao_id as number))
+      .not('conta_pagar_id', 'is', null)
+    if (r.error) throw new Error(r.error.message)
+    const destinos = new Set(reposicoes.map((p) => `${p.aula_reposicao_id}:${p.aluno_id}`))
+    pagas += (r.data ?? []).filter((p) => destinos.has(`${p.aula_id}:${p.aluno_id}`)).length
+  }
+
+  if (dosItens.length > 0) {
+    const d = await supabase
+      .from('itens_conta_pagar_professor')
+      .select('pendencia_id')
+      .in('pendencia_id', dosItens.map((p) => p.id as number))
+    if (d.error) throw new Error(d.error.message)
+    pagas += (d.data ?? []).length
+  }
+
+  return pagas
+}
+
 export async function cancelarCobranca(
   cobrancaId: number,
   usuario: string,
@@ -723,7 +795,11 @@ export async function cancelarCobranca(
 
   if (!cobranca) return { ok: false, motivo: 'Cobrança não encontrada.' }
 
-  const permissao = podeCancelarCobranca(cobranca.status as StatusCobranca, recebimentos ?? 0)
+  const permissao = podeCancelarCobranca(
+    cobranca.status as StatusCobranca,
+    recebimentos ?? 0,
+    await aulasJaPagasAoProfessor(cobrancaId),
+  )
   if (!permissao.pode) return { ok: false, motivo: permissao.motivo }
 
   const { data: itens } = await supabase

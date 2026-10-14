@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { salvarMatricula } from './acoes'
+import { anteciparMatricula, salvarMatricula } from './acoes'
 import { avisoDeReposicao } from '@/dominio/matriculas/regras'
 import { Botao } from '@/ui/Botao'
 import { Campo, entradaClasse } from '@/ui/Campo'
@@ -40,6 +40,7 @@ export function FormularioMatricula({
   const router = useRouter()
   const [pendente, iniciar] = useTransition()
   const [erros, setErros] = useState<string[]>([])
+  const [antecipar, setAntecipar] = useState<{ id: number; data_inicio: string } | null>(null)
   const hoje = new Date().toISOString().slice(0, 10)
 
   const [estado, setEstado] = useState({
@@ -54,10 +55,17 @@ export function FormularioMatricula({
 
   function enviar(evento: React.FormEvent) {
     evento.preventDefault()
+    gravar(() => salvarMatricula(estado, matricula?.id ?? null))
+  }
+
+  function gravar(acao: () => ReturnType<typeof salvarMatricula>) {
     setErros([])
+    setAntecipar(null)
     iniciar(async () => {
-      const resultado = await salvarMatricula(estado, matricula?.id ?? null)
-      if (resultado.ok) {
+      const resultado = await acao()
+      if (resultado.antecipar) {
+        setAntecipar(resultado.antecipar)
+      } else if (resultado.ok) {
         router.push(
           matricula ? `/turmas/${estado.turma_id}` : turmaFixa ? `/turmas/${turmaFixa}` : '/matriculas',
         )
@@ -160,6 +168,32 @@ export function FormularioMatricula({
         </ul>
       )}
 
+      {antecipar && (
+        <div role="alert" className="mt-4 flex flex-col gap-3 rounded-campo bg-alerta-suave px-4 py-3 text-alerta">
+          <p>
+            Este aluno já está matriculado nesta turma a partir de {dataBR(antecipar.data_inicio)}. Em vez de
+            criar outra matrícula, antecipe o início da que já existe: assim o nome não aparece duas vezes.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Botao
+              type="button"
+              disabled={pendente}
+              onClick={() => gravar(() => anteciparMatricula(antecipar.id, estado.data_inicio))}
+            >
+              Antecipar início para {dataBR(estado.data_inicio)}
+            </Botao>
+            <Botao
+              type="button"
+              aparencia="secundario"
+              disabled={pendente}
+              onClick={() => gravar(() => salvarMatricula(estado, null, true))}
+            >
+              Criar matrícula separada mesmo assim
+            </Botao>
+          </div>
+        </div>
+      )}
+
       <div className="mt-6 flex gap-3">
         <Botao type="submit" disabled={pendente}>
           {pendente ? 'Salvando…' : matricula ? 'Salvar alterações' : 'Matricular'}
@@ -170,4 +204,9 @@ export function FormularioMatricula({
       </div>
     </form>
   )
+}
+
+function dataBR(iso: string) {
+  const [a, m, d] = iso.split('-')
+  return `${d}/${m}/${a}`
 }

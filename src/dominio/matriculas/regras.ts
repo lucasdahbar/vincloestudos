@@ -90,3 +90,45 @@ export function avisoDeReposicao(flagReposicao: boolean): string | null {
     ? 'Esta matrícula é apenas para uma reposição: ela não gera cobrança para o responsável.'
     : null
 }
+
+export type Desmatricula = { acao: 'encerrar'; data_fim: string } | { acao: 'excluir' }
+
+/**
+ * Desmatricular grava o fim como hoje. Numa matricula que ainda nao comecou
+ * (aluno matriculado para a semana que vem), isso daria fim antes do inicio, o
+ * que o banco recusa (M2): foi o erro da tela em 14/10/2026. Como ela nao teve
+ * aula nenhuma, nao ha historico a preservar, e o certo e exclui-la.
+ */
+export function comoDesmatricular(
+  matricula: { data_inicio: string },
+  /** Hoje no relogio da escola, AAAA-MM-DD. */
+  hoje: string,
+): Desmatricula {
+  return matricula.data_inicio > hoje ? { acao: 'excluir' } : { acao: 'encerrar', data_fim: hoje }
+}
+
+/**
+ * Caso Giovana (14/10/2026): a aluna ja estava matriculada a partir de 19/10 e
+ * foi assistir a aula de 15/10. A gestora criou uma segunda matricula so para o
+ * dia 15, e o nome apareceu duas vezes. O certo era antecipar o inicio da
+ * matricula que ja existia. Ao criar uma matricula nova, devolve a matricula
+ * futura do mesmo par (aluno, turma) que pode ser antecipada, para a tela
+ * oferecer isso antes de gravar. A de reposicao fica de fora: ela e separada de
+ * proposito, porque nao gera cobranca.
+ */
+export function matriculaParaAntecipar(
+  nova: EntradaMatricula,
+  jaMatriculado: PeriodoMatriculado[],
+): PeriodoMatriculado | null {
+  if (nova.id != null || nova.flag_reposicao || nova.data_inicio === '') return null
+
+  const futuras = jaMatriculado
+    .filter((m) => m.data_inicio > nova.data_inicio)
+    .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))
+  const alvo = futuras[0]
+  if (!alvo) return null
+
+  // Antecipada, ela nao pode encostar em outra matricula (M1).
+  const antecipada = { ...nova, id: alvo.id, data_inicio: nova.data_inicio, data_fim: alvo.data_fim }
+  return seSobrepoe(antecipada, jaMatriculado) ? null : alvo
+}

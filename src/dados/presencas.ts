@@ -2,8 +2,9 @@ import 'server-only'
 import { randomBytes } from 'node:crypto'
 import { clienteAdmin } from './admin'
 import { clienteServidor } from './cliente'
-import { montarRegistro, type RespostaChamada } from '@/dominio/presencas/registro'
-import { concluirReposicoes, montarListaDaAula } from './lista-da-aula'
+import { type RespostaChamada } from '@/dominio/presencas/registro'
+import { gravarChamada } from './gravar-chamada'
+import { montarListaDaAula } from './lista-da-aula'
 
 /** Validade padrao do link enviado ao professor. */
 const HORAS_DE_VALIDADE = 48
@@ -145,49 +146,20 @@ export async function registrarChamada(
   const admin = clienteAdmin()
   const { aula } = leitura
 
-  const resultado = montarRegistro({
+  const r = await gravarChamada(admin, {
     aulaId: aula.aula_id,
     professorId: aula.professor_id,
     matriculados: aula.alunos,
     respostas,
+    usuario: `professor:${aula.professor_id ?? 'desconhecido'}`,
+    via: 'link_da_aula',
   })
+  if (!r.ok) return r
 
-  if (resultado.presencas.length > 0) {
-    const { error } = await admin
-      .from('presencas')
-      .upsert(resultado.presencas, { onConflict: 'aula_id,aluno_id' })
-    if (error) return { ok: false, motivo: `Falha ao gravar as presenças: ${error.message}` }
-  }
-
-  if (resultado.pendencias.length > 0) {
-    const { error } = await admin
-      .from('pendencias_reposicao')
-      .upsert(resultado.pendencias, { onConflict: 'aluno_id,aula_origem_id', ignoreDuplicates: true })
-    if (error) return { ok: false, motivo: `Falha ao registrar as reposições: ${error.message}` }
-  }
-
-  await concluirReposicoes(admin, aula.aula_id, resultado.presencas)
-  // Rodada 4: se a aula foi excluida no meio da chamada, ela continua excluida.
-  await admin
-    .from('aulas')
-    .update({ status: resultado.novoStatusAula })
-    .eq('id', aula.aula_id)
-    .neq('status', 'Excluída')
+  // O link so se consome depois de gravar: se algo falhou, o professor reenvia.
   await admin.from('presenca_tokens').update({ usado_em: new Date().toISOString() }).eq('token', token)
 
-  await admin.from('logs_operacionais').insert({
-    acao: 'registrar_chamada',
-    entidade: 'aulas',
-    entidade_id: aula.aula_id,
-    usuario: `professor:${aula.professor_id ?? 'desconhecido'}`,
-    detalhe: {
-      presencas: resultado.presencas.length,
-      ausentes: resultado.ausentes.length,
-      pendencias_geradas: resultado.pendencias.length,
-    },
-  })
-
-  return { ok: true, ausentes: resultado.ausentes.map((a) => a.nome) }
+  return r
 }
 
 /** A gestora pode reabrir a chamada, conforme Operacionais 5.5. */

@@ -24,7 +24,11 @@ export async function calcular(professorId: number, ate: string) {
       valor_servico: i.valor_servico,
       percentual_aplicado: i.percentual_aplicado,
       valor_professor: i.valor_professor,
+      desistencia: i.desistencia,
     })),
+    // Aulas dadas que ainda nao tem cobranca confirmada: nao somam, e a gestora
+    // lembra de fechar a cobranca (13/10/2026).
+    aguardando: f.aguardando,
   }
 }
 

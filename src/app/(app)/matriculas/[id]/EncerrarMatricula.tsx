@@ -38,8 +38,14 @@ export function EncerrarMatricula({ id, nome }: { id: number; nome: string }) {
           onClick={() =>
             iniciar(async () => {
               try {
-                await encerrarMatricula(id)
-                router.refresh()
+                const r = await encerrarMatricula(id)
+                if (!r.ok) {
+                  setErro('Não foi possível desmatricular. Tente de novo ou fale com o suporte.')
+                  return
+                }
+                // A matricula que ainda nao tinha comecado e excluida: esta tela deixa de existir.
+                if (r.excluida) router.push('/matriculas')
+                else router.refresh()
               } catch (e) {
                 setErro(e instanceof Error ? e.message : 'Não foi possível desmatricular.')
               }

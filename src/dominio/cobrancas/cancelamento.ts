@@ -32,11 +32,23 @@ export type PodeCancelar = { pode: true } | { pode: false; motivo: string }
 export function podeCancelarCobranca(
   status: StatusCobranca,
   quantidadeDeRecebimentos: number,
+  /** Aulas desta cobranca que ja entraram no pagamento de um professor. */
+  aulasPagasAoProfessor = 0,
 ): PodeCancelar {
   if (quantidadeDeRecebimentos > 0) {
     return {
       pode: false,
       motivo: 'Esta cobrança já tem pagamento registrado e não pode ser cancelada.',
+    }
+  }
+
+  // O professor recebe pelo valor cobrado (13/10/2026): cancelar e gerar de
+  // novo com outro desconto faria o pagamento divergir do que foi cobrado.
+  if (aulasPagasAoProfessor > 0) {
+    return {
+      pode: false,
+      motivo:
+        'Esta cobrança já serviu de base para o pagamento de um professor e não pode ser cancelada.',
     }
   }
 

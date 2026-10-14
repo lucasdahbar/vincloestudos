@@ -39,6 +39,7 @@ export function LinkDeChamada({
   const [caminho, setCaminho] = useState(caminhoExistente)
   const [copiado, setCopiado] = useState<'link' | 'mensagem' | null>(null)
   const [pendente, iniciar] = useTransition()
+  const [erro, setErro] = useState<string | null>(null)
 
   // Montado no cliente: o servidor nao sabe o dominio publico.
   const urlCompleta = caminho ? `${typeof window !== 'undefined' ? window.location.origin : ''}${caminho}` : ''
@@ -77,14 +78,24 @@ export function LinkDeChamada({
           disabled={pendente}
           onClick={() =>
             iniciar(async () => {
-              const novo = await reabrirChamadaDaAula(aulaId)
-              setCaminho(novo)
+              setErro(null)
+              const r = await reabrirChamadaDaAula(aulaId)
+              if (!r.ok) {
+                setErro(r.erro)
+                return
+              }
+              setCaminho(r.caminho)
               router.refresh()
             })
           }
         >
           {pendente ? 'Reabrindo…' : 'Reabrir a chamada'}
         </Botao>
+        {erro && (
+          <p role="alert" className="mt-3 text-sm text-erro">
+            {erro}
+          </p>
+        )}
       </Cartao>
     )
   }
