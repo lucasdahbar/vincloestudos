@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { comoDesmatricular, matriculaParaAntecipar, validarMatricula, type EntradaMatricula, type TurmaDaMatricula } from './regras'
+import { comoDesmatricular, mandaBoasVindas, matriculaParaAntecipar, validarMatricula, type EntradaMatricula, type TurmaDaMatricula } from './regras'
 
 const turmaAtiva: TurmaDaMatricula = { status: 'Ativa' }
 const turmaEncerrada: TurmaDaMatricula = { status: 'Encerrada' }
@@ -183,5 +183,20 @@ describe('matriculaParaAntecipar', () => {
   it('nao sugere quando antecipar invadiria outra matricula', () => {
     const passada = { id: 120, data_inicio: '2026-10-01', data_fim: '2026-10-16' }
     expect(matriculaParaAntecipar(nova, [passada, futura])).toBeNull()
+  })
+})
+
+describe('mandaBoasVindas', () => {
+  it('manda para a matricula comum, em aberto ou com fim', () => {
+    expect(mandaBoasVindas({ flag_reposicao: false, data_inicio: '2026-10-15', data_fim: null })).toBe(true)
+    expect(mandaBoasVindas({ flag_reposicao: false, data_inicio: '2026-10-15', data_fim: '2026-12-15' })).toBe(true)
+  })
+
+  it('nao manda para a aula avulsa, de um dia so', () => {
+    expect(mandaBoasVindas({ flag_reposicao: false, data_inicio: '2026-10-15', data_fim: '2026-10-15' })).toBe(false)
+  })
+
+  it('nao manda para a reposicao', () => {
+    expect(mandaBoasVindas({ flag_reposicao: true, data_inicio: '2026-10-15', data_fim: null })).toBe(false)
   })
 })

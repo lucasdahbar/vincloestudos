@@ -6,10 +6,14 @@ import { FormularioMatricula } from '../FormularioMatricula'
 export default async function PaginaNovaMatricula({
   searchParams,
 }: {
-  searchParams: Promise<{ turma?: string; aluno?: string }>
+  searchParams: Promise<{ turma?: string; aluno?: string; inicio?: string; fim?: string; voltar?: string }>
 }) {
   await exigirGestora()
-  const { turma, aluno } = await searchParams
+  const { turma, aluno, inicio, fim, voltar } = await searchParams
+  const data = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined)
+  // So caminho interno: o parametro vem da URL e nao pode mandar a gestora para fora.
+  const voltarPara = voltar?.startsWith('/') && !voltar.startsWith('//') ? voltar : undefined
+  const avulsa = !!data(inicio) && data(inicio) === data(fim)
   const supabase = await clienteServidor()
 
   const [alunos, turmas] = await Promise.all([
@@ -27,12 +31,21 @@ export default async function PaginaNovaMatricula({
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-3xl">Nova matrícula</h1>
+      <h1 className="text-3xl">{avulsa ? 'Aula avulsa' : 'Nova matrícula'}</h1>
+      {avulsa && (
+        <p className="-mt-3 text-tinta-suave">
+          O aluno entra só na aula deste dia. Ela é cobrada como uma aula da turma e não manda a
+          mensagem de boas-vindas.
+        </p>
+      )}
       <FormularioMatricula
         alunos={alunos.data ?? []}
         turmas={opcoesDeTurma}
         turmaFixa={turma ? Number(turma) : undefined}
         alunoFixo={aluno ? Number(aluno) : undefined}
+        inicio={data(inicio)}
+        fim={data(fim)}
+        voltarPara={voltarPara}
       />
     </div>
   )

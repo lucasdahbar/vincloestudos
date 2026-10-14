@@ -132,3 +132,17 @@ export function matriculaParaAntecipar(
   const antecipada = { ...nova, id: alvo.id, data_inicio: nova.data_inicio, data_fim: alvo.data_fim }
   return seSobrepoe(antecipada, jaMatriculado) ? null : alvo
 }
+
+/**
+ * Boas-vindas so para quem entra na turma (Operacionais 4.5). A reposicao ja
+ * conhece a turma de origem, e a aula avulsa (matricula de um dia so, criada
+ * pela tela da aula na agenda) e uma visita: a mensagem com os dias e horarios
+ * da turma daria a entender que o aluno ficou matriculado.
+ */
+export function mandaBoasVindas(m: {
+  flag_reposicao: boolean
+  data_inicio: string
+  data_fim: string | null
+}): boolean {
+  return !m.flag_reposicao && m.data_fim !== m.data_inicio
+}

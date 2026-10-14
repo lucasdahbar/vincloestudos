@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { anteciparMatricula, salvarMatricula } from './acoes'
+import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import { avisoDeReposicao } from '@/dominio/matriculas/regras'
 import { Botao } from '@/ui/Botao'
 import { Campo, entradaClasse } from '@/ui/Campo'
@@ -30,24 +31,33 @@ export function FormularioMatricula({
   alunoFixo,
   turmaFixa,
   matricula,
+  inicio,
+  fim,
+  voltarPara,
 }: {
   alunos: Opcao[]
   turmas: Opcao[]
   alunoFixo?: number
   turmaFixa?: number
   matricula?: MatriculaExistente
+  /** Vindo da tela da aula na agenda: a data da aula, e o fim igual na aula avulsa. */
+  inicio?: string
+  fim?: string
+  /** Para onde voltar depois de matricular (a propria aula). */
+  voltarPara?: string
 }) {
   const router = useRouter()
   const [pendente, iniciar] = useTransition()
   const [erros, setErros] = useState<string[]>([])
   const [antecipar, setAntecipar] = useState<{ id: number; data_inicio: string } | null>(null)
-  const hoje = new Date().toISOString().slice(0, 10)
+  // No relogio da escola: em UTC, depois das 21h o padrao ja seria amanha.
+  const hoje = agoraNaEscola(new Date()).slice(0, 10)
 
   const [estado, setEstado] = useState({
     aluno_id: matricula?.aluno_id ?? alunoFixo ?? null,
     turma_id: matricula?.turma_id ?? turmaFixa ?? null,
-    data_inicio: matricula?.data_inicio ?? hoje,
-    data_fim: matricula?.data_fim ?? (null as string | null),
+    data_inicio: matricula?.data_inicio ?? inicio ?? hoje,
+    data_fim: matricula?.data_fim ?? fim ?? (null as string | null),
     flag_reposicao: matricula?.flag_reposicao ?? false,
   })
 
@@ -67,7 +77,7 @@ export function FormularioMatricula({
         setAntecipar(resultado.antecipar)
       } else if (resultado.ok) {
         router.push(
-          matricula ? `/turmas/${estado.turma_id}` : turmaFixa ? `/turmas/${turmaFixa}` : '/matriculas',
+          matricula ? `/turmas/${estado.turma_id}` : (voltarPara ?? (turmaFixa ? `/turmas/${turmaFixa}` : '/matriculas')),
         )
         router.refresh()
       } else {

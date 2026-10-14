@@ -18,6 +18,7 @@ const ROTULO_AVISO = {
 } as const
 import { clienteServidor } from '@/dados/cliente'
 import { exigirSessao } from '@/dados/sessao'
+import { BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { Selo } from '@/ui/Selo'
 
@@ -37,6 +38,10 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
     hour: '2-digit',
     minute: '2-digit',
   })
+
+  // Horario de parede gravado sem fuso: os 10 primeiros caracteres sao o dia da aula.
+  const dataDaAula = String(aula.data_hora_inicio).slice(0, 10)
+  const novaMatricula = `/matriculas/nova?turma=${aula.turma_id}&inicio=${dataDaAula}&voltar=/agenda/aulas/${aula.id}`
 
   const supabase = await clienteServidor()
   const [lista, { data: presencas }, token, { data: daTurma }] = await Promise.all([
@@ -158,6 +163,20 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
               A chamada ainda não foi registrada. Gere o link e envie ao professor.
             </p>
           </>
+        )}
+
+        {/* So antes da chamada: depois dela, o aluno novo ficaria sem presenca
+            nem falta. A aula avulsa e uma matricula de um dia so, cobrada como
+            uma aula da turma e sem boas-vindas (mandaBoasVindas). */}
+        {ehGestora && aula.status === 'Agendada' && (
+          <div className="mt-4 flex flex-wrap gap-3 border-t border-borda/60 pt-4">
+            <BotaoLink href={`${novaMatricula}&fim=${dataDaAula}`} aparencia="secundario">
+              Incluir aluno só nesta aula
+            </BotaoLink>
+            <BotaoLink href={novaMatricula} aparencia="secundario">
+              Matricular aluno na turma
+            </BotaoLink>
+          </div>
         )}
       </Cartao>
 

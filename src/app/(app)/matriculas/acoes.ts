@@ -7,7 +7,7 @@ import { atualizarAlunosNosEventos } from '@/dados/evento-da-turma'
 import { exigirGestora } from '@/dados/sessao'
 import { enfileirarBoasVindas } from '@/dados/notificacoes'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
-import { comoDesmatricular, matriculaParaAntecipar, validarMatricula } from '@/dominio/matriculas/regras'
+import { comoDesmatricular, mandaBoasVindas, matriculaParaAntecipar, validarMatricula } from '@/dominio/matriculas/regras'
 
 export interface EntradaDeMatricula {
   aluno_id: number | null
@@ -81,10 +81,10 @@ export async function salvarMatricula(
       : await supabase.from('matriculas').update(registro).eq('id', id).select('id').single()
 
   if (resposta.error) return { ok: false, erros: [traduzir(resposta.error.message)] }
-
-  // Boas-vindas com os dados da turma (Operacionais 4.5). Nao pode derrubar a
-  // matricula: se a fila falhar, o vinculo ja esta gravado e e o que importa.
-  if (id === null) {
+  // Boas-vindas com os dados da turma (Operacionais 4.5), menos na aula avulsa.
+  // Nao pode derrubar a matricula: se a fila falhar, o vinculo ja esta gravado
+  // e e o que importa.
+  if (id === null && mandaBoasVindas(entrada)) {
     try {
       await enfileirarBoasVindas(resposta.data.id)
     } catch (e) {
