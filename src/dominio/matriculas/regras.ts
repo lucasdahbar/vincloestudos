@@ -90,3 +90,19 @@ export function avisoDeReposicao(flagReposicao: boolean): string | null {
     ? 'Esta matrícula é apenas para uma reposição: ela não gera cobrança para o responsável.'
     : null
 }
+
+export type Desmatricula = { acao: 'encerrar'; data_fim: string } | { acao: 'excluir' }
+
+/**
+ * Desmatricular grava o fim como hoje. Numa matricula que ainda nao comecou
+ * (aluno matriculado para a semana que vem), isso daria fim antes do inicio, o
+ * que o banco recusa (M2): foi o erro da tela em 14/10/2026. Como ela nao teve
+ * aula nenhuma, nao ha historico a preservar, e o certo e exclui-la.
+ */
+export function comoDesmatricular(
+  matricula: { data_inicio: string },
+  /** Hoje no relogio da escola, AAAA-MM-DD. */
+  hoje: string,
+): Desmatricula {
+  return matricula.data_inicio > hoje ? { acao: 'excluir' } : { acao: 'encerrar', data_fim: hoje }
+}

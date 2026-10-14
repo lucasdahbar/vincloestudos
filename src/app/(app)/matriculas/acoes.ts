@@ -6,7 +6,8 @@ import { clienteServidor } from '@/dados/cliente'
 import { atualizarAlunosNosEventos } from '@/dados/evento-da-turma'
 import { exigirGestora } from '@/dados/sessao'
 import { enfileirarBoasVindas } from '@/dados/notificacoes'
-import { validarMatricula } from '@/dominio/matriculas/regras'
+import { agoraNaEscola } from '@/dominio/agenda/relogio'
+import { comoDesmatricular, validarMatricula } from '@/dominio/matriculas/regras'
 
 export interface EntradaDeMatricula {
   aluno_id: number | null
@@ -105,16 +106,28 @@ function traduzir(mensagem: string): string {
 export async function encerrarMatricula(id: number) {
   await exigirGestora()
   const supabase = await clienteServidor()
-  const { data, error } = await supabase
+  const { data: atual, error: erroLeitura } = await supabase
     .from('matriculas')
-    .update({ status: 'Encerrada', data_fim: new Date().toISOString().slice(0, 10) })
+    .select('turma_id, data_inicio')
     .eq('id', id)
-    .select('turma_id')
     .single()
-  if (error) throw new Error(error.message)
+  if (erroLeitura) return { ok: false as const, motivo: erroLeitura.message }
 
-  after(() => atualizarAlunosNosEventos([data.turma_id]))
+  // O servidor roda em UTC: depois das 21h, `toISOString` ja seria amanha.
+  const hoje = agoraNaEscola(new Date()).slice(0, 10)
+  const como = comoDesmatricular(atual, hoje)
+  const { error } =
+    como.acao === 'excluir'
+      ? await supabase.from('matriculas').delete().eq('id', id)
+      : await supabase
+          .from('matriculas')
+          .update({ status: 'Encerrada', data_fim: como.data_fim })
+          .eq('id', id)
+  if (error) return { ok: false as const, motivo: error.message }
+
+  after(() => atualizarAlunosNosEventos([atual.turma_id]))
 
   revalidatePath('/matriculas')
   revalidatePath(`/matriculas/${id}`)
+  return { ok: true as const, excluida: como.acao === 'excluir' }
 }

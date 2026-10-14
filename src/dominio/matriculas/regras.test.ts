@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validarMatricula, type EntradaMatricula, type TurmaDaMatricula } from './regras'
+import { comoDesmatricular, validarMatricula, type EntradaMatricula, type TurmaDaMatricula } from './regras'
 
 const turmaAtiva: TurmaDaMatricula = { status: 'Ativa' }
 const turmaEncerrada: TurmaDaMatricula = { status: 'Encerrada' }
@@ -125,5 +125,27 @@ describe('não sobreposição de períodos', () => {
       ],
     )
     expect(erros).toContain(SOBREPOSTA)
+  })
+})
+
+describe('comoDesmatricular', () => {
+  it('encerra hoje a matricula que ja comecou', () => {
+    expect(comoDesmatricular({ data_inicio: '2026-10-01' }, '2026-10-14')).toEqual({
+      acao: 'encerrar',
+      data_fim: '2026-10-14',
+    })
+  })
+
+  it('encerra hoje a matricula que comeca hoje', () => {
+    expect(comoDesmatricular({ data_inicio: '2026-10-14' }, '2026-10-14')).toEqual({
+      acao: 'encerrar',
+      data_fim: '2026-10-14',
+    })
+  })
+
+  it('exclui a matricula que ainda nao comecou, em vez de gravar fim antes do inicio', () => {
+    expect(comoDesmatricular({ data_inicio: '2026-10-15' }, '2026-10-14')).toEqual({
+      acao: 'excluir',
+    })
   })
 })
