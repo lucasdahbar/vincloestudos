@@ -5,6 +5,7 @@ import { tokenDaAula } from '@/dados/presencas'
 import { LinkDeChamada } from './LinkDeChamada'
 import { AvisarFalta } from './AvisarFalta'
 import { ExcluirAula } from './ExcluirAula'
+import { CorrigirChamada } from './CorrigirChamada'
 import { RemarcarAula } from './RemarcarAula'
 import { CancelarAviso } from '../../../reposicoes/CancelarAviso'
 
@@ -42,7 +43,7 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
     listaDaAula(aula.id),
     supabase
       .from('presencas')
-      .select('aluno_id, presente, observacao, aluno:alunos!aluno_id (nome)')
+      .select('aluno_id, presente, observacao, conta_pagar_id, aluno:alunos!aluno_id (nome)')
       .eq('aula_id', aula.id),
     tokenDaAula(aula.id),
     supabase
@@ -61,6 +62,7 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
     aluno_id: number
     presente: boolean
     observacao: string | null
+    conta_pagar_id: number | null
     aluno: { nome: string } | null
   }[]
 
@@ -93,6 +95,7 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
         </h2>
 
         {registradas.length > 0 ? (
+          <>
           <ul className="divide-y divide-borda/60">
             {registradas.map((p) => (
               <li key={p.aluno_id} className="flex items-center justify-between gap-3 py-3">
@@ -108,6 +111,22 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
               </li>
             ))}
           </ul>
+          {ehGestora && aula.status === 'Realizada' && (
+            <CorrigirChamada
+              aulaId={aula.id}
+              alunos={registradas.map((p) => ({
+                aluno_id: p.aluno_id,
+                nome: p.aluno?.nome ?? 'Aluno',
+                presente: p.presente,
+              }))}
+              travada={
+                registradas.some((p) => p.conta_pagar_id !== null)
+                  ? 'O pagamento do professor desta aula já foi fechado: não dá para corrigir a chamada.'
+                  : null
+              }
+            />
+          )}
+          </>
         ) : lista.chamada.length === 0 ? (
           <p className="text-tinta-suave">
             {lista.avisaram.length > 0

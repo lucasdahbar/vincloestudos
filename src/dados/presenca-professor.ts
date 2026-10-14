@@ -1,8 +1,9 @@
 import 'server-only'
 import { clienteAdmin } from './admin'
 import { professorPorToken, type ProfessorDoLink } from './professores'
-import { montarRegistro, type RespostaChamada } from '@/dominio/presencas/registro'
-import { concluirReposicoes, montarListaDaAula, type AlunoDaAula } from './lista-da-aula'
+import { type RespostaChamada } from '@/dominio/presencas/registro'
+import { gravarChamada } from './gravar-chamada'
+import { montarListaDaAula, type AlunoDaAula } from './lista-da-aula'
 import {
   DIAS_A_FRENTE,
   modoDaAula,
@@ -171,52 +172,13 @@ export async function registrarChamadaDoProfessor(
   }
 
   const professor = await professorPorToken(token)
-  const admin = clienteAdmin()
 
-  const resultado = montarRegistro({
+  return gravarChamada(clienteAdmin(), {
     aulaId,
     professorId: professor?.id ?? null,
     matriculados: leitura.chamada.alunos,
     respostas,
-  })
-
-  if (resultado.presencas.length > 0) {
-    const { error } = await admin
-      .from('presencas')
-      .upsert(resultado.presencas, { onConflict: 'aula_id,aluno_id' })
-    if (error) return { ok: false, motivo: `Falha ao gravar as presenças: ${error.message}` }
-  }
-
-  if (resultado.pendencias.length > 0) {
-    const { error } = await admin
-      .from('pendencias_reposicao')
-      .upsert(resultado.pendencias, {
-        onConflict: 'aluno_id,aula_origem_id',
-        ignoreDuplicates: true,
-      })
-    if (error) return { ok: false, motivo: `Falha ao registrar as reposições: ${error.message}` }
-  }
-
-  await concluirReposicoes(admin, aulaId, resultado.presencas)
-  // Rodada 4: se a aula foi excluida no meio da chamada, ela continua excluida.
-  await admin
-    .from('aulas')
-    .update({ status: resultado.novoStatusAula })
-    .eq('id', aulaId)
-    .neq('status', 'Excluída')
-
-  await admin.from('logs_operacionais').insert({
-    acao: 'registrar_chamada',
-    entidade: 'aulas',
-    entidade_id: aulaId,
     usuario: `professor:${professor?.id ?? 'desconhecido'}`,
-    detalhe: {
-      via: 'link_permanente',
-      presencas: resultado.presencas.length,
-      ausentes: resultado.ausentes.length,
-      pendencias_geradas: resultado.pendencias.length,
-    },
+    via: 'link_permanente',
   })
-
-  return { ok: true, ausentes: resultado.ausentes.map((a) => a.nome) }
 }
