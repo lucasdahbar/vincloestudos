@@ -1,141 +1,239 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
 import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
+import { lerTudo } from './cobrancas'
 import { carregarVigencias } from './vigencias'
+import { calcularFechamento } from '@/dominio/pagamentos/fechamento'
 import {
-  calcularFechamento,
-  type DesistenciaPaga,
-  type PresencaRemunerada,
-} from '@/dominio/pagamentos/fechamento'
+  classificarPelaCobranca,
+  type CandidataAoPagamento,
+  type ParteCobrada,
+} from '@/dominio/pagamentos/base-cobrada'
 import { saldoEStatusDaConta, validarBaixa, type Baixa } from '@/dominio/pagamentos/baixa'
 import { podeCancelarContaPagar, type StatusContaPagar } from '@/dominio/cobrancas/cancelamento'
 import { gerarRelatorioFechamento, type LinhaRelatorio } from '@/dominio/pagamentos/relatorio'
 
-/**
- * Levanta as presenças confirmadas do professor até a data, com o valor do
- * serviço e o percentual VIGENTES NA DATA DE CADA AULA.
- *
- * P2 (Rodada 2): só existe "até". A data inicial deixou de ser necessária
- * porque P1 garante que presença já reservada por outro fechamento não entra
- * de novo — então o sistema pode simplesmente varrer tudo o que sobrou.
- */
-export async function previaFechamento(professorId: number, ate: string) {
-  const supabase = await clienteServidor()
+/** Cobrança que vale para o pagamento do professor: a que a gestora confirmou. */
+const parteDaCobranca = (
+  itens: Map<string, { status: string; valor: Centavos }>,
+  aulaId: number,
+  alunoId: number,
+): ParteCobrada => {
+  const i = itens.get(`${aulaId}:${alunoId}`)
+  if (!i) return { situacao: 'nenhuma', valor: 0 }
+  return { situacao: i.status === 'Rascunho' ? 'rascunho' : 'confirmada', valor: i.valor }
+}
 
-  const { data: presencas } = await supabase
-    .from('presencas')
-    .select(`
-      id, presente, flag_reposicao, aluno_id, conta_pagar_id,
-      aluno:alunos!aluno_id (nome),
-      aula:aulas!aula_id (
-        id, data_hora_inicio, turma_id,
-        turma:turmas!turma_id (id, nome, servico_id, professor_id)
-      )
-    `)
-    .eq('presente', true)
-    // P1: presença já reservada por um fechamento não volta, mesmo que aquele
-    // fechamento ainda esteja Pendente.
-    .is('conta_pagar_id', null)
-
-  const linhas = ((presencas ?? []) as unknown as {
-    id: number
-    presente: boolean
-    flag_reposicao: boolean
-    aluno_id: number
-    conta_pagar_id: number | null
-    aluno: { nome: string } | null
-    aula: {
-      id: number
-      data_hora_inicio: string
-      turma_id: number
-      turma: { id: number; nome: string; servico_id: number; professor_id: number } | null
-    } | null
-  }[]).filter((p) => {
-    const dia = p.aula?.data_hora_inicio.slice(0, 10) ?? ''
-    return p.aula?.turma?.professor_id === professorId && dia !== '' && dia <= ate
-  })
-
-  const vigencias = await carregarVigencias()
-
-  const remuneradas: PresencaRemunerada[] = linhas.map((p) => {
-    const dia = p.aula!.data_hora_inicio.slice(0, 10)
-    return {
-      presenca_id: p.id,
-      aluno_id: p.aluno_id,
-      aluno_nome: p.aluno?.nome ?? 'Aluno',
-      turma_id: p.aula!.turma!.id,
-      turma_nome: p.aula!.turma!.nome,
-      data_aula: dia,
-      presente: true,
-      flag_reposicao: p.flag_reposicao,
-      valor_servico: vigencias.valorServico(p.aula!.turma!.servico_id, dia),
-      percentual: vigencias.percentualProfessor(professorId, dia),
-      ja_paga: false,
-    }
-  })
-
-  return calcularFechamento(remuneradas, await desistenciasPagas(professorId, ate, vigencias))
+function emGrupos<T>(lista: T[], tamanho = 100): T[][] {
+  return Array.from({ length: Math.ceil(lista.length / tamanho) }, (_, i) =>
+    lista.slice(i * tamanho, (i + 1) * tamanho),
+  )
 }
 
 /**
- * Rodada 3: aulas que nao aconteceram, mas que a gestora cobrou e decidiu pagar
- * ao professor da turma original ("desistencia paga").
+ * Levanta o que o professor tem a receber até a data.
  *
- * A reserva contra pagar duas vezes e o proprio item: `pendencia_id` e UNIQUE
- * em itens_conta_pagar_professor, e cancelar a conta apaga os itens.
+ * Pedido do tio (13/10/2026): a base é o valor EFETIVAMENTE COBRADO da aula
+ * (item de cobrança confirmada, com o desconto que a gestora deu), não o do
+ * cadastro do serviço. Entra a aula com presença confirmada e cobrança
+ * confirmada; a que ainda não tem cobrança confirmada vem à parte, em
+ * `aguardando`, como lembrete para a gestora fechar a cobrança. O percentual
+ * continua o vigente na data da aula.
+ *
+ * Só conta presença de aula Realizada: chamada reaberta para correção ainda
+ * não vale. Tudo é lido paginado e filtrado no banco — antes vinha toda
+ * presença de todos os professores, e o limite de mil linhas do Supabase
+ * cortaria a lista calado.
+ *
+ * P2 (Rodada 2): só existe "até". P1 garante que presença já reservada por
+ * outro fechamento não entra de novo.
  */
-async function desistenciasPagas(
-  professorId: number,
-  ate: string,
-  vigencias: Awaited<ReturnType<typeof carregarVigencias>>,
-): Promise<DesistenciaPaga[]> {
+export async function previaFechamento(professorId: number, ate: string) {
   const supabase = await clienteServidor()
-  const [{ data: pendencias }, { data: jaPagas }] = await Promise.all([
+  const limite = `${ate}T23:59:59`
+
+  const presencas = (await lerTudo((a, b) =>
     supabase
-      .from('pendencias_reposicao')
+      .from('presencas')
       .select(`
-        id, aluno_id,
+        id, flag_reposicao, aluno_id,
         aluno:alunos!aluno_id (nome),
-        aula:aulas!aula_origem_id (
-          data_hora_inicio,
-          turma:turmas!turma_id (id, nome, servico_id, professor_id)
+        aula:aulas!aula_id!inner (
+          id, data_hora_inicio, status,
+          turma:turmas!turma_id!inner (id, nome, professor_id)
         )
       `)
-      .eq('status', 'Desistida')
-      .eq('cobrar', true)
-      .eq('pagar_professor', true),
-    supabase.from('itens_conta_pagar_professor').select('pendencia_id').not('pendencia_id', 'is', null),
-  ])
-
-  const pagas = new Set((jaPagas ?? []).map((i) => i.pendencia_id))
-
-  return ((pendencias ?? []) as unknown as {
+      .eq('presente', true)
+      // P1: presença já reservada por um fechamento não volta, mesmo que
+      // aquele fechamento ainda esteja Pendente.
+      .is('conta_pagar_id', null)
+      .eq('aula.status', 'Realizada')
+      .eq('aula.turma.professor_id', professorId)
+      .lte('aula.data_hora_inicio', limite)
+      .order('id')
+      .range(a, b),
+  )) as unknown as {
     id: number
+    flag_reposicao: boolean
     aluno_id: number
     aluno: { nome: string } | null
-    aula: {
-      data_hora_inicio: string
-      turma: { id: number; nome: string; servico_id: number; professor_id: number } | null
-    } | null
-  }[])
-    .filter((p) => {
-      const dia = p.aula?.data_hora_inicio.slice(0, 10) ?? ''
-      return p.aula?.turma?.professor_id === professorId && dia !== '' && dia <= ate
-    })
-    .map((p) => {
-      const dia = p.aula!.data_hora_inicio.slice(0, 10)
+    aula: { id: number; data_hora_inicio: string; turma: { id: number; nome: string } }
+  }[]
+
+  const desistencias = await desistenciasAPagar(professorId, limite)
+
+  // As reposições: quem repõe uma aula tem pendência apontando para ela. Pela
+  // pendência, e não pela marca da matrícula: a reposição na própria turma do
+  // aluno não tem matrícula de reposição.
+  const aulasDasPresencas = [...new Set(presencas.map((p) => p.aula.id))]
+  const reposicoes = new Map<string, number>()
+  for (const grupo of emGrupos(aulasDasPresencas)) {
+    const linhas = await lerTudo((a, b) =>
+      supabase
+        .from('pendencias_reposicao')
+        .select('id, aluno_id, aula_origem_id, aula_reposicao_id')
+        .in('aula_reposicao_id', grupo)
+        .neq('status', 'Desistida')
+        .order('id')
+        .range(a, b),
+    )
+    for (const r of linhas) {
+      reposicoes.set(`${r.aula_reposicao_id}:${r.aluno_id}`, r.aula_origem_id as number)
+    }
+  }
+
+  // Os itens de cobrança de todas as aulas envolvidas: a própria, a original
+  // da reposição e a da desistência.
+  const aulasDosItens = new Set<number>([
+    ...aulasDasPresencas,
+    ...reposicoes.values(),
+    ...desistencias.map((d) => d.aula_origem_id),
+  ])
+  const itens = new Map<string, { status: string; valor: Centavos }>()
+  for (const grupo of emGrupos([...aulasDosItens])) {
+    const linhas = (await lerTudo((a, b) =>
+      supabase
+        .from('itens_cobranca')
+        .select('id, aula_id, aluno_id, valor_final, cobranca:cobrancas!inner (status)')
+        .in('aula_id', grupo)
+        .order('id')
+        .range(a, b),
+    )) as unknown as {
+      aula_id: number
+      aluno_id: number
+      valor_final: string
+      cobranca: { status: string }
+    }[]
+    for (const i of linhas) {
+      itens.set(`${i.aula_id}:${i.aluno_id}`, {
+        status: i.cobranca.status,
+        valor: deNumeric(i.valor_final),
+      })
+    }
+  }
+
+  const vigencias = await carregarVigencias()
+
+  const candidatas: CandidataAoPagamento[] = [
+    ...presencas.map((p): CandidataAoPagamento => {
+      const dia = p.aula.data_hora_inicio.slice(0, 10)
+      const origem = reposicoes.get(`${p.aula.id}:${p.aluno_id}`)
       return {
-        pendencia_id: p.id,
+        presenca_id: p.id,
+        pendencia_id: null,
+        desistencia: false,
         aluno_id: p.aluno_id,
         aluno_nome: p.aluno?.nome ?? 'Aluno',
-        turma_id: p.aula!.turma!.id,
-        turma_nome: p.aula!.turma!.nome,
+        turma_id: p.aula.turma.id,
+        turma_nome: p.aula.turma.nome,
         data_aula: dia,
-        valor_servico: vigencias.valorServico(p.aula!.turma!.servico_id, dia),
+        flag_reposicao: p.flag_reposicao,
         percentual: vigencias.percentualProfessor(professorId, dia),
-        ja_paga: pagas.has(p.id),
+        // Reposição: o cobrado na aula original mais o da reposição. Reposição
+        // marcada na matrícula, sem pendência, não tem como saber a original.
+        cobrancas: origem
+          ? [parteDaCobranca(itens, origem, p.aluno_id), parteDaCobranca(itens, p.aula.id, p.aluno_id)]
+          : p.flag_reposicao
+            ? []
+            : [parteDaCobranca(itens, p.aula.id, p.aluno_id)],
       }
-    })
+    }),
+    ...desistencias.map((d): CandidataAoPagamento => ({
+      presenca_id: null,
+      pendencia_id: d.pendencia_id,
+      desistencia: true,
+      aluno_id: d.aluno_id,
+      aluno_nome: d.aluno_nome,
+      turma_id: d.turma_id,
+      turma_nome: d.turma_nome,
+      data_aula: d.data_aula,
+      flag_reposicao: false,
+      percentual: vigencias.percentualProfessor(professorId, d.data_aula),
+      cobrancas: [parteDaCobranca(itens, d.aula_origem_id, d.aluno_id)],
+    })),
+  ]
+
+  const { pagaveis, desistencias: pagas, aguardando } = classificarPelaCobranca(candidatas)
+  return { ...calcularFechamento(pagaveis, pagas), aguardando }
+}
+
+/**
+ * Rodada 3: aulas que não aconteceram, mas que a gestora cobrou e decidiu pagar
+ * ao professor da turma original ("desistência paga").
+ *
+ * A reserva contra pagar duas vezes é o próprio item: `pendencia_id` é UNIQUE
+ * em itens_conta_pagar_professor, e cancelar a conta apaga os itens.
+ */
+async function desistenciasAPagar(professorId: number, limite: string) {
+  const supabase = await clienteServidor()
+  const [pendencias, jaPagas] = await Promise.all([
+    lerTudo((a, b) =>
+      supabase
+        .from('pendencias_reposicao')
+        .select(`
+          id, aluno_id, aula_origem_id,
+          aluno:alunos!aluno_id (nome),
+          aula:aulas!aula_origem_id!inner (
+            data_hora_inicio,
+            turma:turmas!turma_id!inner (id, nome, professor_id)
+          )
+        `)
+        .eq('status', 'Desistida')
+        .eq('cobrar', true)
+        .eq('pagar_professor', true)
+        .eq('aula.turma.professor_id', professorId)
+        .lte('aula.data_hora_inicio', limite)
+        .order('id')
+        .range(a, b),
+    ),
+    lerTudo((a, b) =>
+      supabase
+        .from('itens_conta_pagar_professor')
+        .select('id, pendencia_id')
+        .not('pendencia_id', 'is', null)
+        .order('id')
+        .range(a, b),
+    ),
+  ])
+  const pagas = new Set(jaPagas.map((i) => i.pendencia_id as number))
+
+  return (pendencias as unknown as {
+    id: number
+    aluno_id: number
+    aula_origem_id: number
+    aluno: { nome: string } | null
+    aula: { data_hora_inicio: string; turma: { id: number; nome: string } }
+  }[])
+    .filter((p) => !pagas.has(p.id))
+    .map((p) => ({
+      pendencia_id: p.id,
+      aluno_id: p.aluno_id,
+      aluno_nome: p.aluno?.nome ?? 'Aluno',
+      aula_origem_id: p.aula_origem_id,
+      turma_id: p.aula.turma.id,
+      turma_nome: p.aula.turma.nome,
+      data_aula: p.aula.data_hora_inicio.slice(0, 10),
+    }))
 }
 
 export async function gerarContaPagar(
@@ -147,7 +245,14 @@ export async function gerarContaPagar(
   const fechamento = await previaFechamento(professorId, ate)
 
   if (fechamento.itens.length === 0) {
-    return { ok: false, erros: ['Nenhuma aula a pagar até esta data (presença confirmada ou desistência paga).'] }
+    return {
+      ok: false,
+      erros: [
+        fechamento.aguardando.length > 0
+          ? `Nenhuma aula com cobrança confirmada até esta data. ${fechamento.aguardando.length} aula(s) com presença esperam a cobrança ser confirmada.`
+          : 'Nenhuma aula a pagar até esta data (presença confirmada ou desistência paga).',
+      ],
+    }
   }
 
   // O periodo_inicio deixa de ser escolhido pela gestora (P2), mas continua
