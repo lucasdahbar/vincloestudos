@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { comoDesmatricular, validarMatricula, type EntradaMatricula, type TurmaDaMatricula } from './regras'
+import { comoDesmatricular, matriculaParaAntecipar, validarMatricula, type EntradaMatricula, type TurmaDaMatricula } from './regras'
 
 const turmaAtiva: TurmaDaMatricula = { status: 'Ativa' }
 const turmaEncerrada: TurmaDaMatricula = { status: 'Encerrada' }
@@ -147,5 +147,41 @@ describe('comoDesmatricular', () => {
     expect(comoDesmatricular({ data_inicio: '2026-10-15' }, '2026-10-14')).toEqual({
       acao: 'excluir',
     })
+  })
+})
+
+describe('matriculaParaAntecipar', () => {
+  const futura = { id: 131, data_inicio: '2026-10-19', data_fim: null }
+  const nova = { ...matriculaValida, data_inicio: '2026-10-15', data_fim: '2026-10-15' }
+
+  it('sugere antecipar a matricula futura do mesmo aluno na turma', () => {
+    expect(matriculaParaAntecipar(nova, [futura])).toEqual(futura)
+  })
+
+  it('sugere tambem quando a nova seria em aberto', () => {
+    expect(matriculaParaAntecipar({ ...nova, data_fim: null }, [futura])).toEqual(futura)
+  })
+
+  it('escolhe a matricula futura mais proxima', () => {
+    const depois = { id: 140, data_inicio: '2027-02-01', data_fim: null }
+    const antes = { id: 131, data_inicio: '2026-10-19', data_fim: '2026-12-15' }
+    expect(matriculaParaAntecipar(nova, [depois, antes])).toEqual(antes)
+  })
+
+  it('nao sugere quando a outra matricula ja comecou', () => {
+    expect(matriculaParaAntecipar(nova, [{ id: 1, data_inicio: '2026-09-01', data_fim: '2026-09-30' }])).toBeNull()
+  })
+
+  it('nao sugere para matricula de reposicao, que e separada de proposito', () => {
+    expect(matriculaParaAntecipar({ ...nova, flag_reposicao: true }, [futura])).toBeNull()
+  })
+
+  it('nao sugere ao editar uma matricula', () => {
+    expect(matriculaParaAntecipar({ ...nova, id: 200 }, [futura])).toBeNull()
+  })
+
+  it('nao sugere quando antecipar invadiria outra matricula', () => {
+    const passada = { id: 120, data_inicio: '2026-10-01', data_fim: '2026-10-16' }
+    expect(matriculaParaAntecipar(nova, [passada, futura])).toBeNull()
   })
 })

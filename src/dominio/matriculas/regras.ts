@@ -106,3 +106,29 @@ export function comoDesmatricular(
 ): Desmatricula {
   return matricula.data_inicio > hoje ? { acao: 'excluir' } : { acao: 'encerrar', data_fim: hoje }
 }
+
+/**
+ * Caso Giovana (14/10/2026): a aluna ja estava matriculada a partir de 19/10 e
+ * foi assistir a aula de 15/10. A gestora criou uma segunda matricula so para o
+ * dia 15, e o nome apareceu duas vezes. O certo era antecipar o inicio da
+ * matricula que ja existia. Ao criar uma matricula nova, devolve a matricula
+ * futura do mesmo par (aluno, turma) que pode ser antecipada, para a tela
+ * oferecer isso antes de gravar. A de reposicao fica de fora: ela e separada de
+ * proposito, porque nao gera cobranca.
+ */
+export function matriculaParaAntecipar(
+  nova: EntradaMatricula,
+  jaMatriculado: PeriodoMatriculado[],
+): PeriodoMatriculado | null {
+  if (nova.id != null || nova.flag_reposicao || nova.data_inicio === '') return null
+
+  const futuras = jaMatriculado
+    .filter((m) => m.data_inicio > nova.data_inicio)
+    .sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))
+  const alvo = futuras[0]
+  if (!alvo) return null
+
+  // Antecipada, ela nao pode encostar em outra matricula (M1).
+  const antecipada = { ...nova, id: alvo.id, data_inicio: nova.data_inicio, data_fim: alvo.data_fim }
+  return seSobrepoe(antecipada, jaMatriculado) ? null : alvo
+}
