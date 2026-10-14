@@ -125,3 +125,29 @@ describe('fimDoHorizonte', () => {
     expect(fimDoHorizonte([repondo], '2026-10-05')).toBe('2027-12-27')
   })
 })
+
+describe('quem avisou que não vem', () => {
+  const avisou = matricula({ nome: 'Ana Souza', ausencias: ['2026-10-12'] })
+
+  it('some só da ocorrência do aviso, continuando matriculado nas outras', () => {
+    expect(alunosNaData([avisou], '2026-10-12')).toEqual([])
+    expect(alunosNaData([avisou], '2026-10-05')).toEqual(['Ana Souza'])
+    expect(alunosNaData([avisou], '2026-10-19')).toEqual(['Ana Souza'])
+  })
+
+  it('a ocorrência do aviso ganha descrição própria; as outras ficam como estão', () => {
+    const descrever = (alunos: string[]) => `Alunos: ${alunos.join(', ') || 'nenhum'}`
+    const ocorrencias = [
+      { id: 'evt_20261005', data: '2026-10-05', descricao: 'Alunos: Ana Souza' },
+      { id: 'evt_20261012', data: '2026-10-12', descricao: 'Alunos: Ana Souza' },
+    ]
+    expect(ajustesDasOcorrencias(ocorrencias, [avisou], descrever)).toEqual([
+      { id: 'evt_20261012', descricao: 'Alunos: nenhum' },
+    ])
+  })
+
+  it('o horizonte alcança um aviso além da última matrícula', () => {
+    const longe = matricula({ ausencias: ['2028-03-06'] })
+    expect(fimDoHorizonte([longe], '2026-10-14') >= '2028-03-06').toBe(true)
+  })
+})

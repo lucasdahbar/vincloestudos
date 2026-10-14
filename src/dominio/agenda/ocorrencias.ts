@@ -30,11 +30,21 @@ const porNome = (nomes: string[]) => nomes.sort((a, b) => a.localeCompare(b, 'pt
 
 const nomeNaLista = (m: MatriculaDoEvento) => (m.flag_reposicao ? `${m.nome} (reposição)` : m.nome)
 
-/** Os alunos matriculados naquele dia. */
+/**
+ * Os alunos matriculados naquele dia. Quem avisou que não vem àquela aula
+ * continua matriculado, mas sai da lista da ocorrência: o professor não deve
+ * esperar por ele (a reposição, se houver, entra na ocorrência do destino).
+ */
 export function alunosNaData(matriculas: MatriculaDoEvento[], data: string): string[] {
   return porNome(
     matriculas
-      .filter((m) => conta(m) && m.data_inicio <= data && (m.data_fim === null || m.data_fim >= data))
+      .filter(
+        (m) =>
+          conta(m) &&
+          m.data_inicio <= data &&
+          (m.data_fim === null || m.data_fim >= data) &&
+          !m.ausencias?.includes(data),
+      )
       .map(nomeNaLista),
   )
 }
@@ -73,7 +83,7 @@ export function fimDoHorizonte(matriculas: MatriculaDoEvento[], hoje: string): s
   const umAno = somarDias(hoje, 0, 1)
   const datas = matriculas
     .filter(conta)
-    .flatMap((m) => [m.data_inicio, m.data_fim])
+    .flatMap((m) => [m.data_inicio, m.data_fim, ...(m.ausencias ?? [])])
     .filter((d): d is string => d !== null)
   const ultima = datas.reduce((a, b) => (b > a ? b : a), '')
   const depois = ultima ? somarDias(ultima, 7) : ''

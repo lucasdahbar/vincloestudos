@@ -47,6 +47,9 @@ export async function registrarFaltaAvisada(
 ) {
   await exigirGestora()
   const r = await registrarAviso(alunoId, aulaId, decisao)
+  // O aluno sai da lista da ocorrencia no Google; depois da resposta, para o
+  // Google lento nao segurar o aviso.
+  if (r.ok && r.turmasAfetadas?.length) after(() => atualizarAlunosNosEventos(r.turmasAfetadas!))
   revalidarTudo()
   return r
 }
@@ -54,6 +57,7 @@ export async function registrarFaltaAvisada(
 export async function desfazerAviso(pendenciaId: number) {
   await exigirGestora()
   const r = await cancelarAviso(pendenciaId)
+  if (r.ok && r.turmasAfetadas?.length) after(() => atualizarAlunosNosEventos(r.turmasAfetadas!))
   revalidarTudo()
   return r
 }

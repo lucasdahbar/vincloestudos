@@ -50,6 +50,8 @@ export interface MatriculaDoEvento {
   /** ISO (AAAA-MM-DD). */
   data_inicio: string
   data_fim: string | null
+  /** Datas (AAAA-MM-DD) das aulas em que o aluno avisou que não vem. */
+  ausencias?: string[]
 }
 
 export interface EventoGoogle {

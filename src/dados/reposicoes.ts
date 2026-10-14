@@ -218,7 +218,7 @@ export async function registrarAviso(
   alunoId: number,
   aulaOrigemId: number,
   decisao: { gerarReposicao: true } | ({ gerarReposicao: false } & Decisao),
-): Promise<{ ok: boolean; erros?: string[] }> {
+): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[] }> {
   if (!decisao.gerarReposicao) {
     const erros = validarDecisao(decisao)
     if (erros.length > 0) return { ok: false, erros }
@@ -286,7 +286,9 @@ export async function registrarAviso(
     .single()
 
   if (error) return { ok: false, erros: [error.message] }
-  return decisao.gerarReposicao ? { ok: true } : aplicarEfeitoFinanceiro(criada.id)
+  const r = decisao.gerarReposicao ? { ok: true } : await aplicarEfeitoFinanceiro(criada.id)
+  // O aviso tira o aluno da ocorrencia do dia no evento do professor.
+  return { ...r, turmasAfetadas: [aula.turma_id] }
 }
 
 /**
@@ -375,12 +377,12 @@ async function aplicarEfeitoFinanceiro(
  */
 export async function cancelarAviso(
   pendenciaId: number,
-): Promise<{ ok: boolean; erros?: string[] }> {
+): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[] }> {
   const supabase = await clienteServidor()
   const [{ data: p }, { count: creditos }, { count: pagos }] = await Promise.all([
     supabase
       .from('pendencias_reposicao')
-      .select('id, origem, status, aula:aulas!aula_origem_id (status)')
+      .select('id, origem, status, aula:aulas!aula_origem_id (status, turma_id)')
       .eq('id', pendenciaId)
       .maybeSingle(),
     supabase
@@ -406,5 +408,7 @@ export async function cancelarAviso(
 
   const { error } = await supabase.from('pendencias_reposicao').delete().eq('id', pendenciaId)
   if (error) return { ok: false, erros: [error.message] }
-  return { ok: true }
+  // O aluno volta para a ocorrencia do dia no evento do professor.
+  const turmaId = (p.aula as unknown as { turma_id: number } | null)?.turma_id
+  return { ok: true, turmasAfetadas: turmaId ? [turmaId] : [] }
 }
