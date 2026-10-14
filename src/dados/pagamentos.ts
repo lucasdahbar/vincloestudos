@@ -40,8 +40,9 @@ function emGrupos<T>(lista: T[], tamanho = 100): T[][] {
  * `aguardando`, como lembrete para a gestora fechar a cobrança. O percentual
  * continua o vigente na data da aula.
  *
- * Só conta presença de aula Realizada: chamada reaberta para correção ainda
- * não vale. Tudo é lido paginado e filtrado no banco — antes vinha toda
+ * Só conta presença de aula Realizada. (Chamada reaberta pelo link continua
+ * Realizada: a gestora deve fechar o pagamento depois que o professor corrigir.)
+ * Tudo é lido paginado e filtrado no banco — antes vinha toda
  * presença de todos os professores, e o limite de mil linhas do Supabase
  * cortaria a lista calado.
  *
@@ -298,6 +299,9 @@ export async function gerarContaPagar(
   const { error: erroReserva } = await supabase
     .from('presencas')
     .update({ conta_pagar_id: conta.id })
+    // So as ainda livres: duas contas fechadas ao mesmo tempo nao reservam a
+    // mesma presenca.
+    .is('conta_pagar_id', null)
     // Desistencia paga nao tem presenca: a reserva dela e o proprio item.
     .in('id', fechamento.itens.flatMap((i) => (i.presenca_id ? [i.presenca_id] : [])))
 

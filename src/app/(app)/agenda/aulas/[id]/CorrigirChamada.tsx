@@ -51,8 +51,9 @@ export function CorrigirChamada({
   return (
     <div className="mt-4 flex flex-col gap-3 rounded-campo bg-superficie-2 p-4">
       <p className="text-sm text-tinta-suave">
-        Marque como cada aluno deveria estar. Quem passar a faltar ganha uma reposição pendente;
-        quem passar a constar como presente perde a que a falta tinha gerado.
+        Marque como cada aluno deveria estar. Quem passar a faltar ganha uma reposição pendente
+        (salvo quem estava ali repondo); quem passar a constar como presente perde a que a falta
+        tinha gerado.
       </p>
 
       <ul className="flex flex-col gap-2">
@@ -116,7 +117,15 @@ export function CorrigirChamada({
         >
           {pendente ? 'Salvando…' : 'Salvar correção'}
         </Botao>
-        <Botao aparencia="secundario" onClick={() => setAberto(false)}>
+        <Botao
+          aparencia="secundario"
+          onClick={() => {
+            // Descarta o que nao foi salvo: ao reabrir, a chamada como esta.
+            setPresencas(new Map(alunos.map((a) => [a.aluno_id, a.presente])))
+            setErro(null)
+            setAberto(false)
+          }}
+        >
           Cancelar
         </Botao>
       </div>

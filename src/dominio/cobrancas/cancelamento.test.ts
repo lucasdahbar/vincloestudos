@@ -59,3 +59,17 @@ describe('podeCancelarContaPagar (P5)', () => {
     expect(podeCancelarContaPagar('Cancelada', 0)).toMatchObject({ pode: false })
   })
 })
+
+describe('podeCancelarCobranca e o pagamento do professor', () => {
+  it('cobrança que já serviu de base para pagar um professor não se cancela', () => {
+    // O professor recebe pelo valor cobrado (13/10/2026): cancelar e gerar de
+    // novo com outro desconto faria o pagamento divergir do que foi cobrado.
+    const r = podeCancelarCobranca('Confirmada', 0, 2)
+    expect(r.pode).toBe(false)
+    if (!r.pode) expect(r.motivo).toContain('pagamento de um professor')
+  })
+
+  it('sem aula paga ao professor, segue como antes', () => {
+    expect(podeCancelarCobranca('Confirmada', 0, 0)).toEqual({ pode: true })
+  })
+})
