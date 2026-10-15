@@ -39,8 +39,10 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
     minute: '2-digit',
   })
 
-  // Horario de parede gravado sem fuso: os 10 primeiros caracteres sao o dia da aula.
-  const dataDaAula = String(aula.data_hora_inicio).slice(0, 10)
+  // O dia da matricula e o que a turma considera para a aula, nao o dia em que
+  // ela acontece: numa aula remarcada, a matricula de 15/10 nao entra na lista
+  // de uma aula que a turma trata como de 16/10 (caso Rafael, 15/10/2026).
+  const dataDaAula = String(aula.data_hora_referencia ?? aula.data_hora_inicio).slice(0, 10)
   const novaMatricula = `/matriculas/nova?turma=${aula.turma_id}&inicio=${dataDaAula}&voltar=/agenda/aulas/${aula.id}`
 
   const supabase = await clienteServidor()

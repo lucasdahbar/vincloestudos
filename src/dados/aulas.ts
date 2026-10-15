@@ -17,6 +17,8 @@ export interface AulaComTurma {
   status: StatusAula
   /** Remarcada (13/10/2026): o horário que a regra da turma deu a ela. */
   data_hora_original: string | null
+  /** O dia que a turma considera para a aula: o original, se foi remarcada. */
+  data_hora_referencia: string
   link_online: string | null
   observacao: string | null
   turma: {
@@ -31,7 +33,7 @@ export interface AulaComTurma {
 
 const SELECT_AULA = `
   id, turma_id, google_calendar_event_id, data_hora_inicio, data_hora_fim,
-  status, link_online, observacao, data_hora_original,
+  status, link_online, observacao, data_hora_original, data_hora_referencia,
   turma:turmas!turma_id (id, nome, modalidade, professor_id, tipo_recorrencia, horario_fim)
 `
 
