@@ -51,13 +51,33 @@ function hojeISO(): string {
 }
 
 async function matriculasDaTurma(turmaId: number): Promise<MatriculaDoEvento[]> {
-  const { data } = await clienteAdmin()
-    .from('matriculas')
-    .select('status, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (nome)')
-    .eq('turma_id', turmaId)
-    .eq('status', 'Ativa')
+  const admin = clienteAdmin()
+  const [{ data }, { data: avisos }] = await Promise.all([
+    admin
+      .from('matriculas')
+      .select('aluno_id, status, flag_reposicao, data_inicio, data_fim, aluno:alunos!aluno_id (nome)')
+      .eq('turma_id', turmaId)
+      .eq('status', 'Ativa'),
+    // Quem avisou que nao vem continua matriculado, mas some da ocorrencia
+    // daquele dia. A data e a da regra da turma (a original, se a aula foi
+    // remarcada), a mesma contra a qual a matricula e conferida.
+    admin
+      .from('pendencias_reposicao')
+      .select('aluno_id, aula:aulas!aula_origem_id!inner (turma_id, data_hora_inicio, data_hora_referencia)')
+      .eq('origem', 'Aviso')
+      .eq('aula.turma_id', turmaId),
+  ])
   // Inclusive as de reposicao (correcao de 13/10/2026): `ocorrencias.ts` as
   // poe so na ocorrencia do dia, marcadas.
+
+  const ausenciasPorAluno = new Map<number, string[]>()
+  for (const a of (avisos ?? []) as unknown as {
+    aluno_id: number
+    aula: { data_hora_inicio: string; data_hora_referencia: string | null }
+  }[]) {
+    const dia = String(a.aula.data_hora_referencia ?? a.aula.data_hora_inicio).slice(0, 10)
+    ausenciasPorAluno.set(a.aluno_id, [...(ausenciasPorAluno.get(a.aluno_id) ?? []), dia])
+  }
 
   return (data ?? []).map((m) => ({
     nome: (m.aluno as unknown as { nome: string } | null)?.nome ?? 'Aluno',
@@ -65,6 +85,7 @@ async function matriculasDaTurma(turmaId: number): Promise<MatriculaDoEvento[]> 
     flag_reposicao: m.flag_reposicao,
     data_inicio: String(m.data_inicio).slice(0, 10),
     data_fim: m.data_fim ? String(m.data_fim).slice(0, 10) : null,
+    ausencias: ausenciasPorAluno.get(m.aluno_id) ?? [],
   }))
 }
 
