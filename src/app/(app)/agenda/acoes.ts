@@ -13,6 +13,8 @@ import { atualizarAlunosNosEventos, sincronizarEventoDaTurma } from '@/dados/eve
 import type { EscolhaRegular, EscolhaReposicao } from '@/dominio/agenda/exclusao-aula'
 import type { NovoHorario } from '@/dominio/agenda/remarcacao'
 import { remarcarAulaNoBanco } from '@/dados/remarcacao'
+import { registrarEnvioDeLink } from '@/dados/links-da-aula'
+import type { CanalEnvio } from '@/dominio/notificacoes/mensagens'
 
 export async function sincronizar(de: string, ate: string) {
   await exigirGestora()
@@ -158,4 +160,20 @@ export async function remarcarAula(
   revalidatePath('/agenda', 'layout')
   revalidatePath(`/turmas/${r.turmaId}`)
   return { ok: true }
+}
+
+/**
+ * O link da aula saiu para um aluno ou responsavel (pedido de 16/10/2026): o
+ * clique no botao ja registra, sem o "Ja enviei" da fila antiga.
+ */
+export async function registrarEnvioDoLink(
+  aulaId: number,
+  alunoId: number,
+  destinatarioTipo: 'aluno' | 'responsavel',
+  canal: CanalEnvio,
+): Promise<{ ok: true; enviado_em: string } | { ok: false; motivo: string }> {
+  await exigirGestora()
+  const r = await registrarEnvioDeLink(aulaId, alunoId, destinatarioTipo, canal)
+  if (r.ok) revalidatePath(`/agenda/aulas/${aulaId}`)
+  return r
 }

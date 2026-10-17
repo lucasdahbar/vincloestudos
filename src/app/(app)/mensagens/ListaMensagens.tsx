@@ -1,9 +1,11 @@
 'use client'
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { confirmarEnvio, prepararLembretes } from './acoes'
+import { confirmarEnvio } from './acoes'
+import { linkWhatsApp } from '@/dominio/notificacoes/link-da-aula'
 import { Botao } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
@@ -21,7 +23,6 @@ export interface MensagemNaTela {
 
 const ROTULO: Record<string, string> = {
   BoasVindas: 'Boas-vindas',
-  LinkAula: 'Link da aula',
   Cobranca: 'Cobrança',
 }
 
@@ -36,64 +37,25 @@ function quando(iso: string | null): string {
   })
 }
 
-/** Link que abre o WhatsApp com o texto pronto. Numero so com digitos. */
-function linkWhatsApp(contato: string | null, texto: string): string | null {
-  if (!contato) return null
-  const numero = contato.replace(/\D/g, '')
-  if (numero.length < 10) return null
-  const comPais = numero.startsWith('55') ? numero : `55${numero}`
-  return `https://wa.me/${comPais}?text=${encodeURIComponent(texto)}`
-}
-
 export function ListaMensagens({ mensagens }: { mensagens: MensagemNaTela[] }) {
   const router = useRouter()
   const [pendente, iniciar] = useTransition()
-  const [aviso, setAviso] = useState<string | null>(null)
   const [copiado, setCopiado] = useState<number | null>(null)
 
   return (
     <div className="flex flex-col gap-5">
-      <Cartao className="flex flex-col gap-3">
-        <div>
-          <h2 className="text-lg">Preparar lembretes das aulas online</h2>
-          <p className="mt-1 text-sm text-tinta-suave">
-            Monta a mensagem com o link de cada aula online das próximas 48 horas, para o aluno
-            ou responsável, conforme a preferência de cada aluno.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Botao
-            disabled={pendente}
-            onClick={() =>
-              iniciar(async () => {
-                const total = await prepararLembretes()
-                setAviso(
-                  total === 0
-                    ? 'Nenhum lembrete novo — as aulas online das próximas 48h já estão na lista.'
-                    : `${total} mensagem(ns) preparada(s).`,
-                )
-                router.refresh()
-              })
-            }
-          >
-            {pendente ? 'Preparando…' : 'Preparar lembretes'}
-          </Botao>
-          {aviso && (
-            <motion.span
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-sm text-tinta-suave"
-            >
-              {aviso}
-            </motion.span>
-          )}
-        </div>
-      </Cartao>
+      <p className="text-sm text-tinta-suave">
+        O link das aulas online sai pela própria aula, na{' '}
+        <Link href="/agenda" className="text-destaque hover:underline">
+          agenda
+        </Link>
+        .
+      </p>
 
       {mensagens.length === 0 ? (
         <EstadoVazio
           titulo="Nenhuma mensagem para enviar"
-          descricao="As boas-vindas aparecem aqui quando você matricula um aluno numa turma, e os lembretes das aulas online quando você prepara acima."
+          descricao="As boas-vindas aparecem aqui quando você matricula um aluno numa turma, e os avisos de turma nova quando ela é criada."
         />
       ) : (
         <ul className="flex flex-col gap-3">

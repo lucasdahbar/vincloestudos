@@ -22,8 +22,6 @@ export interface ContextoNotificacao {
     horario_fim: string
     modalidade: 'Presencial' | 'Online'
   }
-  /** Link fixo da turma, quando houver. */
-  link: string | null
   referencia: { tipo: string; id: number }
   /** Presente apenas no lembrete de aula. */
   aula?: { data_hora_inicio: string; link: string | null }
@@ -60,10 +58,16 @@ function temContato(p: Pessoa, canal: CanalEnvio): boolean {
   return canal === 'WhatsApp' ? Boolean(p.telefone) : Boolean(p.email)
 }
 
-/** Mesmo estilo do lembrete de link, a pedido da escola. */
+/**
+ * Mesmo estilo do lembrete de link, a pedido da escola.
+ *
+ * Sem o link da sala (16/10/2026): ele sai por aula, pela agenda. Com o link
+ * aqui, quem era matriculado recebia a boas-vindas e, em seguida, o link da
+ * aula, e a mensagem parecia repetida.
+ */
 function textoBoasVindas(ctx: ContextoNotificacao, paraAluno: boolean): string {
   const link =
-    ctx.turma.modalidade === 'Online' && ctx.link ? [`Link da sala: ${ctx.link}`] : []
+    ctx.turma.modalidade === 'Online' ? ['O link da sala chega antes de cada aula.'] : []
 
   if (paraAluno) {
     return [

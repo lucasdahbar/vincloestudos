@@ -1,7 +1,6 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
 import { quandoDaTurma } from '@/dominio/turmas/quando'
-import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import {
   identificarDestinatario,
   TABELA_DO_DESTINATARIO,
@@ -80,7 +79,7 @@ async function contextoDaMatricula(matriculaId: number) {
         responsavel:responsaveis!responsavel_id (id, nome, telefone, email)
       ),
       turma:turmas!turma_id (
-        id, nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio, horario_fim, modalidade, link_videochamada
+        id, nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio, horario_fim, modalidade
       )
     `)
     .eq('id', matriculaId)
@@ -107,7 +106,6 @@ async function contextoDaMatricula(matriculaId: number) {
       horario_inicio: string
       horario_fim: string
       modalidade: 'Presencial' | 'Online'
-      link_videochamada: string | null
     } | null
   } | null
 }
@@ -122,24 +120,7 @@ export async function enfileirarBoasVindas(matriculaId: number): Promise<number>
   const m = await contextoDaMatricula(matriculaId)
   if (!m?.aluno?.responsavel || !m.turma || m.flag_reposicao) return 0
 
-  // A sala do Meet e da turma (`link_videochamada`), criada junto com ela. Uma
-  // aula pode ter link proprio, de uma troca pontual: vale o da proxima, se
-  // houver, por ser o endereco que o aluno vai usar primeiro.
-  let link: string | null = null
-  if (m.turma.modalidade === 'Online') {
-    const supabase = await clienteServidor()
-    const { data: proxima } = await supabase
-      .from('aulas')
-      .select('link_online')
-      .eq('turma_id', m.turma.id)
-      .eq('status', 'Agendada')
-      .not('link_online', 'is', null)
-      .order('data_hora_inicio')
-      .limit(1)
-      .maybeSingle()
-    link = proxima?.link_online ?? m.turma.link_videochamada
-  }
-
+  // Sem o link da sala (16/10/2026): ele sai por aula, pela agenda.
   const ctx: ContextoNotificacao = {
     tipo: 'BoasVindas',
     aluno: {
@@ -158,138 +139,36 @@ export async function enfileirarBoasVindas(matriculaId: number): Promise<number>
       horario_fim: String(m.turma.horario_fim).slice(0, 5),
       modalidade: m.turma.modalidade,
     },
-    link,
     referencia: { tipo: 'matriculas', id: m.id },
   }
 
   return enfileirar(planejarNotificacoes(ctx))
 }
 
-/**
- * Lembretes com o link das aulas online que comecam nas proximas horas
- * (Operacionais 4.5). Chamado pelo script de rotina.
- */
-export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<number> {
-  const supabase = await clienteServidor()
-  // As aulas guardam o horario de parede: comparar com o relogio da escola, e
-  // nao com o UTC do servidor, senao a janela anda tres horas.
-  const agora = new Date()
-  const de = agoraNaEscola(agora)
-  const ate = agoraNaEscola(new Date(agora.getTime() + horasAFrente * 3600_000))
-
-  const { data: aulas } = await supabase
-    .from('aulas')
-    .select(`
-      id, data_hora_inicio, data_hora_fim, data_hora_referencia, link_online, turma_id,
-      turma:turmas!turma_id (id, nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio, horario_fim, modalidade, link_videochamada)
-    `)
-    .eq('status', 'Agendada')
-    .gte('data_hora_inicio', `${de}:00`)
-    .lte('data_hora_inicio', `${ate}:00`)
-
-  const linhas = (aulas ?? []) as unknown as {
-    id: number
-    data_hora_inicio: string
-    data_hora_fim: string
-    data_hora_referencia: string
-    link_online: string | null
-    turma_id: number
-    turma: {
-      id: number
-      nome: string
-      tipo_recorrencia: 'Recorrente' | 'Único'
-      data_unica: string | null
-      dias_semana: number[]
-      horario_inicio: string
-      horario_fim: string
-      modalidade: 'Presencial' | 'Online'
-      link_videochamada: string | null
-    } | null
-  }[]
-
-  // A sala do Meet e da turma; `link_online` da aula so existe quando alguem
-  // trocou o link daquela aula em particular. Olhar so a aula deixava toda
-  // turma com sala do Meet sem lembrete.
-  const online = linhas
-    .filter((a) => a.turma?.modalidade === 'Online')
-    .map((a) => ({ ...a, link: a.link_online ?? a.turma!.link_videochamada }))
-    .filter((a) => a.link)
-  if (online.length === 0) return 0
-
-  let total = 0
-
-  for (const aula of online) {
-    // Quem recebe e quem esta matriculado na data da aula pela regra: a
-    // remarcada (13/10/2026) segue com os alunos do dia original.
-    const dia = String(aula.data_hora_referencia).slice(0, 10)
-    const { data: mats } = await supabase
-      .from('matriculas')
-      .select(`
-        id, flag_reposicao, data_fim,
-        aluno:alunos!aluno_id (
-          id, nome, telefone, email, destinatario_notificacao, canal_notificacao,
-          responsavel:responsaveis!responsavel_id (id, nome, telefone, email)
-        )
-      `)
-      .eq('turma_id', aula.turma_id)
-      .eq('status', 'Ativa')
-      .lte('data_inicio', dia)
-
-    const matriculados = ((mats ?? []) as unknown as {
-      data_fim: string | null
-      aluno: {
-        id: number
-        nome: string
-        telefone: string | null
-        email: string | null
-        destinatario_notificacao: 'Aluno' | 'Responsável' | 'Ambos'
-        canal_notificacao: 'WhatsApp' | 'E-mail' | 'Ambos'
-        responsavel: { id: number; nome: string; telefone: string | null; email: string | null } | null
-      } | null
-    }[]).filter((m) => (!m.data_fim || m.data_fim >= dia) && m.aluno?.responsavel)
-
-    for (const m of matriculados) {
-      const a = m.aluno!
-      total += await enfileirar(
-        planejarNotificacoes({
-          tipo: 'LinkAula',
-          aluno: { id: a.id, nome: a.nome, telefone: a.telefone, email: a.email },
-          responsavel: a.responsavel!,
-          destinatario: a.destinatario_notificacao,
-          canal: a.canal_notificacao,
-          turma: {
-            nome: aula.turma!.nome,
-            quando: quandoDaTurma(aula.turma!),
-            // O horario desta aula: a remarcada nao esta no horario da turma.
-            horario_inicio: String(aula.data_hora_inicio).slice(11, 16),
-            horario_fim: String(aula.data_hora_fim).slice(11, 16),
-            modalidade: 'Online',
-          },
-          link: null,
-          referencia: { tipo: 'aulas', id: aula.id },
-          aula: { data_hora_inicio: aula.data_hora_inicio, link: aula.link },
-        }),
-      )
-    }
-  }
-
-  return total
-}
-
 export async function listarPendentes(): Promise<NotificacaoPendente[]> {
   const supabase = await clienteServidor()
   const { data } = await supabase
     .from('notificacoes')
-    .select('id, tipo, canal, destinatario_tipo, destinatario_id, agendado_para, texto_gerado, status')
+    .select('id, tipo, canal, destinatario_tipo, destinatario_id, agendado_para, texto_gerado, status, referencia_tipo, referencia_id')
     .in('status', ['Pendente', 'Pronta'])
-    // Sem limite: com 100, as boas-vindas acumuladas (sem horario, vinham
-    // primeiro) empurravam os lembretes do dia para fora da tela — eles eram
-    // criados e a gestora nunca os via.
-    .order('agendado_para', { ascending: true, nullsFirst: false })
+    // O link da aula sai pela propria aula, na agenda (16/10/2026).
+    .neq('tipo', 'LinkAula')
+    .order('id')
 
-  // Lembrete de aula tem hora para sair; o resto espera.
-  const linhas = (data ?? []).sort(
-    (a, b) => Number(b.tipo === 'LinkAula') - Number(a.tipo === 'LinkAula'),
+  const todas = data ?? []
+  if (todas.length === 0) return []
+
+  // Boas-vindas de matricula apagada ou encerrada nao tem mais para quem ir: a
+  // fila nao se limpava sozinha, e elas ficavam ali para sempre.
+  const matriculaIds = todas
+    .filter((l) => l.tipo === 'BoasVindas' && l.referencia_tipo === 'matriculas')
+    .map((l) => l.referencia_id as number)
+  const { data: ativas } = matriculaIds.length
+    ? await supabase.from('matriculas').select('id').in('id', matriculaIds).eq('status', 'Ativa')
+    : { data: [] }
+  const valem = new Set((ativas ?? []).map((m) => m.id as number))
+  const linhas = todas.filter(
+    (l) => l.tipo !== 'BoasVindas' || l.referencia_tipo !== 'matriculas' || valem.has(l.referencia_id as number),
   )
   if (linhas.length === 0) return []
 
