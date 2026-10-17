@@ -1,9 +1,11 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { listaDaAula, obterAula } from '@/dados/aulas'
+import { linksDaAula } from '@/dados/links-da-aula'
 import { tokenDaAula } from '@/dados/presencas'
 import { LinkDeChamada } from './LinkDeChamada'
 import { AvisarFalta } from './AvisarFalta'
+import { EnviarLink } from './EnviarLink'
 import { ExcluirAula } from './ExcluirAula'
 import { CorrigirChamada } from './CorrigirChamada'
 import { RemarcarAula } from './RemarcarAula'
@@ -46,7 +48,7 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
   const novaMatricula = `/matriculas/nova?turma=${aula.turma_id}&inicio=${dataDaAula}&voltar=/agenda/aulas/${aula.id}`
 
   const supabase = await clienteServidor()
-  const [lista, { data: presencas }, token, { data: daTurma }] = await Promise.all([
+  const [lista, { data: presencas }, token, { data: daTurma }, links] = await Promise.all([
     listaDaAula(aula.id),
     supabase
       .from('presencas')
@@ -58,6 +60,8 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
       .select('professor:professores!professor_id (nome, telefone)')
       .eq('id', aula.turma_id)
       .maybeSingle(),
+    // Pedido de 16/10/2026: o link da aula online sai daqui, aluno por aluno.
+    ehGestora ? linksDaAula(aula.id) : null,
   ])
 
   const professor = daTurma?.professor as unknown as
@@ -144,7 +148,10 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
           <>
             <ul className="divide-y divide-borda/60">
               {lista.chamada.map((m) => (
-                <li key={m.aluno_id} className="flex items-center justify-between gap-3 py-3">
+                <li
+                  key={m.aluno_id}
+                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-3"
+                >
                   <span className="flex items-center gap-3">
                     <Link
                       href={`/cadastros/alunos/${m.aluno_id}`}
@@ -154,10 +161,19 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
                     </Link>
                     {m.flag_reposicao && <Selo tom="alerta">Reposição</Selo>}
                   </span>
-                  {/* R2: registrar aviso previo, antes de a aula acontecer. */}
-                  {ehGestora && aula.status === 'Agendada' && (
-                    <AvisarFalta alunoId={m.aluno_id} aulaId={aula.id} nome={m.nome} />
-                  )}
+                  <span className="flex flex-wrap items-center justify-end gap-x-5">
+                    {links && (
+                      <EnviarLink
+                        aulaId={aula.id}
+                        alunoId={m.aluno_id}
+                        destinos={links.get(m.aluno_id) ?? []}
+                      />
+                    )}
+                    {/* R2: registrar aviso previo, antes de a aula acontecer. */}
+                    {ehGestora && aula.status === 'Agendada' && (
+                      <AvisarFalta alunoId={m.aluno_id} aulaId={aula.id} nome={m.nome} />
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>
