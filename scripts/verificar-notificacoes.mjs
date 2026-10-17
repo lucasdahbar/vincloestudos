@@ -1,8 +1,8 @@
 /**
  * Prova as notificacoes de ponta a ponta, num navegador.
  *
- * Matricular um aluno numa turma online deve enfileirar boas-vindas; preparar
- * lembretes deve montar a mensagem com o link de cada aula online.
+ * Matricular um aluno numa turma online deve enfileirar boas-vindas. O link de
+ * cada aula sai pela propria aula, na agenda (16/10/2026), e nao pela fila.
  */
 import { readFileSync } from 'node:fs'
 import { chromium, devices } from 'playwright'
@@ -58,34 +58,16 @@ ck('matricular enfileirou boas-vindas', bv.length>0, `${bv.length} mensagem(ns)`
 if(bv.length){
   ck('texto traz a turma', bv[0].texto_gerado.includes(turma.nome.split(' ·')[0]))
   ck('texto traz dias e horario', /Dias:/.test(bv[0].texto_gerado)&&/Horário:/.test(bv[0].texto_gerado))
-  ck('texto traz o link da sala', bv[0].texto_gerado.includes('Link da sala'))
+  ck('texto NAO traz o link da sala', !bv[0].texto_gerado.includes('Link da sala'))
   ck('status Pronta', bv[0].status==='Pronta')
 }
 
-// 2. lembretes das aulas
+// 2. a tela de mensagens
 await p.goto(`${BASE}/mensagens`,{waitUntil:"domcontentloaded"})
 await p.waitForSelector('h1',{timeout:20000})
 ck('gestora ve a tela de mensagens', await p.getByText('Mensagens a enviar').isVisible())
-await p.waitForFunction(()=>{const b=[...document.querySelectorAll("button")].find(x=>/Preparar lembretes/.test(x.textContent||""));return b&&!b.disabled},{timeout:20000})
-await p.waitForTimeout(1200)
-await p.getByRole('button',{name:/Preparar lembretes/}).click()
-await p.waitForTimeout(4000)
-const {data:la}=await db.from('notificacoes').select('tipo,texto_gerado,agendado_para').eq('tipo','LinkAula')
-ck('lembretes de aula enfileirados', la.length>0, `${la.length} mensagem(ns)`)
-if(la.length){
-  ck('lembrete traz o link da aula', la[0].texto_gerado.includes('meet.exemplo.com'))
-  ck('agendado com antecedencia', Boolean(la[0].agendado_para))
-}
 
-// 3. nao duplica
-await p.waitForFunction(()=>{const b=[...document.querySelectorAll("button")].find(x=>/Preparar lembretes/.test(x.textContent||""));return b&&!b.disabled},{timeout:20000})
-await p.waitForTimeout(1200)
-await p.getByRole('button',{name:/Preparar lembretes/}).click()
-await p.waitForTimeout(4000)
-const {count}=await db.from('notificacoes').select('*',{count:'exact',head:true}).eq('tipo','LinkAula')
-ck('preparar de novo NAO duplica', count===la.length, `${count} (antes ${la.length})`)
-
-// 4. marcar como enviada tira da fila
+// 3. marcar como enviada tira da fila tira da fila
 await p.reload({waitUntil:"domcontentloaded"})
 const antes=await p.locator('pre').count()
 await p.getByRole('button',{name:'Já enviei'}).first().click()
