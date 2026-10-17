@@ -14,7 +14,6 @@ const base: ContextoNotificacao = {
     horario_fim: '16:00',
     modalidade: 'Online',
   },
-  link: 'https://meet.exemplo.com/sala-123',
   referencia: { tipo: 'matriculas', id: 55 },
 }
 
@@ -81,7 +80,7 @@ describe('planejarNotificacoes — texto de boas-vindas', () => {
         '',
         'Matemática · 9º ano · Aula particular · Online',
         'Terças e quintas, às 15:00.',
-        'Link da sala: https://meet.exemplo.com/sala-123',
+        'O link da sala chega antes de cada aula.',
         '',
         'Qualquer dúvida, só chamar! Um abraço!',
       ].join('\n'),
@@ -95,20 +94,26 @@ describe('planejarNotificacoes — texto de boas-vindas', () => {
         'Oi, João! Tudo bem? Boas-vindas à turma de Matemática · 9º ano · Aula particular · Online.',
         '',
         'Terças e quintas, às 15:00.',
-        'Link da sala: https://meet.exemplo.com/sala-123',
+        'O link da sala chega antes de cada aula.',
         '',
         'Boas aulas para você! Um abraço!',
       ].join('\n'),
     )
   })
 
+  it('não leva o link: ele sai por aula, pela agenda (16/10/2026)', () => {
+    // A boas-vindas com o link, seguida do link da aula, chegava para a mesma
+    // pessoa como mensagem repetida.
+    expect(n.texto_gerado).not.toContain('Link da sala')
+    expect(n.texto_gerado).not.toContain('https://')
+  })
+
   it('turma presencial: sem a linha do link', () => {
     const [p] = planejarNotificacoes({
       ...base,
       turma: { ...base.turma, modalidade: 'Presencial' },
-      link: null,
     })
-    expect(p.texto_gerado).not.toContain('Link da sala')
+    expect(p.texto_gerado).not.toContain('link')
     expect(p.texto_gerado).toContain('Terças e quintas, às 15:00.')
   })
 
@@ -176,10 +181,9 @@ describe('planejarNotificacoes — lembrete do link da aula', () => {
     expect(n.texto_gerado).toContain('Sábado, 8 de agosto, às 09:30.')
   })
 
-  it('usa o link da aula, não o da turma', () => {
+  it('usa o link da aula', () => {
     const [n] = planejarNotificacoes(ctx)
     expect(n.texto_gerado).toContain('aula-77')
-    expect(n.texto_gerado).not.toContain('sala-123')
   })
 
   it('agenda o envio para 30 minutos antes da aula', () => {
@@ -227,7 +231,6 @@ describe('planejarNotificacoes — turma presencial', () => {
     const n = planejarNotificacoes({
       ...base,
       turma: { ...base.turma, modalidade: 'Presencial' },
-      link: null,
     })
     expect(n).toHaveLength(1)
     expect(n[0].texto_gerado).not.toContain('Link')

@@ -80,7 +80,7 @@ async function contextoDaMatricula(matriculaId: number) {
         responsavel:responsaveis!responsavel_id (id, nome, telefone, email)
       ),
       turma:turmas!turma_id (
-        id, nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio, horario_fim, modalidade, link_videochamada
+        id, nome, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio, horario_fim, modalidade
       )
     `)
     .eq('id', matriculaId)
@@ -107,7 +107,6 @@ async function contextoDaMatricula(matriculaId: number) {
       horario_inicio: string
       horario_fim: string
       modalidade: 'Presencial' | 'Online'
-      link_videochamada: string | null
     } | null
   } | null
 }
@@ -122,24 +121,7 @@ export async function enfileirarBoasVindas(matriculaId: number): Promise<number>
   const m = await contextoDaMatricula(matriculaId)
   if (!m?.aluno?.responsavel || !m.turma || m.flag_reposicao) return 0
 
-  // A sala do Meet e da turma (`link_videochamada`), criada junto com ela. Uma
-  // aula pode ter link proprio, de uma troca pontual: vale o da proxima, se
-  // houver, por ser o endereco que o aluno vai usar primeiro.
-  let link: string | null = null
-  if (m.turma.modalidade === 'Online') {
-    const supabase = await clienteServidor()
-    const { data: proxima } = await supabase
-      .from('aulas')
-      .select('link_online')
-      .eq('turma_id', m.turma.id)
-      .eq('status', 'Agendada')
-      .not('link_online', 'is', null)
-      .order('data_hora_inicio')
-      .limit(1)
-      .maybeSingle()
-    link = proxima?.link_online ?? m.turma.link_videochamada
-  }
-
+  // Sem o link da sala (16/10/2026): ele sai por aula, pela agenda.
   const ctx: ContextoNotificacao = {
     tipo: 'BoasVindas',
     aluno: {
@@ -158,7 +140,6 @@ export async function enfileirarBoasVindas(matriculaId: number): Promise<number>
       horario_fim: String(m.turma.horario_fim).slice(0, 5),
       modalidade: m.turma.modalidade,
     },
-    link,
     referencia: { tipo: 'matriculas', id: m.id },
   }
 
@@ -265,7 +246,6 @@ export async function enfileirarLembretesDeAula(horasAFrente = 24): Promise<numb
             horario_fim: String(aula.data_hora_fim).slice(11, 16),
             modalidade: 'Online',
           },
-          link: null,
           referencia: { tipo: 'aulas', id: aula.id },
           aula: { data_hora_inicio: aula.data_hora_inicio, link: aula.link },
         }),
