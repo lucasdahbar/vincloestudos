@@ -38,6 +38,7 @@ export const SECOES: SecaoNav[] = [
   {
     titulo: 'Cadastros',
     itens: [
+      { rotulo: 'Novos cadastros', href: '/novos-cadastros', papeis: ['gestora'] },
       { rotulo: 'Responsáveis', href: '/cadastros/responsaveis', papeis: ['gestora'] },
       { rotulo: 'Alunos', href: '/cadastros/alunos', papeis: ['gestora'] },
       { rotulo: 'Professores', href: '/cadastros/professores', papeis: ['gestora'] },
