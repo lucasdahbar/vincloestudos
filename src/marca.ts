@@ -17,6 +17,13 @@ const [PRIMEIRA_PALAVRA, ...RESTO] = MARCA.split(' ')
 export const PRIMEIRA = PRIMEIRA_PALAVRA
 export const SEGUNDA = RESTO.join(' ')
 
+/**
+ * Para onde o responsavel escreve para corrigir ou apagar os dados (LGPD,
+ * Art. 18), mostrado no formulario publico de cadastro. Decisao de 18/10/2026:
+ * o e-mail da gestora, que e quem atende esses pedidos.
+ */
+export const EMAIL_DE_CONTATO = 'kellydahbar@vincloestudos.com.br'
+
 /** Título de uma página interna: "Integrações — Vinclo Estudos". */
 export function titulo(pagina: string): string {
   return `${pagina} — ${MARCA}`
