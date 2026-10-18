@@ -162,6 +162,21 @@ Reposição e ausência (`dominio/reposicoes/desfecho.ts`, `dados/reposicoes.ts`
 - Turmas recorrentes só têm aula a partir do dia do cadastro (fuso de São Paulo).
   A aula única não segue essa regra.
 
+## Cadastro pelo próprio responsável (18/10/2026)
+
+`dominio/cadastro-publico/`, `dados/cadastro-publico.ts`, `/p/cadastro/[token]`, `/novos-cadastros`:
+- Só para aluno novo. A Kelly gera um convite por família: vale 7 dias e uma vez,
+  e o banco guarda só o **hash** do token, então o link aparece só na hora de gerar.
+- O envio cai em `envios_cadastro` e só vira responsável/aluno quando a gestora
+  aprova (`aprovar_envio_cadastro`). Vincular a um responsável existente **não
+  altera** os dados dele. A porta pública nunca lê responsáveis/alunos.
+- Obrigatórios: do responsável, nome, telefone, e-mail, CPF, CEP e número; do aluno,
+  nome e telefone ou e-mail. Aluno novo recebe os links junto com o responsável
+  (destinatário Ambos; canal WhatsApp, ou Ambos se não tiver telefone).
+- LGPD: motivo embaixo de cada campo, aceite registrado, contato `EMAIL_DE_CONTATO`
+  em `marca.ts`. Recusados e convites vencidos somem em 30 dias. Falta o CNPJ no aviso.
+- A turma continua sendo escolhida pela Kelly.
+
 ## Pendências conhecidas
 
 - O tio vai mandar as regras de **criação/edição/exclusão de turmas** e de
