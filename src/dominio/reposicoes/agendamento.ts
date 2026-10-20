@@ -14,11 +14,15 @@ export interface AulaDestino {
   id: number
   turma_id: number
   status: StatusAula
+  /** yyyy-mm-dd da regra da turma (a original, se a aula foi remarcada). */
+  dia: string
 }
 
 export interface MatriculaExistente {
   aluno_id: number
   turma_id: number
+  data_inicio: string
+  data_fim: string | null
 }
 
 export interface PlanoReposicao {
@@ -58,11 +62,20 @@ export function planejarReposicao(
     erros.push('Esta aula foi excluída. Escolha outra.')
   }
 
+  // So conta a matricula que vale no dia da aula, a mesma conta da lista da
+  // aula (lista-da-aula.ts). Caso Davi (17/10/2026): uma matricula de um dia
+  // so, ja passada, contava como "ja esta na turma", a matricula de reposicao
+  // nao era criada e ele nao aparecia na aula. Vale tambem para a mesma turma:
+  // se a matricula dele terminou antes da reposicao, ele precisa da de reposicao.
+  const dia = String(destino.dia).slice(0, 10)
   const jaMatriculado = matriculasDoAluno.some(
-    (m) => m.aluno_id === pendencia.aluno_id && m.turma_id === destino.turma_id,
+    (m) =>
+      m.aluno_id === pendencia.aluno_id &&
+      m.turma_id === destino.turma_id &&
+      String(m.data_inicio).slice(0, 10) <= dia &&
+      (!m.data_fim || String(m.data_fim).slice(0, 10) >= dia),
   )
-  const outraTurma = destino.turma_id !== pendencia.turma_origem_id
-  const precisaMatricula = erros.length === 0 && outraTurma && !jaMatriculado
+  const precisaMatricula = erros.length === 0 && !jaMatriculado
 
   return {
     erros,

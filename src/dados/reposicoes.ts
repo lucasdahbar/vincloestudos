@@ -111,12 +111,12 @@ export async function agendarReposicao(
   // sai logo abaixo) nao pode passar por "ja matriculado" na turma de destino.
   const { data: matriculas } = await supabase
     .from('matriculas')
-    .select('aluno_id, turma_id')
+    .select('aluno_id, turma_id, data_inicio, data_fim')
     .eq('aluno_id', p.aluno_id)
     .eq('status', 'Ativa')
     .eq('flag_reposicao', false)
 
-  const plano = planejarReposicao(pendencia, destino, matriculas ?? [])
+  const plano = planejarReposicao(pendencia, { ...destino, dia: diaDestino }, matriculas ?? [])
   if (plano.erros.length > 0) return { ok: false, erros: plano.erros }
 
   // Remarcacao: a matricula da reposicao anterior valia so para aquela aula.

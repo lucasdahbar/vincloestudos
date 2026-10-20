@@ -142,7 +142,7 @@ export async function executarExclusaoAula(
     }
     const { data: mats, error: erroMats } = await supabase
       .from('matriculas')
-      .select('aluno_id, turma_id')
+      .select('aluno_id, turma_id, data_inicio, data_fim')
       .eq('aluno_id', pendencia.aluno_id)
       .eq('status', 'Ativa')
       // A reposição que sai junto com esta aula não conta como matrícula.
@@ -150,7 +150,12 @@ export async function executarExclusaoAula(
     if (erroMats) throw new Error(erroMats.message)
     const plano = planejarReposicao(
       { ...pendencia, status: 'Pendente' },
-      { id: destino.id, turma_id: destino.turma_id, status: destino.status },
+      {
+        id: destino.id,
+        turma_id: destino.turma_id,
+        status: destino.status,
+        dia: dia(destino.data_hora_referencia),
+      },
       mats ?? [],
     )
     erros.push(...plano.erros)
