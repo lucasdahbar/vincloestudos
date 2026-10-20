@@ -42,7 +42,7 @@ export interface PlanoDaCorrecao {
   erros: string[]
   /** Reposições geradas por uma falta que deixou de existir. */
   removerPendencias: number[]
-  /** Reposições dadas por concluídas que voltam a "marcada": o aluno faltou. */
+  /** Reposições dadas por concluídas que voltam a pendentes: o aluno faltou. */
   reabrirReposicoes: number[]
 }
 

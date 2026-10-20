@@ -20,6 +20,12 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
 
   const matriculas = await listarMatriculas({ turmaId: turma.id, status: 'Ativa' })
   const ehGestora = sessao.papel === 'gestora'
+  // Aula única: a data já vem certa. Antes o início vinha como hoje, e a
+  // matrícula podia ficar fora do dia da aula (caso Kelly, 17/10/2026).
+  const novaMatricula =
+    turma.tipo_recorrencia === 'Único' && turma.data_unica
+      ? `/matriculas/nova?turma=${turma.id}&inicio=${turma.data_unica.slice(0, 10)}`
+      : `/matriculas/nova?turma=${turma.id}`
 
   return (
     <div className="flex flex-col gap-6">
@@ -117,7 +123,7 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl">Alunos matriculados</h2>
           {ehGestora && turma.status === 'Ativa' && (
-            <BotaoLink href={`/matriculas/nova?turma=${turma.id}`} aparencia="secundario">
+            <BotaoLink href={novaMatricula} aparencia="secundario">
               + Adicionar aluno
             </BotaoLink>
           )}
@@ -130,7 +136,7 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
             acao={
               ehGestora &&
               turma.status === 'Ativa' && (
-                <BotaoLink href={`/matriculas/nova?turma=${turma.id}`}>+ Adicionar aluno</BotaoLink>
+                <BotaoLink href={novaMatricula}>+ Adicionar aluno</BotaoLink>
               )
             }
           />

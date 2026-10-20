@@ -8,6 +8,7 @@ import { exigirGestora } from '@/dados/sessao'
 import { enfileirarBoasVindas } from '@/dados/notificacoes'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import { comoDesmatricular, mandaBoasVindas, matriculaParaAntecipar, validarMatricula } from '@/dominio/matriculas/regras'
+import { erroDePeriodoSemAula } from '@/dominio/matriculas/periodo'
 
 export interface EntradaDeMatricula {
   aluno_id: number | null
@@ -32,7 +33,7 @@ export async function salvarMatricula(
   await exigirGestora()
   const supabase = await clienteServidor()
 
-  const [{ data: aluno }, { data: turma }, { data: existentes }, { data: anterior }] = await Promise.all([
+  const [{ data: aluno }, { data: turma }, { data: existentes }, { data: anterior }, { data: aulas }] = await Promise.all([
     supabase.from('alunos').select('ativo').eq('id', entrada.aluno_id ?? -1).maybeSingle(),
     supabase.from('turmas').select('status').eq('id', entrada.turma_id ?? -1).maybeSingle(),
     // M1: as outras matriculas do mesmo par (aluno, turma). O trigger no banco
@@ -45,7 +46,11 @@ export async function salvarMatricula(
       .eq('turma_id', entrada.turma_id ?? -1),
     // A turma de antes da edicao: se a matricula mudou de turma, o aluno sai
     // do evento da antiga.
-    supabase.from('matriculas').select('turma_id').eq('id', id ?? -1).maybeSingle(),
+    supabase.from('matriculas').select('turma_id, data_inicio, data_fim').eq('id', id ?? -1).maybeSingle(),
+    supabase
+      .from('aulas')
+      .select('status, data_hora_inicio, data_hora_referencia')
+      .eq('turma_id', entrada.turma_id ?? -1),
   ])
 
   if (!aluno) return { ok: false, erros: ['Selecione um aluno válido.'] }
@@ -66,6 +71,27 @@ export async function salvarMatricula(
     existentes ?? [],
   )
   if (erros.length > 0) return { ok: false, erros }
+
+  // So na matricula nova ou quando as datas mudam: editar outra coisa numa
+  // matricula antiga (cujas aulas ja foram excluidas, por exemplo) continua
+  // possivel.
+  const datasMudaram =
+    !anterior ||
+    anterior.turma_id !== entrada.turma_id ||
+    String(anterior.data_inicio).slice(0, 10) !== entrada.data_inicio ||
+    (anterior.data_fim ? String(anterior.data_fim).slice(0, 10) : null) !== entrada.data_fim
+  if (datasMudaram) {
+    const dia = (v: unknown) => String(v).slice(0, 10)
+    const semAula = erroDePeriodoSemAula(
+      entrada,
+      (aulas ?? []).map((a) => ({
+        referencia: dia(a.data_hora_referencia ?? a.data_hora_inicio),
+        real: dia(a.data_hora_inicio),
+        status: a.status,
+      })),
+    )
+    if (semAula) return { ok: false, erros: [semAula] }
+  }
 
   const registro = {
     aluno_id: entrada.aluno_id,

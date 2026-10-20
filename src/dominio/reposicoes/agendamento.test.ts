@@ -9,14 +9,38 @@ const pendencia: Pendencia = {
   status: 'Pendente',
 }
 
-const mesmaTurma: AulaDestino = { id: 101, turma_id: 50, status: 'Agendada' }
-const outraTurma: AulaDestino = { id: 200, turma_id: 60, status: 'Agendada' }
+const mesmaTurma: AulaDestino = { id: 101, turma_id: 50, status: 'Agendada', dia: '2026-10-19' }
+const outraTurma: AulaDestino = { id: 200, turma_id: 60, status: 'Agendada', dia: '2026-10-19' }
+
+/** A matricula regular do aluno na turma da falta, sem fim. */
+const regular = { aluno_id: 10, turma_id: 50, data_inicio: '2026-10-01', data_fim: null }
 
 describe('planejarReposicao', () => {
-  it('na mesma turma, nao precisa de matricula nova', () => {
-    const p = planejarReposicao(pendencia, mesmaTurma, [])
+  it('na mesma turma, com a matricula valendo no dia, nao precisa de matricula nova', () => {
+    const p = planejarReposicao(pendencia, mesmaTurma, [regular])
     expect(p.erros).toEqual([])
     expect(p.precisaMatricula).toBe(false)
+  })
+
+  it('caso Davi (17/10/2026): matricula antiga na turma de destino, que ja terminou, nao conta', () => {
+    // Ele tinha uma matricula so de 05/10 na turma das 18h. Antes, qualquer
+    // matricula Ativa contava: a reposicao ficava Agendada, sem matricula na
+    // data, e ele nao aparecia na aula.
+    const antiga = { aluno_id: 10, turma_id: 60, data_inicio: '2026-10-05', data_fim: '2026-10-05' }
+    const p = planejarReposicao(pendencia, outraTurma, [antiga])
+    expect(p.precisaMatricula).toBe(true)
+  })
+
+  it('matricula na turma de destino que so comeca depois da aula tambem nao conta', () => {
+    const futura = { aluno_id: 10, turma_id: 60, data_inicio: '2026-11-01', data_fim: null }
+    expect(planejarReposicao(pendencia, outraTurma, [futura]).precisaMatricula).toBe(true)
+  })
+
+  it('na mesma turma, se a matricula ja terminou no dia da reposicao, cria a de reposicao', () => {
+    const encerrada = { ...regular, data_fim: '2026-10-10' }
+    const p = planejarReposicao(pendencia, mesmaTurma, [encerrada])
+    expect(p.precisaMatricula).toBe(true)
+    expect(p.matricula).toEqual({ aluno_id: 10, turma_id: 50, flag_reposicao: true })
   })
 
   it('em turma diferente, cria matricula de reposicao', () => {
@@ -29,12 +53,14 @@ describe('planejarReposicao', () => {
   })
 
   it('nao duplica matricula se o aluno ja esta na turma de destino', () => {
-    const p = planejarReposicao(pendencia, outraTurma, [{ aluno_id: 10, turma_id: 60 }])
+    const p = planejarReposicao(pendencia, outraTurma, [
+      { aluno_id: 10, turma_id: 60, data_inicio: '2026-10-01', data_fim: '2026-10-19' },
+    ])
     expect(p.precisaMatricula).toBe(false)
   })
 
   it('rejeita reposicao na propria aula da falta', () => {
-    const p = planejarReposicao(pendencia, { id: 100, turma_id: 50, status: 'Agendada' }, [])
+    const p = planejarReposicao(pendencia, { ...mesmaTurma, id: 100 }, [])
     expect(p.erros).toContain('A reposição não pode ser na mesma aula em que houve a falta.')
   })
 
