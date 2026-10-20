@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { situacaoDoLink } from '@/dados/cadastro-publico'
+import { escolasDoCadastro, situacaoDoLink } from '@/dados/cadastro-publico'
 import { MOTIVO_INDISPONIVEL } from '@/dominio/cadastro-publico/convite'
 import { MARCA, titulo } from '@/marca'
 import { FormularioCadastro } from './FormularioCadastro'
@@ -19,6 +19,7 @@ export default async function PaginaCadastro({
 }) {
   const { token } = await params
   const situacao = await situacaoDoLink(token)
+  const escolas = situacao === 'valido' ? await escolasDoCadastro() : []
 
   return (
     <main className="mx-auto min-h-dvh max-w-xl px-4 py-10">
@@ -31,7 +32,7 @@ export default async function PaginaCadastro({
               Preencha seus dados e os do aluno. A escola confere e confirma o cadastro.
             </p>
           </header>
-          <FormularioCadastro token={token} />
+          <FormularioCadastro token={token} escolas={escolas} />
         </>
       ) : (
         <div className="rounded-cartao border border-borda bg-superficie p-8 text-center">

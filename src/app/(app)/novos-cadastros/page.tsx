@@ -1,4 +1,5 @@
-import { carregarFila } from '@/dados/cadastro-publico'
+import { carregarFila, escolasDoCadastro } from '@/dados/cadastro-publico'
+import { QUEM_RECEBE_LINKS, type QuemRecebeLinks } from '@/dominio/cadastro-publico/envio'
 import { exigirGestora } from '@/dados/sessao'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
@@ -24,9 +25,16 @@ function data(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
 }
 
+/** Envios anteriores a 20/10/2026 nao tinham a escolha: eram sempre "Ambos". */
+function rotuloDeQuemRecebe(valor: QuemRecebeLinks | undefined): string {
+  const rotulo = QUEM_RECEBE_LINKS.find((q) => q.valor === (valor ?? 'Ambos'))?.rotulo ?? ''
+  return rotulo.charAt(0).toLowerCase() + rotulo.slice(1)
+}
+
 export default async function PaginaNovosCadastros() {
   await exigirGestora()
-  const { pendentes, convites } = await carregarFila()
+  const [{ pendentes, convites }, escolas] = await Promise.all([carregarFila(), escolasDoCadastro()])
+  const nomeDaEscola = new Map(escolas.map((e) => [e.id, e.nome]))
 
   return (
     <div className="flex flex-col gap-6">
@@ -104,6 +112,10 @@ export default async function PaginaNovosCadastros() {
                             ` · nasceu em ${a.data_nascimento.split('-').reverse().join('/')}`}
                           {a.telefone && ` · ${a.telefone}`}
                           {a.email && ` · ${a.email}`}
+                          {a.escola_id != null && ` · ${nomeDaEscola.get(a.escola_id) ?? 'escola removida'}`}
+                          <span className="block text-tinta-suave">
+                            Links das aulas: {rotuloDeQuemRecebe(a.destinatario_notificacao)}
+                          </span>
                         </li>
                       ))}
                     </ul>

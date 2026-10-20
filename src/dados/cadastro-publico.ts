@@ -220,6 +220,19 @@ function tokenBemFormado(token: string): boolean {
   return /^[A-Za-z0-9_-]{32}$/.test(token)
 }
 
+/**
+ * As escolas que o formulario oferece (Julio, 20/10/2026). E catalogo, nao
+ * dado de familia: le-las nao revela quem e cliente da escola.
+ */
+export async function escolasDoCadastro(): Promise<{ id: number; nome: string }[]> {
+  const { data } = await clienteAdmin()
+    .from('escolas')
+    .select('id, nome')
+    .eq('ativo', true)
+    .order('nome')
+  return (data ?? []) as { id: number; nome: string }[]
+}
+
 /** Se o link ainda pode ser usado. Nao devolve nada sobre a familia. */
 export async function situacaoDoLink(token: string): Promise<SituacaoConvite | 'inexistente'> {
   if (!tokenBemFormado(token)) return 'inexistente'
@@ -241,7 +254,8 @@ export async function enviarCadastro(token: string, entrada: EntradaEnvio): Prom
   if (!tokenBemFormado(token)) return { ok: false, motivo: 'inexistente' }
 
   const hoje = agoraNaEscola(new Date()).slice(0, 10)
-  const validacao = validarEnvio(entrada, hoje)
+  const escolas = (await escolasDoCadastro()).map((e) => e.id)
+  const validacao = validarEnvio(entrada, hoje, escolas)
   if (!validacao.ok) return validacao
 
   const { data, error } = await clienteAdmin().rpc('registrar_envio_cadastro', {

@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { validarEnvio, type EntradaEnvio } from './envio'
+import { validarEnvio as validar, type EntradaAluno, type EntradaEnvio } from './envio'
+
+/** As escolas do catalogo que o formulario oferece. */
+const ESCOLAS = [4, 14]
+
+const validarEnvio = (e: EntradaEnvio, hoje: string) => validar(e, hoje, ESCOLAS)
+
+function aluno(mudar: Partial<EntradaAluno> = {}): EntradaAluno {
+  return {
+    nome: 'João Souza',
+    telefone: '21912345678',
+    email: '',
+    data_nascimento: '',
+    escola_id: '',
+    recebe_links: 'Ambos',
+    ...mudar,
+  }
+}
 
 function entrada(mudar: (e: EntradaEnvio) => void = () => {}): EntradaEnvio {
   const e: EntradaEnvio = {
@@ -16,7 +33,7 @@ function entrada(mudar: (e: EntradaEnvio) => void = () => {}): EntradaEnvio {
       cidade: 'Rio de Janeiro',
       estado: 'rj',
     },
-    alunos: [{ nome: 'João Souza', telefone: '21912345678', email: '', data_nascimento: '' }],
+    alunos: [aluno()],
     aceite: true,
   }
   mudar(e)
@@ -107,7 +124,7 @@ describe('validarEnvio — alunos', () => {
   })
 
   it('aceita irmãos no mesmo envio, até o limite', () => {
-    const irmao = { nome: 'Ana Souza', telefone: '', email: 'ana@exemplo.com', data_nascimento: '' }
+    const irmao = aluno({ nome: 'Ana Souza', telefone: '', email: 'ana@exemplo.com' })
     expect(validarEnvio(entrada((e) => e.alunos.push(irmao)), '2026-10-18').ok).toBe(true)
     const muitos = validarEnvio(
       entrada((e) => (e.alunos = Array.from({ length: 7 }, () => ({ ...irmao })))),
@@ -116,15 +133,70 @@ describe('validarEnvio — alunos', () => {
     expect(muitos.ok).toBe(false)
   })
 
-  it('exige o nome e pelo menos um entre telefone e e-mail (para os links das aulas)', () => {
+  it('exige o nome e, se o aluno recebe os links, telefone ou e-mail dele', () => {
     const r = validarEnvio(
-      entrada((e) => (e.alunos = [{ nome: '', telefone: '', email: '', data_nascimento: '' }])),
+      entrada((e) => (e.alunos = [aluno({ nome: '', telefone: '' })])),
       '2026-10-18',
     )
     expect(r.ok).toBe(false)
     if (r.ok) return
     expect(r.erros['alunos.0.nome']).toBeTruthy()
     expect(r.erros['alunos.0.contato']).toBeTruthy()
+
+    const soAluno = validarEnvio(
+      entrada((e) => (e.alunos = [aluno({ telefone: '', recebe_links: 'Aluno' })])),
+      '2026-10-18',
+    )
+    expect(soAluno.ok).toBe(false)
+  })
+
+  it('quando só o responsável recebe os links, o contato do aluno é opcional (Julio, 20/10/2026)', () => {
+    const r = validarEnvio(
+      entrada((e) => (e.alunos = [aluno({ telefone: '', recebe_links: 'Responsável' })])),
+      '2026-10-18',
+    )
+    if (!r.ok) throw new Error('deveria aceitar')
+    expect(r.envio.alunos[0]).toMatchObject({
+      telefone: null,
+      destinatario_notificacao: 'Responsável',
+      // O responsavel sempre tem telefone: o WhatsApp basta.
+      canal_notificacao: 'WhatsApp',
+    })
+  })
+
+  it('o responsável escolhe quem recebe os links; sem escolha, não envia', () => {
+    for (const quem of ['Responsável', 'Aluno', 'Ambos'] as const) {
+      const r = validarEnvio(entrada((e) => (e.alunos[0].recebe_links = quem)), '2026-10-18')
+      if (!r.ok) throw new Error(`deveria aceitar ${quem}`)
+      expect(r.envio.alunos[0].destinatario_notificacao).toBe(quem)
+    }
+
+    const semEscolha = validarEnvio(entrada((e) => (e.alunos[0].recebe_links = '')), '2026-10-18')
+    expect(semEscolha.ok).toBe(false)
+    if (semEscolha.ok) return
+    expect(semEscolha.erros['alunos.0.recebe_links']).toBeTruthy()
+
+    // O navegador pode mandar qualquer coisa.
+    const invalida = validarEnvio(
+      entrada((e) => (e.alunos[0].recebe_links = 'Vizinho' as EntradaAluno['recebe_links'])),
+      '2026-10-18',
+    )
+    expect(invalida.ok).toBe(false)
+  })
+
+  it('a escola é opcional, mas só vale uma do catálogo', () => {
+    const sem = validarEnvio(entrada(), '2026-10-18')
+    if (!sem.ok) throw new Error('deveria aceitar')
+    expect(sem.envio.alunos[0].escola_id).toBeNull()
+
+    const com = validarEnvio(entrada((e) => (e.alunos[0].escola_id = '14')), '2026-10-18')
+    if (!com.ok) throw new Error('deveria aceitar')
+    expect(com.envio.alunos[0].escola_id).toBe(14)
+
+    const fora = validarEnvio(entrada((e) => (e.alunos[0].escola_id = '999')), '2026-10-18')
+    expect(fora.ok).toBe(false)
+    if (fora.ok) return
+    expect(fora.erros['alunos.0.escola_id']).toBeTruthy()
   })
 
   it('a data de nascimento é opcional, mas não pode ser no futuro nem inválida', () => {
@@ -137,14 +209,6 @@ describe('validarEnvio — alunos', () => {
     expect(
       validarEnvio(entrada((e) => (e.alunos[0].data_nascimento = '2015-02-30')), '2026-10-18').ok,
     ).toBe(false)
-  })
-
-  it('os links vão para o aluno e para o responsável', () => {
-    // Decisao de 18/10/2026: o aluno informa o contato justamente para receber
-    // os links das aulas, e o responsavel continua recebendo tambem.
-    const r = validarEnvio(entrada(), '2026-10-18')
-    if (!r.ok) throw new Error('deveria aceitar')
-    expect(r.envio.alunos[0].destinatario_notificacao).toBe('Ambos')
   })
 
   it('canal WhatsApp quando o aluno tem telefone; Ambos quando só tem e-mail', () => {

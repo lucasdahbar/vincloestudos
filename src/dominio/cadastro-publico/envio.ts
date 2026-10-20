@@ -8,6 +8,9 @@
  * - responsavel: nome, telefone, e-mail, CPF, CEP e numero (o resto do
  *   endereco vem do CEP);
  * - aluno: nome, e telefone ou e-mail para receber os links das aulas.
+ * Ajuste do Julio em 20/10/2026: quem recebe os links e o responsavel quem
+ * escolhe, por aluno; o contato do aluno so e obrigatorio se ele recebe. A
+ * escola do aluno tambem vem do formulario (opcional, so as do catalogo).
  *
  * Esta funcao roda no servidor e e a unica barreira: o navegador pode mandar
  * qualquer coisa, entao nada aqui confia em mascara ou limite do formulario.
@@ -42,12 +45,25 @@ export interface EntradaResponsavel {
   estado: string
 }
 
+/** Os mesmos valores do enum `destinatario_notificacao` do banco. */
+export type QuemRecebeLinks = 'Responsável' | 'Aluno' | 'Ambos'
+
+export const QUEM_RECEBE_LINKS: { valor: QuemRecebeLinks; rotulo: string }[] = [
+  { valor: 'Ambos', rotulo: 'O responsável e o aluno' },
+  { valor: 'Responsável', rotulo: 'Só o responsável' },
+  { valor: 'Aluno', rotulo: 'Só o aluno' },
+]
+
 export interface EntradaAluno {
   nome: string
   telefone: string
   email: string
   /** yyyy-mm-dd, ou vazio. */
   data_nascimento: string
+  /** Id de uma escola do catalogo, ou vazio ("nao esta na lista"). */
+  escola_id: string
+  /** Vazio enquanto o responsavel nao escolheu. */
+  recebe_links: QuemRecebeLinks | ''
 }
 
 export interface EntradaEnvio {
@@ -75,7 +91,8 @@ export interface AlunoValido {
   telefone: string | null
   email: string | null
   data_nascimento: string | null
-  destinatario_notificacao: 'Ambos'
+  escola_id: number | null
+  destinatario_notificacao: QuemRecebeLinks
   canal_notificacao: 'WhatsApp' | 'Ambos'
 }
 
@@ -116,8 +133,13 @@ function dataDeNascimentoValida(v: string, hoje: string): boolean {
 
 /**
  * @param hoje yyyy-mm-dd no fuso de Sao Paulo, para recusar nascimento no futuro.
+ * @param escolas ids das escolas que o formulario oferece.
  */
-export function validarEnvio(entrada: EntradaEnvio, hoje: string): ResultadoEnvio {
+export function validarEnvio(
+  entrada: EntradaEnvio,
+  hoje: string,
+  escolas: number[],
+): ResultadoEnvio {
   const erros: Record<string, string> = {}
   const r = entrada?.responsavel ?? ({} as EntradaResponsavel)
 
@@ -167,9 +189,17 @@ export function validarEnvio(entrada: EntradaEnvio, hoje: string): ResultadoEnvi
     const tel = texto(a?.telefone)
     const mail = texto(a?.email).toLowerCase()
     const nascimento = texto(a?.data_nascimento)
+    const escola = texto(a?.escola_id)
+    const recebe = QUEM_RECEBE_LINKS.find((q) => q.valor === a?.recebe_links)?.valor
 
-    if (tel === '' && mail === '') {
+    if (!recebe) erros[`${p}.recebe_links`] = 'Escolha quem recebe os links das aulas.'
+    const alunoRecebe = recebe === 'Aluno' || recebe === 'Ambos'
+
+    if (alunoRecebe && tel === '' && mail === '') {
       erros[`${p}.contato`] = 'Informe o telefone ou o e-mail do aluno, para ele receber os links das aulas.'
+    }
+    if (escola !== '' && !escolas.includes(Number(escola))) {
+      erros[`${p}.escola_id`] = 'Escolha uma escola da lista.'
     }
     if (tel !== '' && !telefoneValido(tel)) erros[`${p}.telefone`] = 'Telefone com DDD, por favor.'
     if (mail !== '' && !emailValido(mail)) erros[`${p}.email`] = 'E-mail inválido.'
@@ -182,12 +212,13 @@ export function validarEnvio(entrada: EntradaEnvio, hoje: string): ResultadoEnvi
       telefone: tel === '' ? null : mascaraTelefone(tel),
       email: ouNulo(mail),
       data_nascimento: ouNulo(nascimento),
-      // Decisao de 18/10/2026: o aluno informa o contato para receber os links
-      // das aulas, e o responsavel continua recebendo. O WhatsApp e o canal da
-      // escola; so o aluno sem telefone pede "Ambos", senao ele ficaria sem
-      // nada (o envio pula quem nao tem contato no canal, mensagens.ts).
-      destinatario_notificacao: 'Ambos',
-      canal_notificacao: tel === '' ? 'Ambos' : 'WhatsApp',
+      escola_id: escola === '' ? null : Number(escola),
+      destinatario_notificacao: recebe ?? 'Ambos',
+      // O WhatsApp e o canal da escola; so o aluno que recebe e nao tem
+      // telefone pede "Ambos", senao ele ficaria sem nada (o envio pula quem
+      // nao tem contato no canal, mensagens.ts). O responsavel sempre tem
+      // telefone.
+      canal_notificacao: alunoRecebe && tel === '' ? 'Ambos' : 'WhatsApp',
     }
   })
 

@@ -22,8 +22,10 @@ export const MOTIVO_DO_CAMPO = {
   },
   aluno: {
     nome: 'Para identificar o aluno nas turmas e nas aulas.',
+    recebe_links: 'Os links das aulas e os avisos vão para quem você escolher.',
     contato: 'Telefone ou e-mail do aluno, para ele receber os links das aulas.',
     data_nascimento: 'Opcional. Ajuda a escola a montar as turmas.',
+    escola: 'Opcional. Ajuda a escola a montar as turmas. Se não estiver na lista, deixe em branco.',
   },
 } as const
 

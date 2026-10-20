@@ -171,8 +171,10 @@ Reposição e ausência (`dominio/reposicoes/desfecho.ts`, `dados/reposicoes.ts`
   aprova (`aprovar_envio_cadastro`). Vincular a um responsável existente **não
   altera** os dados dele. A porta pública nunca lê responsáveis/alunos.
 - Obrigatórios: do responsável, nome, telefone, e-mail, CPF, CEP e número; do aluno,
-  nome e telefone ou e-mail. Aluno novo recebe os links junto com o responsável
-  (destinatário Ambos; canal WhatsApp, ou Ambos se não tiver telefone).
+  o nome e quem recebe os links (Responsável, Aluno ou Ambos), escolhido pelo
+  responsável (20/10/2026). O contato do aluno só é obrigatório se ele recebe.
+  Canal WhatsApp, ou Ambos se o aluno recebe e não tem telefone. Escola e data de
+  nascimento são opcionais; a escola vem só do catálogo (a porta pública lê `escolas`).
 - LGPD: motivo embaixo de cada campo, aceite registrado, contato `EMAIL_DE_CONTATO`
   em `marca.ts`. Recusados e convites vencidos somem em 30 dias. Falta o CNPJ no aviso.
 - A turma continua sendo escolhida pela Kelly.

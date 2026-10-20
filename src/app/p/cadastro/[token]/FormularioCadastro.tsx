@@ -10,6 +10,7 @@ import { aplicarMascara } from '@/dominio/documentos/formato'
 import { MOTIVO_INDISPONIVEL } from '@/dominio/cadastro-publico/convite'
 import {
   MAXIMO_DE_ALUNOS,
+  QUEM_RECEBE_LINKS,
   validarEnvio,
   type EntradaAluno,
   type EntradaResponsavel,
@@ -34,9 +35,23 @@ const RESPONSAVEL_VAZIO: EntradaResponsavel = {
   estado: '',
 }
 
-const ALUNO_VAZIO: EntradaAluno = { nome: '', telefone: '', email: '', data_nascimento: '' }
+const ALUNO_VAZIO: EntradaAluno = {
+  nome: '',
+  telefone: '',
+  email: '',
+  data_nascimento: '',
+  escola_id: '',
+  // Sem escolha marcada: quem recebe os links e o responsavel quem decide.
+  recebe_links: '',
+}
 
-export function FormularioCadastro({ token }: { token: string }) {
+export function FormularioCadastro({
+  token,
+  escolas,
+}: {
+  token: string
+  escolas: { id: number; nome: string }[]
+}) {
   const [resp, setResp] = useState<EntradaResponsavel>(RESPONSAVEL_VAZIO)
   const [alunos, setAlunos] = useState<EntradaAluno[]>([{ ...ALUNO_VAZIO }])
   const [aceite, setAceite] = useState(false)
@@ -77,7 +92,11 @@ export function FormularioCadastro({ token }: { token: string }) {
 
     // A mesma regra do servidor, para o erro aparecer sem esperar a rede. O
     // servidor valida de novo: o que vale e la.
-    const local = validarEnvio(entrada, agoraNaEscola(new Date()).slice(0, 10))
+    const local = validarEnvio(
+      entrada,
+      agoraNaEscola(new Date()).slice(0, 10),
+      escolas.map((e) => e.id),
+    )
     if (!local.ok) {
       setErros(local.erros)
       return
@@ -252,8 +271,48 @@ export function FormularioCadastro({ token }: { token: string }) {
             />
           </Campo>
 
+          <Campo etiqueta="Escola" ajuda={M.aluno.escola} erro={erros[`alunos.${i}.escola_id`]}>
+            <select
+              className={entradaClasse}
+              value={a.escola_id}
+              onChange={(e) => mudarAluno(i, 'escola_id', e.target.value)}
+            >
+              <option value="">Não está na lista</option>
+              {escolas.map((e) => (
+                <option key={e.id} value={String(e.id)}>
+                  {e.nome}
+                </option>
+              ))}
+            </select>
+          </Campo>
+
+          <Campo
+            etiqueta="Quem recebe os links das aulas?"
+            ajuda={M.aluno.recebe_links}
+            erro={erros[`alunos.${i}.recebe_links`]}
+            obrigatorio
+            grupo
+          >
+            <div className="flex flex-col gap-2">
+              {QUEM_RECEBE_LINKS.map((q) => (
+                <label key={q.valor} className="flex min-h-[44px] items-center gap-3">
+                  <input
+                    type="radio"
+                    name={`recebe_links_${i}`}
+                    className="h-5 w-5 shrink-0 accent-destaque"
+                    checked={a.recebe_links === q.valor}
+                    onChange={() => mudarAluno(i, 'recebe_links', q.valor)}
+                  />
+                  <span>{q.rotulo}</span>
+                </label>
+              ))}
+            </div>
+          </Campo>
+
           <p className="text-sm text-tinta-suave">
-            {M.aluno.contato}
+            {a.recebe_links === 'Responsável'
+              ? 'Opcional, já que os links vão só para você.'
+              : M.aluno.contato}
             {erros[`alunos.${i}.contato`] && (
               <span className="mt-1.5 block text-erro">• {erros[`alunos.${i}.contato`]}</span>
             )}
