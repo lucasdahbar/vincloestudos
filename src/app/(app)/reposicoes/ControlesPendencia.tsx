@@ -14,9 +14,12 @@ interface OpcaoAula {
 export function AcoesPendencia({
   pendenciaId,
   aulas,
+  remarcar = false,
 }: {
   pendenciaId: number
   aulas: OpcaoAula[]
+  /** A reposição já está marcada: o botão passa a remarcar. */
+  remarcar?: boolean
 }) {
   const [destino, setDestino] = useState('')
   // Desistencia: a regra pede a decisao de cobranca antes de registrar.
@@ -71,7 +74,7 @@ export function AcoesPendencia({
           disabled={pendente || destino === ''}
           onClick={() => executar(() => agendar(pendenciaId, Number(destino)))}
         >
-          Agendar
+          {remarcar ? 'Remarcar' : 'Agendar'}
         </Botao>
 
         <Botao

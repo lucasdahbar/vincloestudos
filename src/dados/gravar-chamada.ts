@@ -4,6 +4,7 @@ import { concluirReposicoes } from './lista-da-aula'
 import { planejarCorrecao, type PendenciaDaAula } from '@/dominio/presencas/correcao'
 import {
   montarRegistro,
+  reposicoesQueNaoAconteceram,
   type MatriculadoNaAula,
   type RespostaChamada,
 } from '@/dominio/presencas/registro'
@@ -103,11 +104,28 @@ export async function gravarChamada(
     const f = falha(error, 'Falha ao desfazer a reposição da falta corrigida')
     if (f) return f
   }
-  if (plano.reabrirReposicoes.length > 0) {
+  // Faltou à própria reposição: a mesma pendência volta para a lista de
+  // pendentes (Julio, 20/10/2026), com a aula e a matrícula de reposição
+  // guardadas — remarcar ou desistir limpa a matrícula antiga, e a cobrança e
+  // o pagamento já ignoram quem não tem presença.
+  const naoAconteceram = [
+    ...new Set([
+      ...plano.reabrirReposicoes,
+      ...reposicoesQueNaoAconteceram(
+        (rReposicoes.data ?? []).map((r) => ({
+          id: r.id as number,
+          aluno_id: r.aluno_id as number,
+          status: r.status as StatusReposicao,
+        })),
+        resultado.presencas,
+      ),
+    ]),
+  ]
+  if (naoAconteceram.length > 0) {
     const { error } = await db
       .from('pendencias_reposicao')
-      .update({ status: 'Agendada' })
-      .in('id', plano.reabrirReposicoes)
+      .update({ status: 'Pendente' })
+      .in('id', naoAconteceram)
     const f = falha(error, 'Falha ao reabrir a reposição')
     if (f) return f
   }
@@ -150,7 +168,7 @@ export async function gravarChamada(
       ausentes: resultado.ausentes.length,
       pendencias_geradas: resultado.pendencias.length,
       pendencias_desfeitas: plano.removerPendencias.length,
-      reposicoes_reabertas: plano.reabrirReposicoes.length,
+      reposicoes_reabertas: naoAconteceram.length,
     },
   })
 

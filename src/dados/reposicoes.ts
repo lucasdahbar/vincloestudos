@@ -27,6 +27,13 @@ export interface PendenciaComRelacoes {
     turma_id: number
     turma: { id: number; nome: string } | null
   } | null
+  /** Onde a reposição foi marcada (fica guardada mesmo se o aluno faltou nela). */
+  aula_reposicao: {
+    id: number
+    data_hora_inicio: string
+    status: string
+    turma: { id: number; nome: string } | null
+  } | null
 }
 
 const SELECT = `
@@ -34,6 +41,9 @@ const SELECT = `
   aluno:alunos!aluno_id (id, nome),
   aula_origem:aulas!aula_origem_id (
     id, data_hora_inicio, turma_id, turma:turmas!turma_id (id, nome)
+  ),
+  aula_reposicao:aulas!aula_reposicao_id (
+    id, data_hora_inicio, status, turma:turmas!turma_id (id, nome)
   )
 `
 
@@ -249,6 +259,41 @@ export async function registrarAviso(
   }
   if (pendenciaExistente) {
     return { ok: false, erros: ['Já existe um registro de ausência deste aluno nesta aula.'] }
+  }
+
+  // Avisou que não vem à própria REPOSIÇÃO (Julio, 20/10/2026): é a mesma
+  // pendência que volta para a lista, não uma segunda. Duas pendências para
+  // uma aula perdida davam decisão de cobrança em dobro (pagar o professor
+  // duas vezes, crédito indevido).
+  const { data: repondo } = await supabase
+    .from('pendencias_reposicao')
+    .select('id, matricula_reposicao_id')
+    .eq('aluno_id', alunoId)
+    .eq('aula_reposicao_id', aulaOrigemId)
+    .eq('status', 'Agendada')
+    .not('matricula_reposicao_id', 'is', null)
+    .maybeSingle()
+
+  if (repondo?.matricula_reposicao_id) {
+    // A matrícula de reposição valia só para esta aula: sai, e o aluno some da
+    // chamada. Primeiro solta a referência, depois apaga (a FK).
+    const { error: erroSolta } = await supabase
+      .from('pendencias_reposicao')
+      .update({ status: 'Pendente', aula_reposicao_id: null, matricula_reposicao_id: null })
+      .eq('id', repondo.id)
+    if (erroSolta) return { ok: false, erros: [erroSolta.message] }
+    const { error: erroMatricula } = await supabase
+      .from('matriculas')
+      .delete()
+      .eq('id', repondo.matricula_reposicao_id)
+    if (erroMatricula) return { ok: false, erros: [erroMatricula.message] }
+
+    // "Não gerar reposição": a pendência volta e já é desistida, com a decisão.
+    if (!decisao.gerarReposicao) {
+      const r = await desistirReposicao(repondo.id, decisao)
+      return { ...r, turmasAfetadas: [aula.turma_id] }
+    }
+    return { ok: true, turmasAfetadas: [aula.turma_id] }
   }
 
   // O aluno tem de estar matriculado na turma na data da aula: sem isso, a

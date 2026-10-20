@@ -1,3 +1,5 @@
+import type { StatusReposicao } from '@/dominio/reposicoes/agendamento'
+
 export interface MatriculadoNaAula {
   aluno_id: number
   nome: string
@@ -81,4 +83,24 @@ export function montarRegistro({
     })),
     novoStatusAula: 'Realizada',
   }
+}
+
+/**
+ * Quem faltou à própria reposição volta para a lista de pendentes (Julio,
+ * 20/10/2026): a reposição não aconteceu, e a gestora remarca ou registra a
+ * desistência. É a MESMA pendência, que guarda a decisão de cobrança e de
+ * pagamento; faltar na reposição não abre uma segunda (ver `montarRegistro`).
+ *
+ * Vale para a primeira chamada e para a correção de uma presença que virou
+ * falta. Desistida fica como está.
+ */
+export function reposicoesQueNaoAconteceram(
+  /** As reposições marcadas PARA esta aula (a aula é a de destino). */
+  reposicoes: { id: number; aluno_id: number; status: StatusReposicao }[],
+  presencas: { aluno_id: number; presente: boolean }[],
+): number[] {
+  const faltaram = new Set(presencas.filter((p) => !p.presente).map((p) => p.aluno_id))
+  return reposicoes
+    .filter((r) => (r.status === 'Agendada' || r.status === 'Realizada') && faltaram.has(r.aluno_id))
+    .map((r) => r.id)
 }

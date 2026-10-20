@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { montarRegistro, type MatriculadoNaAula, type RespostaChamada } from './registro'
+import {
+  montarRegistro,
+  reposicoesQueNaoAconteceram,
+  type MatriculadoNaAula,
+  type RespostaChamada,
+} from './registro'
 
 const matriculados: MatriculadoNaAula[] = [
   { aluno_id: 1, nome: 'João Ribeiro', flag_reposicao: false },
@@ -90,6 +95,35 @@ describe('montarRegistro', () => {
     const r = montarRegistro({ aulaId: 10, professorId: 5, matriculados: [], respostas: [] })
     expect(r.presencas).toEqual([])
     expect(r.novoStatusAula).toBe('Realizada')
+  })
+})
+
+describe('reposicoesQueNaoAconteceram', () => {
+  const reposicoes = [
+    { id: 10, aluno_id: 1, status: 'Agendada' as const },
+    { id: 11, aluno_id: 2, status: 'Agendada' as const },
+    { id: 12, aluno_id: 3, status: 'Realizada' as const },
+    { id: 13, aluno_id: 4, status: 'Desistida' as const },
+  ]
+
+  it('quem faltou à reposição volta a ser pendente (Julio, 20/10/2026)', () => {
+    const presencas = [
+      { aluno_id: 1, presente: false },
+      { aluno_id: 2, presente: true },
+    ]
+    expect(reposicoesQueNaoAconteceram(reposicoes, presencas)).toEqual([10])
+  })
+
+  it('a reposição dada por concluída também volta, se a chamada foi corrigida para falta', () => {
+    expect(reposicoesQueNaoAconteceram(reposicoes, [{ aluno_id: 3, presente: false }])).toEqual([12])
+  })
+
+  it('reposição desistida não volta, nem a de quem não estava na chamada', () => {
+    const presencas = [
+      { aluno_id: 4, presente: false },
+      { aluno_id: 99, presente: false },
+    ]
+    expect(reposicoesQueNaoAconteceram(reposicoes, presencas)).toEqual([])
   })
 })
 
