@@ -35,7 +35,7 @@ export const RAZAO_SOCIAL = 'KOD Serviços Educacionais Ltda'
  * WhatsApp de ajuda no formulario publico (Julio, 22/10/2026). `WHATSAPP_LINK`
  * abre a conversa direto: wa.me pede so os digitos, com o 55 do pais.
  */
-export const WHATSAPP_DE_CONTATO = '(21) 97165-345'
+export const WHATSAPP_DE_CONTATO = '(21) 97165-4334'
 export const WHATSAPP_LINK = `https://wa.me/55${WHATSAPP_DE_CONTATO.replace(/\D/g, '')}`
 
 /** Título de uma página interna: "Integrações — Vinclo Estudos". */
