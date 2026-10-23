@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { escolasDoCadastro, situacaoDoLink } from '@/dados/cadastro-publico'
 import { MOTIVO_INDISPONIVEL } from '@/dominio/cadastro-publico/convite'
-import { MARCA, titulo } from '@/marca'
+import { MARCA, WHATSAPP_DE_CONTATO, WHATSAPP_LINK, titulo } from '@/marca'
 import { FormularioCadastro } from './FormularioCadastro'
 
 // O link carrega um segredo: nao vai para buscador nem para o cabecalho
@@ -29,7 +29,18 @@ export default async function PaginaCadastro({
             <p className="text-sm font-medium text-destaque">{MARCA}</p>
             <h1 className="mt-1 font-titulo text-3xl">Cadastro</h1>
             <p className="mt-3 text-tinta-suave">
-              Preencha seus dados e os do aluno. A escola confere e confirma o cadastro.
+              Seja muito bem-vindo(a)! Para começarmos, preencha os campos abaixo com as
+              suas informações e as do(a) aluno(a). Se precisar de ajuda, entre em
+              contato pelo WhatsApp{' '}
+              <a
+                href={WHATSAPP_LINK}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-destaque underline"
+              >
+                {WHATSAPP_DE_CONTATO}
+              </a>
+              .
             </p>
           </header>
           <FormularioCadastro token={token} escolas={escolas} />

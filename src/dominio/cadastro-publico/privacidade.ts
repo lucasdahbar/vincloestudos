@@ -7,7 +7,7 @@
  * como pedir correcao ou exclusao. A escola nao tem CNPJ cadastrado no
  * sistema; quando tiver, entra em `marca.ts` e aparece no aviso.
  */
-import { EMAIL_DE_CONTATO, MARCA } from '@/marca'
+import { EMAIL_DE_CONTATO, RAZAO_SOCIAL } from '@/marca'
 
 const NOTA_FISCAL = 'Necessário para a emissão da nota fiscal.'
 
@@ -29,12 +29,16 @@ export const MOTIVO_DO_CAMPO = {
   },
 } as const
 
+// Texto do Julio, 22/10/2026.
 export const AVISO_DE_PRIVACIDADE = [
-  `Os dados deste formulário são guardados pela ${MARCA} e usados só para o ` +
-    'cadastro, a emissão de notas fiscais e o envio de avisos e links das aulas. ' +
-    'Não são vendidos nem compartilhados com terceiros para outras finalidades.',
-  `Para corrigir ou apagar seus dados, ou do aluno, escreva para ${EMAIL_DE_CONTATO}.`,
+  `Os dados coletados neste formulário são armazenados pela ${RAZAO_SOCIAL} e ` +
+    'utilizados exclusivamente para cadastro, emissão de notas fiscais e envio de ' +
+    'avisos e links das aulas. Eles não serão vendidos nem compartilhados com ' +
+    'terceiros para outras finalidades.',
+  'Caso precise corrigir ou excluir seus dados ou os do(a) aluno(a), entre em ' +
+    `contato pelo e-mail: ${EMAIL_DE_CONTATO}.`,
 ]
 
 export const TEXTO_DO_ACEITE =
-  'Li o aviso acima e autorizo o uso dos meus dados e dos dados do aluno para essas finalidades.'
+  'Li e concordo com os termos acima, autorizando o uso dos meus dados e dos ' +
+  'dados do(a) aluno(a) para as finalidades descritas.'
