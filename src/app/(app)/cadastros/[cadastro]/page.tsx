@@ -5,7 +5,7 @@ import { Tabela } from '@/cadastros/motor/Tabela'
 import { paraCliente } from '@/cadastros/tipos'
 import { listar } from '@/dados/crud'
 import { exigirGestora } from '@/dados/sessao'
-import { BotaoLink } from '@/ui/Botao'
+import { BotaoDownload, BotaoLink } from '@/ui/Botao'
 import { Busca } from '@/ui/Busca'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { ImportarFeriados } from './ImportarFeriados'
@@ -44,9 +44,15 @@ export default async function PaginaListagem({
             {registros.length} {registros.length === 1 ? 'registro' : 'registros'}
           </p>
         </div>
-        <BotaoLink href={`/cadastros/${cadastro}/novo`}>
-          + {artigo} {definicao.rotulo.singular.toLowerCase()}
-        </BotaoLink>
+        <div className="flex flex-wrap gap-3">
+          {/* Planilha para o emissor de nota fiscal (pedido do Julio, 24/10/2026). */}
+          {cadastro === 'responsaveis' && (
+            <BotaoDownload href="/api/exportar/clientes">Exportar para nota fiscal</BotaoDownload>
+          )}
+          <BotaoLink href={`/cadastros/${cadastro}/novo`}>
+            + {artigo} {definicao.rotulo.singular.toLowerCase()}
+          </BotaoLink>
+        </div>
       </header>
 
       {/* Feriado nacional vem de fonte publica; o resto continua manual. */}

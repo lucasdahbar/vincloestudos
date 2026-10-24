@@ -44,3 +44,16 @@ export function BotaoLink({
 }: Comum & ComponentProps<typeof Link>) {
   return <Link className={`${BASE} ${APARENCIAS[aparencia]} ${className}`} {...props} />
 }
+
+/**
+ * Botao que baixa um arquivo gerado por uma rota. Um `<a>` comum, e nao o
+ * `Link`: o Link tentaria navegar pelo roteador do cliente em vez de deixar o
+ * navegador salvar o arquivo.
+ */
+export function BotaoDownload({
+  aparencia = 'secundario',
+  className = '',
+  ...props
+}: Comum & ComponentProps<'a'>) {
+  return <a download className={`${BASE} ${APARENCIAS[aparencia]} ${className}`} {...props} />
+}
