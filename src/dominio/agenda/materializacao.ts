@@ -92,3 +92,17 @@ export function materializar(
 
   return datas.filter((d) => !puladas.has(d)).map(ocorrencia)
 }
+
+/**
+ * Uma aula por turma por dia (26/10/2026): se a turma ja tem aula na data —
+ * mesmo em outro horario, mesmo excluida —, a sincronizacao nao cria outra.
+ * Sem isso, mudar o horario deixava a aula antiga e criava a nova. A data que
+ * vale e a da regra (`data_hora_referencia`), para a aula remarcada continuar
+ * segurando o dia original. `ocupados` traz `turma|data`.
+ */
+export function semDiaOcupado<T extends { turma_id: number; data_hora_inicio: string }>(
+  linhas: T[],
+  ocupados: ReadonlySet<string>,
+): T[] {
+  return linhas.filter((l) => !ocupados.has(`${l.turma_id}|${l.data_hora_inicio.slice(0, 10)}`))
+}

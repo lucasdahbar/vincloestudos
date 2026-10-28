@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   idOcorrenciaLocal,
+  semDiaOcupado,
   materializar,
   type RecorrenciaTurma,
 } from './materializacao'
@@ -179,5 +180,23 @@ describe('regra, período e datas puladas', () => {
       status: 'Ativa',
     }
     expect(materializar(aulao, '2026-11-01', '2026-11-30', new Set(['2026-11-15']))).toHaveLength(1)
+  })
+})
+
+describe('semDiaOcupado', () => {
+  const nova = (turma_id: number, data: string, horario = '18:00') => ({
+    turma_id,
+    google_calendar_event_id: idOcorrenciaLocal(turma_id, data, horario),
+    data_hora_inicio: `${data}T${horario}:00`,
+    data_hora_fim: `${data}T19:00:00`,
+  })
+
+  it('não cria outra aula no dia em que a turma já tem uma, em outro horário', () => {
+    const ocupados = new Set(['7|2026-10-26'])
+    expect(semDiaOcupado([nova(7, '2026-10-26'), nova(7, '2026-11-02')], ocupados)).toEqual([nova(7, '2026-11-02')])
+  })
+
+  it('o mesmo dia em outra turma não conta', () => {
+    expect(semDiaOcupado([nova(8, '2026-10-26')], new Set(['7|2026-10-26']))).toEqual([nova(8, '2026-10-26')])
   })
 })

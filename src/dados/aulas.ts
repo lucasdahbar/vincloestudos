@@ -2,6 +2,7 @@ import 'server-only'
 import { clienteServidor } from './cliente'
 import { montarListaDaAula, type AlunoDaAula, type ListaDaAula } from './lista-da-aula'
 import { provedorAtivo } from '@/agenda'
+import { semDiaOcupado } from '@/dominio/agenda/materializacao'
 import { conflitosComFeriado, type ConflitoFeriado } from '@/dominio/agenda/feriados'
 import { datasPuladas } from '@/dominio/agenda/datas-puladas'
 import { calendarioEscolar } from './calendario'
@@ -119,7 +120,23 @@ export async function sincronizarAulas(
     .in('google_calendar_event_id', linhas.map((l) => l.google_calendar_event_id))
 
   const jaExistem = new Set((existentes ?? []).map((a) => a.google_calendar_event_id))
-  const faltando = linhas.filter((l) => !jaExistem.has(l.google_calendar_event_id))
+  const semChave = linhas.filter((l) => !jaExistem.has(l.google_calendar_event_id))
+
+  // Uma aula por turma por dia: a chave leva o horario, entao a aula que ficou
+  // no horario antigo nao a barra. Confere os dias antes de criar.
+  let faltando = semChave
+  if (semChave.length > 0) {
+    const { data: doDia } = await supabase
+      .from('aulas')
+      .select('turma_id, data_hora_referencia')
+      .in('turma_id', [...new Set(semChave.map((l) => l.turma_id))])
+      .gte('data_hora_referencia', `${de}T00:00:00`)
+      .lte('data_hora_referencia', `${ate}T23:59:59`)
+    const ocupados = new Set(
+      (doDia ?? []).map((a) => `${a.turma_id}|${String(a.data_hora_referencia).slice(0, 10)}`),
+    )
+    faltando = semDiaOcupado(semChave, ocupados)
+  }
 
   if (faltando.length === 0) return { criadas: 0, turmas: turmas?.length ?? 0 }
 
