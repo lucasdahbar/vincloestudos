@@ -6,7 +6,7 @@ import { headers } from 'next/headers'
 import { clienteServidor } from '@/dados/cliente'
 import { sincronizarAulas } from '@/dados/aulas'
 import { exigirGestora } from '@/dados/sessao'
-import { limparAulasDaTurma } from '@/dados/limpeza-aulas'
+import { limparAulasDaTurma, moverAulasDaTurma } from '@/dados/limpeza-aulas'
 import { deveOferecerRenovacao, fimRenovado, resolverFim } from '@/dominio/agenda/recorrencia'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import { validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
@@ -52,6 +52,14 @@ export async function salvarTurma(
 
   const hojeISO = agoraNaEscola(new Date()).slice(0, 10)
   const recorrente = entrada.tipo_recorrencia === 'Recorrente'
+
+  // O horario de antes da edicao: as aulas futuras sao movidas para o novo em
+  // vez de ficarem duplicadas (ver `moverAulasDaTurma`).
+  let horarioAntigo: string | null = null
+  if (id !== null) {
+    const { data } = await supabase.from('turmas').select('horario_inicio').eq('id', id).maybeSingle()
+    horarioAntigo = data ? String(data.horario_inicio) : null
+  }
 
   // Turma já renovada: salvar de novo sem informar fim não pode encurtá-la.
   let atual: { data_fim: string | null; fim_automatico: boolean } | null = null
@@ -104,7 +112,10 @@ export async function salvarTurma(
   try {
     // Rodada 4: editar a regra tira as aulas futuras vazias que não cabem
     // mais nela (spec 4.2). Na criação não há o que limpar.
-    if (id !== null) await limparAulasDaTurma(resposta.data.id)
+    if (id !== null) {
+      if (horarioAntigo) await moverAulasDaTurma(resposta.data.id, horarioAntigo)
+      await limparAulasDaTurma(resposta.data.id)
+    }
 
     const hoje = new Date()
     const fimJanela = new Date(hoje.getFullYear(), hoje.getMonth() + 4, 0)

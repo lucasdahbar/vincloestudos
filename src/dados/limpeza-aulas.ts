@@ -3,7 +3,8 @@ import { clienteAdmin } from './admin'
 import { calendarioEscolar } from './calendario'
 import { sincronizarEventoDaTurma } from './evento-da-turma'
 import { datasPuladas } from '@/dominio/agenda/datas-puladas'
-import { aulasParaApagar, temAlunoNaData } from '@/dominio/agenda/limpeza'
+import { aulasParaApagar, aulasParaMover, temAlunoNaData } from '@/dominio/agenda/limpeza'
+import { idOcorrenciaLocal } from '@/dominio/agenda/materializacao'
 import { datasDaRegra } from '@/dominio/agenda/recorrencia'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import type { Frequencia } from '@/dominio/tipos'
@@ -123,7 +124,82 @@ export async function limparAulasDaTurma(turmaId: number): Promise<number> {
   return apagar.length
 }
 
-export type MudancaDeCalendario = { de: string; ate: string; escolaId: number | null }
+/**
+ * Mudou o horario da turma: leva as aulas futuras para o horario novo, no mesmo
+ * registro. Roda ANTES da limpeza e da sincronizacao, que ficam com o resto
+ * (dia que saiu da regra, dia que entrou). Devolve quantas mudaram.
+ */
+export async function moverAulasDaTurma(turmaId: number, horarioAntigo: string): Promise<number> {
+  const db = clienteAdmin()
+  const agora = agoraNaEscola(new Date())
+  const hoje = agora.slice(0, 10)
+
+  const { data: turma, error: erroTurma } = await db
+    .from('turmas')
+    .select('id, tipo_recorrencia, data_unica, frequencia, intervalo, dias_semana, data_inicio, data_fim, horario_inicio, horario_fim, escola_id, status')
+    .eq('id', turmaId)
+    .maybeSingle()
+  if (erroTurma) throw new Error(`Falha ao conferir as aulas da turma: ${erroTurma.message}`)
+  if (!turma || turma.status !== 'Ativa') return 0
+
+  const novo = String(turma.horario_inicio).slice(0, 5)
+  const antigo = horarioAntigo.slice(0, 5)
+  if (novo === antigo) return 0
+
+  const { data: aulas, error: erroAulas } = await db
+    .from('aulas')
+    .select('id, data_hora_inicio, data_hora_original, status')
+    .eq('turma_id', turmaId)
+    .eq('status', 'Agendada')
+    .gte('data_hora_inicio', agora)
+  if (erroAulas) throw new Error(`Falha ao conferir as aulas da turma: ${erroAulas.message}`)
+  if (!aulas || aulas.length === 0) return 0
+
+  const ultima = aulas.map((a) => dia(a.data_hora_inicio)).reduce((a, b) => (b > a ? b : a))
+  const validas = await datasValidas(turma as TurmaDaLimpeza, hoje, ultima)
+  if (!validas) return 0
+
+  const ids = aulasParaMover(
+    aulas.map((a) => ({
+      id: a.id as number,
+      data: dia(a.data_hora_inicio),
+      horario: String(a.data_hora_inicio).slice(11, 16),
+      status: a.status,
+      vinculada: false,
+      remarcada: a.data_hora_original !== null,
+    })),
+    validas,
+    antigo,
+    novo,
+    hoje,
+  )
+  if (ids.length === 0) return 0
+
+  const fim = String(turma.horario_fim).slice(0, 5)
+  let movidas = 0
+  for (const a of aulas.filter((x) => ids.includes(x.id as number))) {
+    const data = dia(a.data_hora_inicio)
+    const chave = idOcorrenciaLocal(turmaId, data, novo)
+    // Se a chave nova ja existe (aula criada por outro caminho), mover quebraria
+    // a unicidade: essa fica para a limpeza.
+    const { data: existe } = await db.from('aulas').select('id').eq('google_calendar_event_id', chave).maybeSingle()
+    if (existe) continue
+
+    const { error } = await db
+      .from('aulas')
+      .update({
+        google_calendar_event_id: chave,
+        data_hora_inicio: `${data}T${novo}:00`,
+        data_hora_fim: `${data}T${fim}:00`,
+      })
+      .eq('id', a.id)
+    if (error) throw new Error(`Falha ao mudar o horario da aula: ${error.message}`)
+    movidas++
+  }
+  return movidas
+}
+
+export type MudancaDeCalendario ={ de: string; ate: string; escolaId: number | null }
 
 /**
  * Feriado ou recesso cadastrado/alterado (spec 4.1): tira as aulas vazias que
