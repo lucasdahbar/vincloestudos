@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { saldoDoCredito, validarAbatimento, validarDevolucao } from './saldo'
+import { saldoDoCredito, validarAbatimento, validarCancelamento, validarDevolucao } from './saldo'
 
 describe('saldoDoCredito', () => {
   it('sem uso, o saldo e o valor do credito', () => {
@@ -40,5 +40,19 @@ describe('validarDevolucao', () => {
 
   it('recusa devolver mais do que o saldo', () => {
     expect(validarDevolucao({ valor: 5000, saldoCredito: 4000 })).not.toEqual([])
+  })
+})
+
+describe('validarCancelamento', () => {
+  it('decisão de 28/10/2026: cancela o saldo inteiro, com motivo', () => {
+    expect(validarCancelamento({ saldoCredito: 10500, motivo: 'gerado por engano' })).toEqual([])
+  })
+
+  it('pede o motivo', () => {
+    expect(validarCancelamento({ saldoCredito: 10500, motivo: '  ' })).toEqual(['Informe o motivo do cancelamento.'])
+  })
+
+  it('crédito já usado não tem o que cancelar', () => {
+    expect(validarCancelamento({ saldoCredito: 0, motivo: 'x' })).toEqual(['Este crédito não tem saldo para cancelar.'])
   })
 })

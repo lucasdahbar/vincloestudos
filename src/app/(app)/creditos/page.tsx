@@ -36,7 +36,7 @@ export default async function PaginaCreditos() {
       {creditos.length === 0 ? (
         <EstadoVazio
           titulo="Nenhum crédito"
-          descricao="Um crédito nasce quando uma aula já cobrada deixa de ser cobrada, porque o aluno não foi e não houve reposição. Ele aparece aqui para ser abatido de uma cobrança ou devolvido."
+          descricao="Um crédito nasce quando uma aula já cobrada deixa de ser cobrada: o aluno não foi e não houve reposição, ou saiu da turma. Ele aparece aqui para ser abatido de uma cobrança ou devolvido."
         />
       ) : (
         <ul className="flex flex-col gap-4">
@@ -55,7 +55,11 @@ export default async function PaginaCreditos() {
                   </div>
                   <div className="text-right">
                     <Selo tom={c.saldo > 0 ? 'alerta' : 'encerrado'}>
-                      {c.saldo > 0 ? `Saldo ${formatarBRL(c.saldo)}` : 'Usado'}
+                      {c.saldo > 0
+                        ? `Saldo ${formatarBRL(c.saldo)}`
+                        : c.usos.some((u) => u.tipo === 'Cancelamento')
+                          ? 'Cancelado'
+                          : 'Usado'}
                     </Selo>
                     <p className="mt-1 text-sm text-tinta-suave">de {formatarBRL(c.valor)}</p>
                   </div>
@@ -66,7 +70,7 @@ export default async function PaginaCreditos() {
                     {c.usos.map((u, i) => (
                       <li key={i}>
                         {u.data.split('-').reverse().join('/')} ·{' '}
-                        {u.tipo === 'Abatimento' ? 'Abatido de cobrança' : 'Devolvido'} ·{' '}
+                        {{ Abatimento: 'Abatido de cobrança', Devolução: 'Devolvido', Cancelamento: 'Cancelado' }[u.tipo]} ·{' '}
                         {formatarBRL(u.valor)}
                       </li>
                     ))}

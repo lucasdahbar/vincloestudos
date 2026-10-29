@@ -35,3 +35,14 @@ export function validarDevolucao(d: { valor: Centavos; saldoCredito: Centavos })
   }
   return []
 }
+
+/**
+ * Cancelar credito (pedido do Julio, 28/10/2026): o credito gerado por engano
+ * some sem virar dinheiro nem abatimento. Cancela o saldo inteiro e fica no
+ * historico, com o motivo.
+ */
+export function validarCancelamento(c: { saldoCredito: Centavos; motivo: string }): string[] {
+  if (c.saldoCredito <= 0) return ['Este crédito não tem saldo para cancelar.']
+  if (c.motivo.trim() === '') return ['Informe o motivo do cancelamento.']
+  return []
+}

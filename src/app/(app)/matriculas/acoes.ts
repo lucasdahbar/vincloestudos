@@ -5,6 +5,8 @@ import { after } from 'next/server'
 import { clienteServidor } from '@/dados/cliente'
 import { atualizarAlunosNosEventos } from '@/dados/evento-da-turma'
 import { exigirGestora } from '@/dados/sessao'
+import { acertarCobrancasDaSaida } from '@/dados/creditos'
+import { formatarBRL } from '@/dominio/dinheiro'
 import { enfileirarBoasVindas } from '@/dados/notificacoes'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import { comoDesmatricular, mandaBoasVindas, matriculaParaAntecipar, validarMatricula } from '@/dominio/matriculas/regras'
@@ -29,6 +31,8 @@ export async function salvarMatricula(
   erros?: string[]
   id?: number
   antecipar?: { id: number; data_inicio: string }
+  /** O que mudou na cobranca por causa da edicao (decisao 11). */
+  aviso?: string
 }> {
   await exigirGestora()
   const supabase = await clienteServidor()
@@ -142,6 +146,19 @@ export async function salvarMatricula(
     }
   }
 
+  // Decisao 11 (28/10/2026): a edicao que encolhe a matricula (ou a muda de
+  // turma) deixa aulas cobradas de fora, e elas viram credito.
+  let aviso: string | undefined
+  if (id !== null && datasMudaram && entrada.aluno_id !== null) {
+    const turmasDoAcerto = [...new Set([entrada.turma_id, anterior?.turma_id])].filter(
+      (t): t is number => typeof t === 'number',
+    )
+    for (const t of turmasDoAcerto) {
+      const r = await acertarCobrancasDaSaida(entrada.aluno_id, t)
+      aviso = juntarAviso(aviso, r)
+    }
+  }
+
   // O nome do aluno na descricao do evento da turma, no Google Agenda. Depois
   // da resposta: o Google lento ou fora nao pode segurar a matricula.
   const turmasAfetadas = [entrada.turma_id, anterior?.turma_id].filter(
@@ -153,7 +170,29 @@ export async function salvarMatricula(
   revalidatePath('/mensagens')
   revalidatePath(`/turmas/${entrada.turma_id}`)
   if (id !== null) revalidatePath(`/matriculas/${id}`)
-  return { ok: true, id: resposta.data.id }
+  if (aviso) revalidatePath('/creditos')
+  return { ok: true, id: resposta.data.id, aviso }
+}
+
+/** O que o acerto da saida fez, numa frase para a gestora. */
+function juntarAviso(
+  anterior: string | undefined,
+  r: Awaited<ReturnType<typeof acertarCobrancasDaSaida>>,
+): string | undefined {
+  const partes: string[] = anterior ? [anterior] : []
+  if (!r.ok) {
+    partes.push(`A matrícula foi salva, mas o acerto da cobrança falhou: ${r.erros?.join(' ')} Avise o suporte.`)
+  } else {
+    if (r.aulasCreditadas > 0) {
+      partes.push(
+        `${r.aulasCreditadas === 1 ? '1 aula já cobrada virou' : `${r.aulasCreditadas} aulas já cobradas viraram`} crédito de ${formatarBRL(r.creditado)} para o responsável, em Créditos.`,
+      )
+    }
+    if (r.tiradas > 0) {
+      partes.push(`${r.tiradas === 1 ? '1 aula saiu' : `${r.tiradas} aulas saíram`} do rascunho de cobrança.`)
+    }
+  }
+  return partes.length ? partes.join(' ') : undefined
 }
 
 /** Caso Giovana: muda so o inicio da matricula que ja existia, com as mesmas validacoes. */
@@ -185,7 +224,7 @@ export async function encerrarMatricula(id: number) {
   const supabase = await clienteServidor()
   const { data: atual, error: erroLeitura } = await supabase
     .from('matriculas')
-    .select('turma_id, data_inicio')
+    .select('aluno_id, turma_id, data_inicio')
     .eq('id', id)
     .single()
   if (erroLeitura) return { ok: false as const, motivo: erroLeitura.message }
@@ -202,9 +241,14 @@ export async function encerrarMatricula(id: number) {
           .eq('id', id)
   if (error) return { ok: false as const, motivo: error.message }
 
+  // Decisao 11 (28/10/2026): aula ja cobrada depois da saida vira credito.
+  const aviso = juntarAviso(undefined, await acertarCobrancasDaSaida(atual.aluno_id, atual.turma_id))
+
   after(() => atualizarAlunosNosEventos([atual.turma_id]))
 
   revalidatePath('/matriculas')
   revalidatePath(`/matriculas/${id}`)
-  return { ok: true as const, excluida: como.acao === 'excluir' }
+  revalidatePath('/creditos')
+  revalidatePath('/cobrancas', 'layout')
+  return { ok: true as const, excluida: como.acao === 'excluir', aviso }
 }

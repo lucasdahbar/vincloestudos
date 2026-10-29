@@ -50,6 +50,8 @@ export function FormularioMatricula({
   const [pendente, iniciar] = useTransition()
   const [erros, setErros] = useState<string[]>([])
   const [antecipar, setAntecipar] = useState<{ id: number; data_inicio: string } | null>(null)
+  // Decisao 11: a edicao gravou e mexeu na cobranca; a gestora le antes de sair.
+  const [feito, setFeito] = useState<string | null>(null)
   // No relogio da escola: em UTC, depois das 21h o padrao ja seria amanha.
   const hoje = agoraNaEscola(new Date()).slice(0, 10)
 
@@ -68,6 +70,13 @@ export function FormularioMatricula({
     gravar(() => salvarMatricula(estado, matricula?.id ?? null))
   }
 
+  function sair() {
+    router.push(
+      matricula ? `/turmas/${estado.turma_id}` : (voltarPara ?? (turmaFixa ? `/turmas/${turmaFixa}` : '/matriculas')),
+    )
+    router.refresh()
+  }
+
   function gravar(acao: () => ReturnType<typeof salvarMatricula>) {
     setErros([])
     setAntecipar(null)
@@ -75,11 +84,10 @@ export function FormularioMatricula({
       const resultado = await acao()
       if (resultado.antecipar) {
         setAntecipar(resultado.antecipar)
+      } else if (resultado.ok && resultado.aviso) {
+        setFeito(resultado.aviso)
       } else if (resultado.ok) {
-        router.push(
-          matricula ? `/turmas/${estado.turma_id}` : (voltarPara ?? (turmaFixa ? `/turmas/${turmaFixa}` : '/matriculas')),
-        )
-        router.refresh()
+        sair()
       } else {
         setErros(resultado.erros ?? ['Não foi possível matricular.'])
       }
@@ -169,6 +177,17 @@ export function FormularioMatricula({
           )}
         </AnimatePresence>
       </Cartao>
+
+      {feito && (
+        <div role="status" className="mt-4 flex flex-col gap-3 rounded-campo bg-alerta-suave px-4 py-3 text-alerta">
+          <p>Matrícula salva. {feito}</p>
+          <div>
+            <Botao type="button" onClick={sair}>
+              Continuar
+            </Botao>
+          </div>
+        </div>
+      )}
 
       {erros.length > 0 && (
         <ul role="alert" className="mt-4 flex flex-col gap-1 rounded-campo bg-erro-suave px-4 py-3 text-erro">

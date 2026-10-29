@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { abaterCredito, devolverCredito } from '@/dados/creditos'
+import { abaterCredito, cancelarCredito, devolverCredito } from '@/dados/creditos'
 import { exigirGestora } from '@/dados/sessao'
 import { deReal, type Centavos } from '@/dominio/dinheiro'
 
@@ -45,6 +45,14 @@ export async function devolver(
     observacao: observacao.trim() || null,
     usuario: sessao.nome,
   })
+  revalidatePath('/creditos')
+  return r
+}
+
+/** Crédito gerado por engano (pedido do Julio, 28/10/2026): cancela o saldo. */
+export async function cancelar(creditoId: number, motivo: string) {
+  const sessao = await exigirGestora()
+  const r = await cancelarCredito({ creditoId, motivo, usuario: sessao.nome })
   revalidatePath('/creditos')
   return r
 }

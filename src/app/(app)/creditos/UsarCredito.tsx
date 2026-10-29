@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { abater, devolver } from './acoes'
+import { abater, cancelar, devolver } from './acoes'
 import { Botao } from '@/ui/Botao'
 import { entradaClasse } from '@/ui/Campo'
 import { formatarBRL } from '@/dominio/dinheiro'
@@ -9,7 +9,8 @@ import { formatarBRL } from '@/dominio/dinheiro'
 /**
  * As três saídas do crédito (decisão da gestora, 09/10/2026): abater de uma
  * cobrança em aberto, abater da próxima — que é a mesma coisa, assim que ela
- * for gerada — ou devolver o dinheiro. Pode ser em partes.
+ * for gerada — ou devolver o dinheiro. Pode ser em partes. Cancelar (28/10/2026)
+ * é para o crédito gerado por engano: leva o saldo inteiro e pede o motivo.
  */
 export function UsarCredito({
   creditoId,
@@ -22,10 +23,11 @@ export function UsarCredito({
   cobrancas: { id: number; mes_referencia: string; saldo: number }[]
   contas: { id: number; nome: string }[]
 }) {
-  const [modo, setModo] = useState<'abater' | 'devolver' | null>(null)
+  const [modo, setModo] = useState<'abater' | 'devolver' | 'cancelar' | null>(null)
   const [cobrancaId, setCobrancaId] = useState(cobrancas[0]?.id ?? 0)
   const [conta, setConta] = useState('')
   const [observacao, setObservacao] = useState('')
+  const [motivo, setMotivo] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [pendente, iniciar] = useTransition()
 
@@ -69,10 +71,44 @@ export function UsarCredito({
         >
           Devolver
         </Botao>
+        <Botao type="button" aparencia="secundario" onClick={() => setModo('cancelar')}>
+          Cancelar crédito
+        </Botao>
         {cobrancas.length === 0 && (
           <p className="w-full text-sm text-tinta-suave">
             Sem cobrança em aberto agora. O crédito fica guardado e pode ser abatido da próxima,
             quando ela for gerada.
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  if (modo === 'cancelar') {
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-sm text-tinta-suave">
+          O saldo de {formatarBRL(saldo)} deixa de existir: não vira abatimento nem devolução.
+          Use quando o crédito foi gerado por engano.
+        </p>
+        <input
+          type="text"
+          placeholder="Motivo do cancelamento"
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          className={entradaClasse}
+        />
+        <div className="flex gap-2">
+          <Botao type="button" disabled={pendente} onClick={() => executar(() => cancelar(creditoId, motivo))}>
+            {pendente ? 'Cancelando…' : 'Cancelar o crédito'}
+          </Botao>
+          <Botao type="button" aparencia="secundario" onClick={() => setModo(null)}>
+            Voltar
+          </Botao>
+        </div>
+        {erro && (
+          <p role="alert" className="rounded-campo bg-erro-suave px-3 py-2 text-sm text-erro">
+            {erro}
           </p>
         )}
       </div>

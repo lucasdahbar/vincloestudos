@@ -1,7 +1,9 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
 import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
-import { saldoDoCredito, validarAbatimento, validarDevolucao } from '@/dominio/creditos/saldo'
+import { saldoDoCredito, validarAbatimento, validarCancelamento, validarDevolucao } from '@/dominio/creditos/saldo'
+import { acertoDaSaida } from '@/dominio/creditos/saida'
+import type { StatusCobranca as StatusDoItem } from '@/dominio/reposicoes/desfecho'
 import { saldoEStatus, type StatusCobranca } from '@/dominio/recebimentos/quitacao'
 
 /**
@@ -21,7 +23,7 @@ export interface CreditoListado {
   valor: Centavos
   saldo: Centavos
   criado_em: string
-  usos: { tipo: 'Abatimento' | 'Devolução'; valor: Centavos; data: string }[]
+  usos: { tipo: 'Abatimento' | 'Devolução' | 'Cancelamento'; valor: Centavos; data: string }[]
   /** Cobranças do mesmo responsável em que dá para abater, com o que devem. */
   cobrancasAbertas: { id: number; mes_referencia: string; saldo: Centavos }[]
 }
@@ -45,7 +47,7 @@ export async function listarCreditos(): Promise<CreditoListado[]> {
     created_at: string
     responsavel: { nome: string } | null
     aluno: { nome: string } | null
-    usos: { tipo: 'Abatimento' | 'Devolução'; valor: string; data: string }[]
+    usos: { tipo: 'Abatimento' | 'Devolução' | 'Cancelamento'; valor: string; data: string }[]
   }[]
 
   const responsaveis = [...new Set(linhas.map((c) => c.responsavel_id))]
@@ -240,4 +242,128 @@ export async function devolverCredito(entrada: {
   })
 
   return { ok: true }
+}
+
+/**
+ * Cancela o saldo inteiro do crédito (pedido do Julio, 28/10/2026). Fica no
+ * histórico como um uso, com o motivo, para a conta fechar.
+ */
+export async function cancelarCredito(entrada: {
+  creditoId: number
+  motivo: string
+  usuario: string
+}): Promise<{ ok: boolean; erros?: string[] }> {
+  const supabase = await clienteServidor()
+  const credito = await saldoAtual(entrada.creditoId)
+  if (!credito) return { ok: false, erros: ['Crédito não encontrado.'] }
+
+  const erros = validarCancelamento({ saldoCredito: credito.saldo, motivo: entrada.motivo })
+  if (erros.length > 0) return { ok: false, erros }
+
+  const { error } = await supabase.from('usos_credito').insert({
+    credito_id: entrada.creditoId,
+    tipo: 'Cancelamento',
+    valor: paraNumeric(credito.saldo),
+    observacao: entrada.motivo.trim(),
+    registrado_por: entrada.usuario,
+  })
+  if (error) return { ok: false, erros: [error.message] }
+
+  await supabase.from('logs_operacionais').insert({
+    acao: 'cancelar_credito',
+    entidade: 'creditos',
+    entidade_id: entrada.creditoId,
+    usuario: entrada.usuario,
+    detalhe: { valor: credito.saldo, motivo: entrada.motivo.trim() },
+  })
+  return { ok: true }
+}
+
+/**
+ * Decisão 11 (28/10/2026): depois que a matrícula do aluno encolhe ou sai, as
+ * aulas da turma que ficaram fora dela e já tinham sido cobradas viram
+ * crédito; em rascunho, o item só sai. A regra mora em `dominio/creditos/saida.ts`.
+ */
+export async function acertarCobrancasDaSaida(
+  alunoId: number,
+  turmaId: number,
+): Promise<{ ok: boolean; creditado: Centavos; aulasCreditadas: number; tiradas: number; erros?: string[] }> {
+  const supabase = await clienteServidor()
+  const [{ data: aluno }, { data: turma }, { data: matriculas }, { data: itens, error }, { data: creditos }] =
+    await Promise.all([
+      supabase.from('alunos').select('nome, responsavel_id').eq('id', alunoId).maybeSingle(),
+      supabase.from('turmas').select('nome').eq('id', turmaId).maybeSingle(),
+      supabase.from('matriculas').select('data_inicio, data_fim').eq('aluno_id', alunoId).eq('turma_id', turmaId),
+      supabase
+        .from('itens_cobranca')
+        .select('id, aula_id, valor_final, cobranca:cobrancas!cobranca_id (status), aula:aulas!inner (turma_id, data_hora_referencia)')
+        .eq('aluno_id', alunoId)
+        .eq('aula.turma_id', turmaId),
+      supabase
+        .from('creditos')
+        .select('item_cobranca_id, pendencia:pendencias_reposicao!pendencia_id (aula_origem_id)')
+        .eq('aluno_id', alunoId),
+    ])
+
+  const vazio = { creditado: 0, aulasCreditadas: 0, tiradas: 0 }
+  if (error) return { ok: false, ...vazio, erros: [error.message] }
+  if (!aluno) return { ok: false, ...vazio, erros: ['Aluno não encontrado.'] }
+
+  const jaCreditados = new Set((creditos ?? []).map((c) => c.item_cobranca_id).filter((x) => x !== null))
+  const aulasCreditadas = new Set(
+    (creditos ?? [])
+      .map((c) => (c.pendencia as unknown as { aula_origem_id: number } | null)?.aula_origem_id)
+      .filter((x) => x !== undefined),
+  )
+  const dia = (v: unknown) => String(v).slice(0, 10)
+
+  const acerto = acertoDaSaida(
+    (itens ?? []).map((i) => ({
+      id: i.id,
+      aula_id: i.aula_id,
+      data: dia((i.aula as unknown as { data_hora_referencia: string }).data_hora_referencia),
+      valor_final: deNumeric(i.valor_final),
+      cobranca_status: (i.cobranca as unknown as { status: StatusDoItem }).status,
+      jaVirouCredito: jaCreditados.has(i.id) || aulasCreditadas.has(i.aula_id),
+    })),
+    (matriculas ?? []).map((m) => ({ data_inicio: dia(m.data_inicio), data_fim: m.data_fim ? dia(m.data_fim) : null })),
+  )
+
+  // Mesmo caminho da desistencia (14/10/2026): a funcao do banco trava o
+  // rascunho, e devolve false se a cobranca foi confirmada no meio. Ai a aula
+  // ja foi cobrada e segue para o credito.
+  let tiradas = 0
+  const creditar = [...acerto.creditar]
+  for (const id of acerto.tirarDoRascunho) {
+    const { data: saiu, error: erroRpc } = await supabase.rpc('remover_item_de_rascunho', { p_item_id: id })
+    if (erroRpc) return { ok: false, ...vazio, tiradas, erros: [erroRpc.message] }
+    if (saiu) tiradas++
+    else {
+      const i = (itens ?? []).find((x) => x.id === id)!
+      const valor = deNumeric(i.valor_final)
+      const data = dia((i.aula as unknown as { data_hora_referencia: string }).data_hora_referencia)
+      if (valor > 0) creditar.push({ item_id: id, aula_id: i.aula_id, data, valor })
+    }
+  }
+
+  if (creditar.length > 0) {
+    const nomeTurma = turma?.nome ?? 'turma'
+    const { error: erroCredito } = await supabase.from('creditos').insert(
+      creditar.map((c) => ({
+        responsavel_id: aluno.responsavel_id,
+        aluno_id: alunoId,
+        item_cobranca_id: c.item_id,
+        valor: paraNumeric(c.valor),
+        descricao: `${aluno.nome} saiu da turma (${nomeTurma}), e a aula de ${c.data.slice(8, 10)}/${c.data.slice(5, 7)} já tinha sido cobrada.`,
+      })),
+    )
+    if (erroCredito) return { ok: false, ...vazio, tiradas, erros: [`O crédito falhou: ${erroCredito.message}`] }
+  }
+
+  return {
+    ok: true,
+    creditado: creditar.reduce((t, c) => t + c.valor, 0),
+    aulasCreditadas: creditar.length,
+    tiradas,
+  }
 }
