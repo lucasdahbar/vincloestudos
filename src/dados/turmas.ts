@@ -1,6 +1,7 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
 import { rotuloDaTurma } from '@/dominio/turmas/quando'
+import { alunosDaTurma, turmaVencida } from '@/dominio/turmas/lista'
 import { calendarioEscolar } from './calendario'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import type { Feriado } from '@/dominio/agenda/feriados'
@@ -48,6 +49,8 @@ export interface TurmaComRelacoes {
   ano_escolar: { id: number; nome: string } | null
   professor: { id: number; nome: string; google_calendar_id: string | null } | null
   alunos_matriculados?: number
+  /** Matrículas avulsas (um dia só) de hoje em diante. */
+  avulsos_marcados?: number
   /** Alunos de outras turmas que vêm repor numa aula desta, de hoje em diante. */
   reposicoes_marcadas?: number
 }
@@ -78,35 +81,30 @@ export async function listarTurmas(
 
   const turmas = (data ?? []) as unknown as TurmaComRelacoes[]
 
-  // Contagem exibida na listagem: matriculas regulares ativas e, a parte, as
-  // reposicoes que ainda vao acontecer (correcao de 13/10/2026: a turma que so
-  // tinha aluno de reposicao aparecia como vazia). A matricula de reposicao
-  // vale so para a data da aula, entao a de data passada nao conta mais.
+  // Contagem exibida na listagem (etapa 4, 28/10/2026): quem esta ou vai estar
+  // na turma. O avulso de um dia e a reposicao contam a parte, e so os que
+  // ainda vao acontecer. A regra e `alunosDaTurma`.
   const hoje = agoraNaEscola(new Date()).slice(0, 10)
-  const { data: contagens } = await supabase
+  const { data: matriculas } = await supabase
     .from('matriculas')
-    .select('turma_id, flag_reposicao, data_fim')
+    .select('turma_id, flag_reposicao, data_inicio, data_fim')
     .eq('status', 'Ativa')
 
-  const regulares = new Map<number, number>()
-  const reposicoes = new Map<number, number>()
-  for (const linha of (contagens ?? []) as {
-    turma_id: number
-    flag_reposicao: boolean
-    data_fim: string | null
-  }[]) {
-    if (!linha.flag_reposicao) {
-      regulares.set(linha.turma_id, (regulares.get(linha.turma_id) ?? 0) + 1)
-    } else if (linha.data_fim && String(linha.data_fim).slice(0, 10) >= hoje) {
-      reposicoes.set(linha.turma_id, (reposicoes.get(linha.turma_id) ?? 0) + 1)
-    }
+  const porTurma = new Map<number, { flag_reposicao: boolean; data_inicio: string; data_fim: string | null }[]>()
+  for (const m of matriculas ?? []) {
+    const lista = porTurma.get(m.turma_id) ?? []
+    lista.push({
+      flag_reposicao: m.flag_reposicao,
+      data_inicio: String(m.data_inicio),
+      data_fim: m.data_fim ? String(m.data_fim) : null,
+    })
+    porTurma.set(m.turma_id, lista)
   }
 
-  return turmas.map((t) => ({
-    ...t,
-    alunos_matriculados: regulares.get(t.id) ?? 0,
-    reposicoes_marcadas: reposicoes.get(t.id) ?? 0,
-  }))
+  return turmas.map((t) => {
+    const c = alunosDaTurma(porTurma.get(t.id) ?? [], hoje)
+    return { ...t, alunos_matriculados: c.fixos, avulsos_marcados: c.avulsos, reposicoes_marcadas: c.reposicoes }
+  })
 }
 
 /**
@@ -181,4 +179,43 @@ export async function opcoesDeTurma(): Promise<OpcoesDeTurma> {
     anosEscolares: anos.data ?? [],
     professores: professores.data ?? [],
   }
+}
+
+/**
+ * Etapa 4 (28/10/2026): fecha as turmas que terminaram (aula unica que passou,
+ * serie cujo fim a gestora escolheu e passou). A regra e `turmaVencida`; o
+ * banco confere de novo em `fechar_turma_vencida`. Com `ensaio`, so lista.
+ */
+export async function fecharTurmasVencidas(
+  { ensaio = false }: { ensaio?: boolean } = {},
+): Promise<{ id: number; nome: string }[]> {
+  const supabase = await clienteServidor()
+  const hoje = agoraNaEscola(new Date()).slice(0, 10)
+  const { data, error } = await supabase
+    .from('turmas')
+    .select('id, nome, tipo_recorrencia, status, data_unica, data_fim, fim_automatico, dias_semana, horario_inicio, frequencia, intervalo, data_inicio')
+    .eq('status', 'Ativa')
+  if (error) throw new Error(`Falha ao conferir as turmas vencidas: ${error.message}`)
+
+  const vencidas = (data ?? []).filter((t) =>
+    turmaVencida(
+      {
+        tipo_recorrencia: t.tipo_recorrencia,
+        status: t.status,
+        data_unica: t.data_unica ? String(t.data_unica) : null,
+        data_fim: t.data_fim ? String(t.data_fim) : null,
+        fim_automatico: t.fim_automatico,
+      },
+      hoje,
+    ),
+  )
+  if (ensaio) return vencidas.map((t) => ({ id: t.id, nome: rotuloDaTurma(t) }))
+
+  const fechadas: { id: number; nome: string }[] = []
+  for (const t of vencidas) {
+    const { data: fechou, error: erro } = await supabase.rpc('fechar_turma_vencida', { p_turma_id: t.id })
+    if (erro) console.error(`falha ao fechar a turma ${t.id}:`, erro.message)
+    else if (fechou) fechadas.push({ id: t.id, nome: rotuloDaTurma(t) })
+  }
+  return fechadas
 }
