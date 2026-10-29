@@ -8,7 +8,7 @@ import { exigirGestora } from '@/dados/sessao'
 import { enfileirarBoasVindas } from '@/dados/notificacoes'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import { comoDesmatricular, mandaBoasVindas, matriculaParaAntecipar, validarMatricula } from '@/dominio/matriculas/regras'
-import { erroDePeriodoSemAula } from '@/dominio/matriculas/periodo'
+import { erroDeAulaComChamada, erroDePeriodoSemAula } from '@/dominio/matriculas/periodo'
 
 export interface EntradaDeMatricula {
   aluno_id: number | null
@@ -49,7 +49,7 @@ export async function salvarMatricula(
     supabase.from('matriculas').select('turma_id, data_inicio, data_fim').eq('id', id ?? -1).maybeSingle(),
     supabase
       .from('aulas')
-      .select('status, data_hora_inicio, data_hora_referencia')
+      .select('id, status, data_hora_inicio, data_hora_referencia')
       .eq('turma_id', entrada.turma_id ?? -1),
   ])
 
@@ -91,6 +91,30 @@ export async function salvarMatricula(
       })),
     )
     if (semAula) return { ok: false, erros: [semAula] }
+
+    // Decisao 12 (28/10/2026): a chamada feita fecha a aula para matricula nova.
+    const noPeriodo = (aulas ?? []).filter((a) => {
+      const d = dia(a.data_hora_referencia ?? a.data_hora_inicio)
+      return d >= entrada.data_inicio && (entrada.data_fim === null || d <= entrada.data_fim)
+    })
+    const { data: chamadas } = noPeriodo.length
+      ? await supabase.from('presencas').select('aula_id, aluno_id').in('aula_id', noPeriodo.map((a) => a.id))
+      : { data: [] }
+    const mesmaTurma = anterior && anterior.turma_id === entrada.turma_id
+    const fechada = erroDeAulaComChamada(
+      entrada,
+      mesmaTurma
+        ? { data_inicio: dia(anterior.data_inicio), data_fim: anterior.data_fim ? dia(anterior.data_fim) : null }
+        : null,
+      noPeriodo.map((a) => ({
+        referencia: dia(a.data_hora_referencia ?? a.data_hora_inicio),
+        real: dia(a.data_hora_inicio),
+        status: a.status,
+        comChamada: (chamadas ?? []).some((c) => c.aula_id === a.id),
+        alunoNaChamada: (chamadas ?? []).some((c) => c.aula_id === a.id && c.aluno_id === entrada.aluno_id),
+      })),
+    )
+    if (fechada) return { ok: false, erros: [fechada] }
   }
 
   const registro = {

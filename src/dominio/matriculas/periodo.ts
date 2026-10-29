@@ -61,3 +61,42 @@ export function erroDePeriodoSemAula(
       : 'A turma não tem mais aulas: se ela continua, renove-a antes de matricular.')
   )
 }
+
+export interface AulaComChamada extends AulaDaTurma {
+  /** A chamada da aula ja foi feita: tem presenca ou falta registrada. */
+  comChamada: boolean
+  /** O aluno desta matricula ja esta nessa chamada. */
+  alunoNaChamada: boolean
+}
+
+/**
+ * Decisao 12 do Julio (28/10/2026): matricula com data passada nao pode pegar
+ * uma aula cuja chamada ja foi feita. O aluno entraria numa lista fechada, sem
+ * presenca nem falta, e a cobranca e o pagamento do professor sairiam de uma
+ * aula que nao o teve. So conta o que a matricula acrescenta: editar outra coisa
+ * numa matricula antiga nao bloqueia.
+ */
+export function erroDeAulaComChamada(
+  periodo: { data_inicio: string; data_fim: string | null },
+  anterior: { data_inicio: string; data_fim: string | null } | null,
+  aulasDaTurma: AulaComChamada[],
+): string | null {
+  const fechadas = aulasDaTurma
+    .filter((a) => ACONTECE.includes(a.status) && a.comChamada && !a.alunoNaChamada)
+    .filter((a) => dentro(a.referencia, periodo.data_inicio, periodo.data_fim))
+    .filter((a) => !anterior || !dentro(a.referencia, anterior.data_inicio, anterior.data_fim))
+    .map((a) => a.referencia)
+    .sort()
+
+  if (fechadas.length === 0) return null
+  const dias = fechadas.map(br).join(', ')
+  const ultima = fechadas[fechadas.length - 1]
+  const proxima = aulasDaTurma
+    .filter((a) => ACONTECE.includes(a.status) && !a.comChamada && a.referencia > ultima)
+    .map((a) => a.referencia)
+    .sort()[0]
+  const sugestao = proxima ? ` A próxima aula sem chamada é em ${br(proxima)}.` : ''
+  return fechadas.length === 1
+    ? `A aula de ${dias} já teve a chamada feita, e o aluno não pode entrar nela depois.${sugestao}`
+    : `As aulas de ${dias} já tiveram a chamada feita, e o aluno não pode entrar nelas depois.${sugestao}`
+}

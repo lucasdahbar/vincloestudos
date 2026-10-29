@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { erroDePeriodoSemAula, type AulaDaTurma } from './periodo'
+import { erroDeAulaComChamada, erroDePeriodoSemAula, type AulaComChamada, type AulaDaTurma } from './periodo'
 
 /** Turma de sexta: 09/10 dada, 16/10 remarcada para 15/10, 23/10 excluida, 30/10 agendada. */
 const aulas: AulaDaTurma[] = [
@@ -44,5 +44,47 @@ describe('erroDePeriodoSemAula', () => {
     const erro = erroDePeriodoSemAula({ data_inicio: '2026-11-05', data_fim: null }, aulas)
     expect(erro).toContain('a partir de 05/11')
     expect(erro).not.toContain('próxima')
+  })
+})
+
+describe('erroDeAulaComChamada', () => {
+  /** Turma de segunda: 05/10 e 12/10 com chamada, 19/10 ainda sem. */
+  const turma: AulaComChamada[] = [
+    { referencia: '2026-10-05', real: '2026-10-05', status: 'Realizada', comChamada: true, alunoNaChamada: false },
+    { referencia: '2026-10-12', real: '2026-10-12', status: 'Agendada', comChamada: true, alunoNaChamada: false },
+    { referencia: '2026-10-19', real: '2026-10-19', status: 'Agendada', comChamada: false, alunoNaChamada: false },
+  ]
+
+  it('decisão 12 (28/10/2026): bloqueia matrícula nova que pega aula com chamada feita', () => {
+    const erro = erroDeAulaComChamada({ data_inicio: '2026-10-01', data_fim: null }, null, turma)
+    expect(erro).toContain('05/10')
+    expect(erro).toContain('12/10')
+    expect(erro).toContain('19/10')
+  })
+
+  it('aceita a matrícula a partir da primeira aula sem chamada', () => {
+    expect(erroDeAulaComChamada({ data_inicio: '2026-10-13', data_fim: null }, null, turma)).toBeNull()
+  })
+
+  it('editar sem mexer no começo não bloqueia: as aulas já estavam no período', () => {
+    const antes = { data_inicio: '2026-10-01', data_fim: null }
+    expect(erroDeAulaComChamada({ data_inicio: '2026-10-01', data_fim: '2026-10-31' }, antes, turma)).toBeNull()
+  })
+
+  it('antecipar o começo para antes de uma aula com chamada bloqueia', () => {
+    const antes = { data_inicio: '2026-10-19', data_fim: null }
+    expect(erroDeAulaComChamada({ data_inicio: '2026-10-10', data_fim: null }, antes, turma)).toContain('12/10')
+  })
+
+  it('aluno que já está na chamada daquela aula não bloqueia', () => {
+    const comAluno = turma.map((a) => (a.referencia === '2026-10-05' ? { ...a, alunoNaChamada: true } : a))
+    expect(erroDeAulaComChamada({ data_inicio: '2026-10-05', data_fim: '2026-10-05' }, null, comAluno)).toBeNull()
+  })
+
+  it('aula excluída não conta, mesmo com registro antigo', () => {
+    const excluida: AulaComChamada[] = [
+      { referencia: '2026-10-05', real: '2026-10-05', status: 'Excluída', comChamada: true, alunoNaChamada: false },
+    ]
+    expect(erroDeAulaComChamada({ data_inicio: '2026-10-01', data_fim: null }, null, excluida)).toBeNull()
   })
 })
