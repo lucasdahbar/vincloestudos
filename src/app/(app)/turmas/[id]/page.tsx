@@ -53,6 +53,9 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
             <BotaoLink href={`/turmas/${turma.id}/editar`} aparencia="secundario">
               Editar turma
             </BotaoLink>
+            <BotaoLink href={`/turmas/${turma.id}/mudar`} aparencia="secundario">
+              Prévia de mudança
+            </BotaoLink>
             {turma.status === 'Ativa' && (
               <EncerrarTurma
                 id={turma.id}

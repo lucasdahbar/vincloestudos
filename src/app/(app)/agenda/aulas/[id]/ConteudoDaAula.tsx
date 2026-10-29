@@ -287,6 +287,15 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
         </div>
       )}
 
+      {/* Etapa 6a: a previa vale tambem para a aula dada (corrigir o professor, decisao 7). */}
+      {ehGestora && aula.status !== 'Excluída' && (
+        <div>
+          <BotaoLink href={`/turmas/${aula.turma_id}/mudar?aula=${aula.id}&escopo=esta`} aparencia="secundario">
+            Prévia de mudança
+          </BotaoLink>
+        </div>
+      )}
+
       {!noPainel && (
         <Link href="/agenda" className="text-destaque hover:underline">
           ← Voltar para a agenda
