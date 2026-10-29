@@ -201,6 +201,29 @@ function editar(
   return { ...base(a), grupo: 'muda', campos, avisos: [...avisos, ...motivos] }
 }
 
+const NOME_DO_CAMPO = { quando: 'o dia ou o horário', professor: 'o professor', servico: 'o serviço' } as const
+
+/**
+ * Etapa 6b: o que impede aplicar a edicao de uma aula. Tudo ou nada: se um
+ * dos campos pedidos nao pode mudar, nenhum muda.
+ */
+export function errosDaEdicao(
+  aula: AulaVarrida | undefined,
+  pedido: { quando?: boolean; professor?: boolean; servico?: boolean },
+): string[] {
+  if (!aula) return ['Esta aula não está mais na agenda.']
+  if (aula.pergunta === 'aconteceu') return ['Responda se a aula aconteceu antes de mudá-la.']
+  if (aula.grupo === 'fica') return [aula.motivo ?? 'Esta aula não pode mudar.']
+
+  const presos = (Object.keys(NOME_DO_CAMPO) as (keyof typeof NOME_DO_CAMPO)[]).filter(
+    (c) => pedido[c] && !aula.campos?.[c],
+  )
+  if (presos.length === 0) return []
+  return [
+    `Nesta aula não dá para mudar ${presos.map((c) => NOME_DO_CAMPO[c]).join(' nem ')}. ${aula.avisos.join(' ')}`.trim(),
+  ]
+}
+
 function excluir(a: AulaDaVarredura, respostas: Respostas, avisar: Varredura['avisar']): AulaVarrida {
   if (a.situacao.principal === 'Realizada' || a.situacao.principal === 'Concluída') {
     return { ...base(a), grupo: 'fica', motivo: `${JA_ACONTECEU} Ela não pode sair da agenda.` }

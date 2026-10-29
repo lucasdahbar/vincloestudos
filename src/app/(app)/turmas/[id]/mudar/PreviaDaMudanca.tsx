@@ -1,7 +1,9 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useMemo, useState, useTransition } from 'react'
 import {
+  errosDaEdicao,
   varrer,
   type Acao,
   type AulaDaVarredura,
@@ -10,9 +12,21 @@ import {
   type Escopo,
   type Respostas,
 } from '@/dominio/agenda/varredura'
-import { Botao } from '@/ui/Botao'
+import { Botao, BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
+import { entradaClasse } from '@/ui/Campo'
 import { pilulaDaSituacao } from '@/ui/situacao-da-aula'
+import { editarEstaAula } from './acoes'
+
+/** O que a edicao de "so esta aula" precisa saber da aula (etapa 6b). */
+export interface DadosDaEdicao {
+  aulaId: number
+  /** AAAA-MM-DDTHH:MM */
+  inicio: string
+  fim: string
+  professorId: number
+  professores: { id: number; nome: string }[]
+}
 
 const ROTULO_DESFECHO: Record<Desfecho, string> = {
   reposicao: 'Reposição',
@@ -38,10 +52,13 @@ export function PreviaDaMudanca({
   aulas,
   acao,
   escopo,
+  edicao,
 }: {
   aulas: AulaDaVarredura[]
   acao: Acao
   escopo: Escopo
+  /** So esta aula, dia/horario ou professor: a previa ganha o "aplicar" (6b). */
+  edicao?: DadosDaEdicao
 }) {
   const [respostas, setRespostas] = useState<Respostas>({})
   const v = useMemo(() => varrer(aulas, acao, escopo, respostas), [aulas, acao, escopo, respostas])
@@ -147,10 +164,158 @@ export function PreviaDaMudanca({
         </details>
       )}
 
-      <p className="text-sm text-tinta-suave">
-        Esta é só a prévia: aplicar a mudança chega nas próximas atualizações.
-      </p>
+      {edicao && acao.tipo === 'editar' ? (
+        <EditarEstaAula
+          aula={v.aulas[0]}
+          dados={edicao}
+          mudaQuando={acao.quando === true}
+          mudaProfessor={acao.professor === true}
+          aconteceu={respostas.aconteceu?.[edicao.aulaId]}
+        />
+      ) : (
+        <p className="text-sm text-tinta-suave">
+          Esta é só a prévia: aplicar esta mudança chega nas próximas atualizações.
+        </p>
+      )}
     </div>
+  )
+}
+
+/**
+ * Etapa 6b: aplicar a edicao de uma aula. O botao so libera quando a previa
+ * diz que a aula muda; o servidor confere tudo de novo antes de gravar.
+ */
+function EditarEstaAula({
+  aula,
+  dados,
+  mudaQuando,
+  mudaProfessor,
+  aconteceu,
+}: {
+  aula: AulaVarrida | undefined
+  dados: DadosDaEdicao
+  mudaQuando: boolean
+  mudaProfessor: boolean
+  aconteceu: boolean | undefined
+}) {
+  const router = useRouter()
+  const [data, setData] = useState(dados.inicio.slice(0, 10))
+  const [horaInicio, setHoraInicio] = useState(dados.inicio.slice(11, 16))
+  const [horaFim, setHoraFim] = useState(dados.fim.slice(11, 16))
+  const [professorId, setProfessorId] = useState(dados.professorId)
+  const [alerta, setAlerta] = useState<string | null>(null)
+  const [erros, setErros] = useState<string[]>([])
+  const [feito, setFeito] = useState<{ nome: string; data: string }[] | null>(null)
+  const [pendente, iniciar] = useTransition()
+
+  const mudouHorario =
+    mudaQuando && (data !== dados.inicio.slice(0, 10) || horaInicio !== dados.inicio.slice(11, 16) || horaFim !== dados.fim.slice(11, 16))
+  const mudouProfessor = mudaProfessor && professorId !== dados.professorId
+  const bloqueio = errosDaEdicao(aula, { quando: mudouHorario, professor: mudouProfessor })
+  const nadaMudou = !mudouHorario && !mudouProfessor
+
+  // Mexer no horario depois do aviso de feriado pede outra conferencia.
+  const mudou = (f: () => void) => {
+    f()
+    setAlerta(null)
+  }
+
+  function aplicar() {
+    setErros([])
+    iniciar(async () => {
+      try {
+        const r = await editarEstaAula(dados.aulaId, {
+          nova: mudouHorario ? { data, inicio: horaInicio, fim: horaFim } : null,
+          professorId: mudouProfessor ? professorId : null,
+          aconteceu,
+          confirmouAlerta: alerta !== null,
+        })
+        if (r.ok) {
+          setFeito(r.avisar)
+          router.refresh()
+        } else if (r.alerta) setAlerta(r.alerta)
+        else setErros(r.erros ?? ['Não foi possível mudar a aula.'])
+      } catch {
+        setErros(['Não foi possível mudar a aula agora. Tente de novo.'])
+      }
+    })
+  }
+
+  if (feito) {
+    return (
+      <Cartao>
+        <p className="font-medium">Aula alterada.</p>
+        <p className="mt-1 text-sm text-tinta-suave">A agenda do professor no Google acompanha em instantes.</p>
+        {feito.length > 0 && (
+          <p className="mt-2 text-sm">
+            Avise quem vem repor: {feito.map((x) => x.nome).join(', ')}.
+          </p>
+        )}
+        <div className="mt-4">
+          <BotaoLink href={`/agenda/aulas/${dados.aulaId}`} aparencia="secundario">
+            Ver a aula
+          </BotaoLink>
+        </div>
+      </Cartao>
+    )
+  }
+
+  return (
+    <Cartao>
+      <h2 className="text-xl">Aplicar nesta aula</h2>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        {mudaQuando && (
+          <>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Dia</span>
+              <input type="date" value={data} onChange={(e) => mudou(() => setData(e.target.value))} className={entradaClasse} />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Início</span>
+              <input type="time" value={horaInicio} onChange={(e) => mudou(() => setHoraInicio(e.target.value))} className={entradaClasse} />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Término</span>
+              <input type="time" value={horaFim} onChange={(e) => mudou(() => setHoraFim(e.target.value))} className={entradaClasse} />
+            </label>
+          </>
+        )}
+        {mudaProfessor && (
+          <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+            <span className="font-medium">Professor desta aula</span>
+            <select value={professorId} onChange={(e) => setProfessorId(Number(e.target.value))} className={entradaClasse}>
+              {dados.professores.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
+      {!nadaMudou && bloqueio.length > 0 && (
+        <p className="mt-3 text-sm text-tinta-suave">{bloqueio[0]}</p>
+      )}
+      {alerta && (
+        <div role="alert" className="mt-3 rounded-campo bg-alerta-suave px-4 py-3 text-sm">
+          {alerta} Mudar mesmo assim?
+        </div>
+      )}
+      {erros.length > 0 && (
+        <ul role="alert" className="mt-3 flex flex-col gap-1 rounded-campo bg-erro-suave px-4 py-3 text-sm text-erro">
+          {erros.map((e) => (
+            <li key={e}>{e}</li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-4">
+        <Botao type="button" disabled={pendente || nadaMudou || bloqueio.length > 0} onClick={aplicar}>
+          {pendente ? 'Aplicando…' : alerta ? 'Sim, mudar' : 'Aplicar'}
+        </Botao>
+      </div>
+    </Cartao>
   )
 }
 

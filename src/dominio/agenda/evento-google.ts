@@ -146,6 +146,19 @@ export function exdatesDoEvento(
 }
 
 /**
+ * A aula sai da serie e ganha um evento so dela: a remarcada (13/10/2026),
+ * no dia novo, e a com outro professor (etapa 6b, 29/10/2026), na agenda
+ * desse professor. O dia de sempre vira EXDATE da serie.
+ */
+export function temEventoProprio(
+  aula: { data_hora_original: string | null; professor_id: number; status: StatusAula },
+  professorDaTurma: number,
+): boolean {
+  if (aula.status === 'Excluída') return false
+  return aula.data_hora_original !== null || aula.professor_id !== professorDaTurma
+}
+
+/**
  * Turma única cuja aula foi excluída: o evento sai da agenda, como o da turma
  * encerrada. Única não tem EXDATE — a data dela é o evento inteiro.
  */

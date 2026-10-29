@@ -287,11 +287,14 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
         </div>
       )}
 
-      {/* Etapa 6a: a previa vale tambem para a aula dada (corrigir o professor, decisao 7). */}
+      {/* Etapa 6: vale tambem para a aula dada, que so corrige o professor (decisao 7). */}
       {ehGestora && aula.status !== 'Excluída' && (
         <div>
-          <BotaoLink href={`/turmas/${aula.turma_id}/mudar?aula=${aula.id}&escopo=esta`} aparencia="secundario">
-            Prévia de mudança
+          <BotaoLink
+            href={`/turmas/${aula.turma_id}/mudar?aula=${aula.id}&escopo=esta&acao=${aula.status === 'Realizada' ? 'professor' : 'quando'}`}
+            aparencia="secundario"
+          >
+            Mudar esta aula
           </BotaoLink>
         </div>
       )}

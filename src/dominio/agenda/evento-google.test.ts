@@ -6,6 +6,7 @@ import {
   primeiraOcorrencia,
   regraDoEvento,
   eventoSaiDaAgenda,
+  temEventoProprio,
   unicaSemAula,
   type TurmaDoEvento,
 } from './evento-google'
@@ -341,5 +342,25 @@ describe('evento avulso da aula remarcada', () => {
     expect(e.recurrence).toBeUndefined()
     expect(e.start.dateTime).toBe('2026-10-16T16:00:00')
     expect(e.description).toContain('Aula remarcada (era 14/10 às 15:00), das 16:00 às 17:00.')
+  })
+})
+
+describe('temEventoProprio', () => {
+  const aula = { data_hora_original: null, professor_id: 3, status: 'Agendada' as const }
+
+  it('aula que segue a regra e o professor da turma fica na série', () => {
+    expect(temEventoProprio(aula, 3)).toBe(false)
+  })
+
+  it('aula remarcada ganha evento próprio', () => {
+    expect(temEventoProprio({ ...aula, data_hora_original: '2026-10-14T15:00:00' }, 3)).toBe(true)
+  })
+
+  it('aula com outro professor vai para a agenda dele (etapa 6b)', () => {
+    expect(temEventoProprio({ ...aula, professor_id: 9 }, 3)).toBe(true)
+  })
+
+  it('aula excluída não tem evento', () => {
+    expect(temEventoProprio({ ...aula, professor_id: 9, status: 'Excluída' }, 3)).toBe(false)
   })
 })

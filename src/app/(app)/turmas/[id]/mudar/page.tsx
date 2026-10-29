@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { obterTurma } from '@/dados/turmas'
+import { obterTurma, opcoesDeTurma } from '@/dados/turmas'
+import { obterAula } from '@/dados/aulas'
 import { exigirGestora } from '@/dados/sessao'
 import { aulasParaVarredura } from '@/dados/varredura'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
@@ -8,7 +9,7 @@ import type { Acao, Escopo } from '@/dominio/agenda/varredura'
 import { Botao } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { entradaClasse } from '@/ui/Campo'
-import { PreviaDaMudanca } from './PreviaDaMudanca'
+import { PreviaDaMudanca, type DadosDaEdicao } from './PreviaDaMudanca'
 
 /**
  * Etapa 6a (29/10/2026): a previa de editar, excluir e encerrar, sem gravar
@@ -59,6 +60,24 @@ export default async function PaginaMudarTurma({
           : 'a-partir'
   const data = q.data && /^\d{4}-\d{2}-\d{2}$/.test(q.data) ? q.data : hoje
   const aulas = await aulasParaVarredura(turma.id, escopo, { aulaId, aPartirDe: data })
+
+  // Etapa 6b: "so esta aula" ja aplica dia/horario e professor.
+  let edicao: DadosDaEdicao | undefined
+  if (escopo === 'esta' && aulaId && (chave === 'quando' || chave === 'professor')) {
+    const [aula, opcoes] = await Promise.all([obterAula(aulaId), opcoesDeTurma()])
+    if (aula && aula.turma_id === turma.id) {
+      const professores = opcoes.professores.some((p) => p.id === aula.professor_id)
+        ? opcoes.professores
+        : [{ id: aula.professor_id, nome: 'Professor atual (inativo)' }, ...opcoes.professores]
+      edicao = {
+        aulaId,
+        inicio: String(aula.data_hora_inicio).slice(0, 16),
+        fim: String(aula.data_hora_fim).slice(0, 16),
+        professorId: aula.professor_id,
+        professores,
+      }
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -119,6 +138,7 @@ export default async function PaginaMudarTurma({
         aulas={aulas}
         acao={ACOES[chave].acao}
         escopo={escopo}
+        edicao={edicao}
       />
     </div>
   )

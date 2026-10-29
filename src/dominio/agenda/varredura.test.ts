@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { varrer, type AlunoDaVarredura, type AulaDaVarredura } from './varredura'
+import { errosDaEdicao, varrer, type AlunoDaVarredura, type AulaDaVarredura } from './varredura'
 import type { SituacaoDaAula } from './situacao'
 
 const sit = (principal: SituacaoDaAula['principal'], over: Partial<SituacaoDaAula> = {}): SituacaoDaAula => ({
@@ -211,5 +211,36 @@ describe('varrer: o conjunto', () => {
     )
     expect(v.aulas.map((a) => a.id)).toEqual([2, 3, 4])
     expect([v.mudam, v.escolhas, v.ficam]).toEqual([1, 1, 1])
+  })
+})
+
+describe('errosDaEdicao: aplicar a edição de uma aula (etapa 6b)', () => {
+  const editar = (a: AulaDaVarredura, acao: { quando?: boolean; professor?: boolean }, aconteceu?: boolean) =>
+    errosDaEdicao(
+      varrer([a], { tipo: 'editar', ...acao }, 'esta', aconteceu === undefined ? {} : { aconteceu: { [a.id]: aconteceu } })
+        .aulas[0],
+      acao,
+    )
+
+  it('aula que muda não tem erro', () => {
+    expect(editar(aula(), { quando: true, professor: true })).toEqual([])
+  })
+
+  it('sem resposta à pergunta da decisão 5, pede a resposta', () => {
+    expect(editar(aula({ situacao: sit('Aguardando chamada') }), { quando: true })[0]).toMatch(/aconteceu/)
+    expect(editar(aula({ situacao: sit('Aguardando chamada') }), { quando: true }, false)).toEqual([])
+  })
+
+  it('o que fica devolve o motivo', () => {
+    expect(editar(aula({ situacao: sit('Realizada') }), { quando: true })[0]).toMatch(/já aconteceu/)
+  })
+
+  it('pedido em parte impossível também é erro: nada é aplicado pela metade', () => {
+    const e = editar(aula({ situacao: sit('Realizada') }), { quando: true, professor: true })
+    expect(e.join(' ')).toMatch(/dia ou o horário/)
+  })
+
+  it('aula que não existe mais', () => {
+    expect(errosDaEdicao(undefined, { quando: true })[0]).toMatch(/não está mais na agenda/)
   })
 })
