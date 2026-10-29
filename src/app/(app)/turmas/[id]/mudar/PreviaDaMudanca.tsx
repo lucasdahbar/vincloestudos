@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useMemo, useState, useTransition } from 'react'
 import {
   errosDaEdicao,
+  planoDeSaida,
   varrer,
   type Acao,
   type AulaDaVarredura,
@@ -16,7 +17,7 @@ import { Botao, BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { entradaClasse } from '@/ui/Campo'
 import { pilulaDaSituacao } from '@/ui/situacao-da-aula'
-import { editarEstaAula } from './acoes'
+import { editarEstaAula, tirarDaAgenda } from './acoes'
 
 /** O que a edicao de "so esta aula" precisa saber da aula (etapa 6b). */
 export interface DadosDaEdicao {
@@ -27,6 +28,9 @@ export interface DadosDaEdicao {
   professorId: number
   professores: { id: number; nome: string }[]
 }
+
+/** Etapa 6c: o que a previa pode aplicar ao tirar aulas da agenda. */
+export type PedidoDeSaida = { tipo: 'excluir'; aulaId: number } | { tipo: 'encerrar'; data: string }
 
 const ROTULO_DESFECHO: Record<Desfecho, string> = {
   reposicao: 'Reposição',
@@ -53,12 +57,20 @@ export function PreviaDaMudanca({
   acao,
   escopo,
   edicao,
+  turmaId,
+  saida,
+  semAplicar,
 }: {
   aulas: AulaDaVarredura[]
   acao: Acao
   escopo: Escopo
   /** So esta aula, dia/horario ou professor: a previa ganha o "aplicar" (6b). */
   edicao?: DadosDaEdicao
+  turmaId: number
+  /** Excluir esta aula ou encerrar: a previa ganha o "aplicar" (6c). */
+  saida?: PedidoDeSaida
+  /** Por que esta combinacao ainda nao aplica. */
+  semAplicar?: string
 }) {
   const [respostas, setRespostas] = useState<Respostas>({})
   const v = useMemo(() => varrer(aulas, acao, escopo, respostas), [aulas, acao, escopo, respostas])
@@ -74,7 +86,8 @@ export function PreviaDaMudanca({
       return { ...r, alunos }
     })
 
-  if (v.aulas.length === 0) {
+  // Encerrar sem aula pela frente ainda termina a turma: o "aplicar" aparece.
+  if (v.aulas.length === 0 && !(saida?.tipo === 'encerrar')) {
     return <Cartao>Nenhuma aula neste período.</Cartao>
   }
 
@@ -172,9 +185,11 @@ export function PreviaDaMudanca({
           mudaProfessor={acao.professor === true}
           aconteceu={respostas.aconteceu?.[edicao.aulaId]}
         />
+      ) : saida ? (
+        <AplicarSaida turmaId={turmaId} pedido={saida} aulas={aulas} varredura={v} respostas={respostas} />
       ) : (
         <p className="text-sm text-tinta-suave">
-          Esta é só a prévia: aplicar esta mudança chega nas próximas atualizações.
+          {semAplicar ?? 'Esta é só a prévia: aplicar esta mudança chega nas próximas atualizações.'}
         </p>
       )}
     </div>
@@ -313,6 +328,106 @@ function EditarEstaAula({
       <div className="mt-4">
         <Botao type="button" disabled={pendente || nadaMudou || bloqueio.length > 0} onClick={aplicar}>
           {pendente ? 'Aplicando…' : alerta ? 'Sim, mudar' : 'Aplicar'}
+        </Botao>
+      </div>
+    </Cartao>
+  )
+}
+
+/**
+ * Etapa 6c: excluir esta aula ou encerrar a turma. O botao so libera com a
+ * previa toda respondida; o servidor refaz a varredura antes de gravar.
+ */
+function AplicarSaida({
+  turmaId,
+  pedido,
+  aulas,
+  varredura,
+  respostas,
+}: {
+  turmaId: number
+  pedido: PedidoDeSaida
+  aulas: AulaDaVarredura[]
+  varredura: ReturnType<typeof varrer>
+  respostas: Respostas
+}) {
+  const router = useRouter()
+  const [erros, setErros] = useState<string[]>([])
+  const [feito, setFeito] = useState<{ nome: string; data: string }[] | null>(null)
+  const [pendente, iniciar] = useTransition()
+  const bloqueio = planoDeSaida(aulas, varredura).erros
+
+  const encerrar = pedido.tipo === 'encerrar'
+  const rotulo = encerrar
+    ? `Encerrar a partir de ${pedido.data.split('-').reverse().join('/')}`
+    : 'Excluir esta aula'
+
+  function aplicar() {
+    setErros([])
+    iniciar(async () => {
+      try {
+        const r = await tirarDaAgenda(turmaId, pedido, respostas)
+        if (r.ok) {
+          setFeito(r.avisar)
+          router.refresh()
+        } else {
+          setErros(r.erros)
+          if (r.parcial) router.refresh()
+        }
+      } catch {
+        setErros(['Não foi possível aplicar agora. Tente de novo.'])
+      }
+    })
+  }
+
+  if (feito) {
+    return (
+      <Cartao>
+        <p className="font-medium">{encerrar ? 'Turma encerrada.' : 'Aula excluída.'}</p>
+        <p className="mt-1 text-sm text-tinta-suave">
+          Quem foi para reposição aparece em Reposições; os créditos, em Créditos. A agenda do
+          professor no Google acompanha em instantes.
+        </p>
+        {feito.length > 0 && (
+          <p className="mt-2 text-sm">
+            Avise quem vinha repor (voltou para as reposições pendentes):{' '}
+            {feito.map((x) => x.nome).join(', ')}.
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap gap-3">
+          <BotaoLink href={`/turmas/${turmaId}`} aparencia="secundario">
+            Ver a turma
+          </BotaoLink>
+          <BotaoLink href="/reposicoes" aparencia="secundario">
+            Reposições
+          </BotaoLink>
+        </div>
+      </Cartao>
+    )
+  }
+
+  return (
+    <Cartao>
+      <h2 className="text-xl">{encerrar ? 'Encerrar a turma' : 'Excluir esta aula'}</h2>
+      {bloqueio.length > 0 ? (
+        <p className="mt-2 text-sm text-tinta-suave">{bloqueio[0]}</p>
+      ) : (
+        <p className="mt-2 text-sm text-tinta-suave">
+          {encerrar
+            ? 'As aulas acima saem da agenda e as matrículas terminam na véspera.'
+            : 'A aula sai da agenda com o que foi escolhido para cada aluno.'}
+        </p>
+      )}
+      {erros.length > 0 && (
+        <ul role="alert" className="mt-3 flex flex-col gap-1 rounded-campo bg-erro-suave px-4 py-3 text-sm text-erro">
+          {erros.map((e) => (
+            <li key={e}>{e}</li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-4">
+        <Botao type="button" disabled={pendente || bloqueio.length > 0} onClick={aplicar}>
+          {pendente ? 'Aplicando…' : rotulo}
         </Botao>
       </div>
     </Cartao>

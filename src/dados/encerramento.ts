@@ -132,6 +132,7 @@ async function situacao(
 export async function previaEncerramento(
   turmaId: number,
   dataInformada: string | null,
+  opcoes: { resolvidoNaPrevia?: boolean } = {},
 ): Promise<PreviaEncerramento> {
   const dataValida = (d: string | null) => d !== null && /^\d{4}-\d{2}-\d{2}$/.test(d)
   const informada = dataValida(dataInformada) ? dataInformada : null
@@ -148,7 +149,7 @@ export async function previaEncerramento(
     tipo: 'avaliada',
     data,
     unica: s.tipo_recorrencia === 'Único',
-    avaliacao: avaliarEncerramento(s, data),
+    avaliacao: avaliarEncerramento(s, data, opcoes),
   }
 }
 

@@ -103,6 +103,16 @@ describe('avaliarEncerramento', () => {
     if (!r.pode) expect(r.motivos).toContain('Davi tem reposição marcada em 21/10/2026: remarque antes.')
   })
 
+  it('com a prévia (etapa 6c), reposição chegando e cobrança confirmada não bloqueiam: a prévia resolve', () => {
+    const s = turma({
+      reposicoesChegando: [{ aluno: 'Davi', data: '2026-10-21' }],
+      cobrancas: [{ aluno: 'Ana', data: '2026-10-21', confirmada: true, temReposicao: false }],
+    })
+    expect(avaliarEncerramento(s, '2026-10-14', { resolvidoNaPrevia: true }).pode).toBe(true)
+    // As outras travas continuam.
+    expect(avaliarEncerramento(s, '2026-10-07', { resolvidoNaPrevia: true }).pode).toBe(false)
+  })
+
   it('reposição antes da data não atrapalha', () => {
     const r = avaliarEncerramento(
       turma({ reposicoesChegando: [{ aluno: 'Davi', data: '2026-10-14' }] }),

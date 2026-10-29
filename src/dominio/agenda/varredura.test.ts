@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { errosDaEdicao, varrer, type AlunoDaVarredura, type AulaDaVarredura } from './varredura'
+import { errosDaEdicao, planoDeSaida, varrer, type AlunoDaVarredura, type AulaDaVarredura } from './varredura'
 import type { SituacaoDaAula } from './situacao'
 
 const sit = (principal: SituacaoDaAula['principal'], over: Partial<SituacaoDaAula> = {}): SituacaoDaAula => ({
@@ -242,5 +242,96 @@ describe('errosDaEdicao: aplicar a edição de uma aula (etapa 6b)', () => {
 
   it('aula que não existe mais', () => {
     expect(errosDaEdicao(undefined, { quando: true })[0]).toMatch(/não está mais na agenda/)
+  })
+})
+
+describe('varrer: encerrar (etapa 6c)', () => {
+  const encerrar = { tipo: 'encerrar' } as const
+
+  it('aluno sem cobrança sai com a matrícula, sem pergunta', () => {
+    const v = varrer([aula()], encerrar, 'a-partir')
+    expect(v.aulas[0].grupo).toBe('muda')
+    expect(v.aulas[0].alunos).toEqual([])
+    expect(v.aulas[0].destino).toBe('apagada')
+  })
+
+  it('aluno já cobrado escolhe entre reposição e crédito', () => {
+    const v = varrer([aula({ alunos: [aluno({ cobranca: 'Enviada' })] })], encerrar, 'a-partir')
+    expect(v.aulas[0].grupo).toBe('escolha')
+    expect(v.aulas[0].alunos[0].opcoes).toEqual(['reposicao', 'credito'])
+    expect(v.aulas[0].destino).toBe('excluida')
+  })
+
+  it('quem vem repor volta para as pendentes e entra em avisar', () => {
+    const v = varrer([aula({ alunos: [aluno({ vinculo: 'reposicao', nome: 'Bia' })] })], encerrar, 'a-partir')
+    expect(v.aulas[0].grupo).toBe('muda')
+    expect(v.avisar).toEqual([{ nome: 'Bia', data: '2026-11-09' }])
+  })
+
+  it('aula dada fica, e o motivo sugere encerrar depois dela', () => {
+    const v = varrer([aula({ situacao: sit('Realizada') })], encerrar, 'a-partir')
+    expect(v.aulas[0].grupo).toBe('fica')
+    expect(v.aulas[0].motivo).toMatch(/dia seguinte/)
+  })
+
+  it('aula sem chamada pergunta se aconteceu (decisão 5)', () => {
+    const a = aula({ situacao: sit('Aguardando chamada') })
+    expect(varrer([a], encerrar, 'a-partir').aulas[0].pergunta).toBe('aconteceu')
+    expect(varrer([a], encerrar, 'a-partir', { aconteceu: { 10: true } }).aulas[0].motivo).toMatch(/chamada/)
+    expect(varrer([a], encerrar, 'a-partir', { aconteceu: { 10: false } }).aulas[0].grupo).toBe('muda')
+  })
+})
+
+describe('planoDeSaida: o que gravar depois da prévia (etapa 6c)', () => {
+  const excluir = { tipo: 'excluir' } as const
+  const encerrar = { tipo: 'encerrar' } as const
+  const plano = (aulas: AulaDaVarredura[], acao: typeof excluir | typeof encerrar, r = {}) =>
+    planoDeSaida(aulas, varrer(aulas, acao, 'a-partir', r))
+
+  it('com escolha faltando, não grava nada', () => {
+    expect(plano([aula()], excluir).erros[0]).toMatch(/escolha/)
+  })
+
+  it('cada aluno leva o seu desfecho, e quem vem repor é devolvido', () => {
+    const a = aula({
+      alunos: [
+        aluno(),
+        aluno({ aluno_id: 2, cobranca: 'Confirmada' }),
+        aluno({ aluno_id: 3, vinculo: 'reposicao' }),
+        aluno({ aluno_id: 4, avisou: true }),
+      ],
+    })
+    const p = plano([a], excluir, { alunos: { '10:1': 'sem-reposicao', '10:2': 'credito' } })
+    expect(p.erros).toEqual([])
+    expect(p.aulas).toEqual([
+      {
+        id: 10,
+        data: '2026-11-09',
+        alunos: [
+          { aluno_id: 1, desfecho: 'sem-reposicao' },
+          { aluno_id: 2, desfecho: 'credito' },
+        ],
+        devolver: [3],
+      },
+    ])
+  })
+
+  it('a aula que fica não entra no plano de excluir', () => {
+    const p = plano([aula({ situacao: sit('Realizada') }), aula({ id: 11, alunos: [] })], excluir)
+    expect(p.erros).toEqual([])
+    expect(p.aulas.map((a) => a.id)).toEqual([11])
+  })
+
+  it('excluir sem nenhuma aula que sai é erro', () => {
+    expect(plano([aula({ situacao: sit('Realizada') })], excluir).erros[0]).toMatch(/Nenhuma aula/)
+  })
+
+  it('encerrar com aula que fica é erro: a data tem de vir depois dela', () => {
+    const p = plano([aula({ situacao: sit('Realizada') }), aula({ id: 11 })], encerrar)
+    expect(p.erros[0]).toMatch(/09\/11.*dia seguinte/)
+  })
+
+  it('encerrar sem aula nenhuma pela frente é permitido (a turma só termina)', () => {
+    expect(plano([], encerrar)).toEqual({ erros: [], aulas: [] })
   })
 })

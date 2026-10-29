@@ -9,13 +9,13 @@ import type { Acao, Escopo } from '@/dominio/agenda/varredura'
 import { Botao } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { entradaClasse } from '@/ui/Campo'
-import { PreviaDaMudanca, type DadosDaEdicao } from './PreviaDaMudanca'
+import { PreviaDaMudanca, type DadosDaEdicao, type PedidoDeSaida } from './PreviaDaMudanca'
 
 /**
- * Etapa 6a (29/10/2026): a previa de editar, excluir e encerrar, sem gravar
- * nada. A gestora escolhe o que muda e o escopo, e ve aula por aula o que
- * muda, o que precisa de escolha e o que fica como esta. Aplicar chega nas
- * partes seguintes (6b a 6d).
+ * Etapa 6a (29/10/2026): a previa de editar, excluir e encerrar. A gestora
+ * escolhe o que muda e o escopo, e ve aula por aula o que muda, o que precisa
+ * de escolha e o que fica como esta. Aplicar chega por partes: 6b editar so
+ * esta aula, 6c excluir e encerrar, 6d a serie a partir de uma data.
  */
 
 const ACOES = {
@@ -23,7 +23,7 @@ const ACOES = {
   professor: { rotulo: 'Professor', acao: { tipo: 'editar', professor: true } },
   servico: { rotulo: 'Serviço (e o preço)', acao: { tipo: 'editar', servico: true } },
   excluir: { rotulo: 'Excluir aulas', acao: { tipo: 'excluir' } },
-  encerrar: { rotulo: 'Encerrar a turma', acao: { tipo: 'excluir' } },
+  encerrar: { rotulo: 'Encerrar a turma', acao: { tipo: 'encerrar' } },
 } satisfies Record<string, { rotulo: string; acao: Acao }>
 type ChaveAcao = keyof typeof ACOES
 
@@ -79,6 +79,18 @@ export default async function PaginaMudarTurma({
     }
   }
 
+  // Etapa 6c: excluir "so esta aula" e encerrar a recorrente ja aplicam. Varias
+  // aulas de uma vez e o caminho do encerrar; a serie inteira, o Excluir turma.
+  let saida: PedidoDeSaida | undefined
+  let semAplicar: string | undefined
+  if (chave === 'excluir') {
+    if (escopo === 'esta' && aulaId) saida = { tipo: 'excluir', aulaId }
+    else semAplicar = 'Para tirar da agenda as aulas a partir de uma data, use "Encerrar a turma". A série inteira sai pelo "Excluir turma", na página da turma.'
+  } else if (chave === 'encerrar') {
+    if (turma.tipo_recorrencia === 'Recorrente') saida = { tipo: 'encerrar', data }
+    else semAplicar = 'Turma de aula única: use o "Encerrar turma" da página da turma.'
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <header>
@@ -87,7 +99,7 @@ export default async function PaginaMudarTurma({
         </Link>
         <h1 className="mt-1 text-3xl">Prévia de mudança</h1>
         <p className="mt-1 text-tinta-suave">
-          Mostra, aula por aula, o que aconteceria. Nada é gravado nesta tela.
+          Mostra, aula por aula, o que aconteceria. Nada é gravado antes de você aplicar.
         </p>
       </header>
 
@@ -127,7 +139,8 @@ export default async function PaginaMudarTurma({
         {chave === 'encerrar' && (
           <p className="mt-3 text-sm text-tinta-suave">
             Encerrar tira da agenda as aulas a partir da data (o primeiro dia sem aula) e termina as
-            matrículas na véspera.
+            matrículas na véspera. Só o aluno que já foi cobrado por uma dessas aulas pede escolha:
+            reposição ou crédito.
           </p>
         )}
       </Cartao>
@@ -139,6 +152,9 @@ export default async function PaginaMudarTurma({
         acao={ACOES[chave].acao}
         escopo={escopo}
         edicao={edicao}
+        turmaId={turma.id}
+        saida={saida}
+        semAplicar={semAplicar}
       />
     </div>
   )

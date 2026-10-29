@@ -45,7 +45,16 @@ export function dataDoEncerramento(s: SituacaoEncerramento, informada: string | 
   return informada
 }
 
-export function avaliarEncerramento(s: SituacaoEncerramento, data: string): AvaliacaoEncerramento {
+export function avaliarEncerramento(
+  s: SituacaoEncerramento,
+  data: string,
+  /**
+   * Etapa 6c: pela previa de mudanca, quem vem repor volta para as pendentes
+   * e cada aluno cobrado ja escolheu reposicao ou credito antes do
+   * encerramento. Essas duas travas sao resolvidas la, nao aqui.
+   */
+  opcoes: { resolvidoNaPrevia?: boolean } = {},
+): AvaliacaoEncerramento {
   const motivos: string[] = []
   const depois = <T extends { data: string }>(xs: T[]) => xs.filter((x) => x.data >= data)
 
@@ -77,19 +86,20 @@ export function avaliarEncerramento(s: SituacaoEncerramento, data: string): Aval
     )
   }
 
-  for (const r of depois(s.reposicoesChegando)) {
+  for (const r of opcoes.resolvidoNaPrevia ? [] : depois(s.reposicoesChegando)) {
     motivos.push(`${r.aluno} tem reposição marcada em ${ddmmaaaa(r.data)}: remarque antes.`)
   }
 
   // Cobranca confirmada nao se mexe: o aluno vai para reposicao (a aula segue
   // cobrada e a reposicao sai a R$ 0,00 — Rodada 3).
-  const semReposicao = depois(s.cobrancas).filter((c) => c.confirmada && !c.temReposicao)
+  const semReposicao = opcoes.resolvidoNaPrevia
+    ? []
+    : depois(s.cobrancas).filter((c) => c.confirmada && !c.temReposicao)
   if (semReposicao.length > 0) {
     const quem = semReposicao.map((c) => `${c.aluno} em ${ddmmaaaa(c.data)}`).join(', ')
     motivos.push(
-      `Já há cobrança confirmada de aulas a partir dessa data: ${quem}. Passe esses alunos ` +
-        'para reposição antes de encerrar, pelo "avisou que não vem" ou pelo "Excluir esta ' +
-        'aula", que transfere todos os alunos da aula de uma vez.',
+      `Já há cobrança confirmada de aulas a partir dessa data: ${quem}. Encerre pela ` +
+        '"Prévia de mudança" (Encerrar a turma), que oferece reposição ou crédito para cada aluno.',
     )
   }
 

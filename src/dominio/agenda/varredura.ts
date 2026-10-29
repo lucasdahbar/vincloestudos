@@ -9,8 +9,9 @@ import type { SituacaoDaAula, SituacaoPrincipal } from './situacao'
  * de uma escolha, nao pode mudar (com o motivo). Nada e gravado aqui: a
  * gestora ve a previa, responde o que falta e so entao a mudanca e aplicada.
  *
- * Encerrar e excluir "a partir de uma data": usa a acao `excluir` com as
- * aulas a partir dela.
+ * Encerrar e excluir "a partir de uma data", com as matriculas terminando na
+ * vespera. Por isso so o aluno ja cobrado pede escolha: o que nao foi cobrado
+ * simplesmente deixa de ter a aula (etapa 6c).
  */
 
 export type Escopo = 'esta' | 'a-partir' | 'serie'
@@ -18,6 +19,7 @@ export type Escopo = 'esta' | 'a-partir' | 'serie'
 export type Acao =
   | { tipo: 'editar'; quando?: boolean; professor?: boolean; servico?: boolean }
   | { tipo: 'excluir' }
+  | { tipo: 'encerrar' }
 
 export interface AlunoDaVarredura {
   aluno_id: number
@@ -79,6 +81,7 @@ export interface AulaVarrida {
 }
 
 export interface Varredura {
+  acao: Acao['tipo']
   aulas: AulaVarrida[]
   mudam: number
   escolhas: number
@@ -108,9 +111,12 @@ export function varrer(
   const avisar: Varredura['avisar'] = []
   const varridas = aulas
     .filter((a) => !FORA_DA_AGENDA.includes(a.situacao.principal))
-    .map((a) => (acao.tipo === 'excluir' ? excluir(a, respostas, avisar) : editar(a, acao, escopo, respostas, avisar)))
+    .map((a) =>
+      acao.tipo === 'editar' ? editar(a, acao, escopo, respostas, avisar) : excluir(a, respostas, avisar, acao.tipo === 'encerrar'),
+    )
 
   return {
+    acao: acao.tipo,
     aulas: varridas,
     mudam: varridas.filter((a) => a.grupo === 'muda').length,
     escolhas: varridas.filter((a) => a.grupo === 'escolha').length,
@@ -224,11 +230,28 @@ export function errosDaEdicao(
   ]
 }
 
-function excluir(a: AulaDaVarredura, respostas: Respostas, avisar: Varredura['avisar']): AulaVarrida {
+function excluir(
+  a: AulaDaVarredura,
+  respostas: Respostas,
+  avisar: Varredura['avisar'],
+  encerrar: boolean,
+): AulaVarrida {
   if (a.situacao.principal === 'Realizada' || a.situacao.principal === 'Concluída') {
-    return { ...base(a), grupo: 'fica', motivo: `${JA_ACONTECEU} Ela não pode sair da agenda.` }
+    return {
+      ...base(a),
+      grupo: 'fica',
+      motivo: encerrar
+        ? `${JA_ACONTECEU} Encerre a partir do dia seguinte a ela.`
+        : `${JA_ACONTECEU} Ela não pode sair da agenda.`,
+    }
   }
-  const r = perguntar(a, respostas, 'A aula aconteceu: faça a chamada em vez de tirá-la da agenda.')
+  const r = perguntar(
+    a,
+    respostas,
+    encerrar
+      ? 'A aula aconteceu: faça a chamada e encerre a partir do dia seguinte a ela.'
+      : 'A aula aconteceu: faça a chamada em vez de tirá-la da agenda.',
+  )
   if (r) return r
 
   const avisos: string[] = []
@@ -245,6 +268,9 @@ function excluir(a: AulaDaVarredura, respostas: Respostas, avisar: Varredura['av
     } else if (x.avisou) {
       // Ja tem a reposicao dela: nao ganha outra.
       segura = true
+    } else if (encerrar && !cobrado(x)) {
+      // A matricula termina na vespera: a aula so deixa de ser dele, e o
+      // rascunho perde o item (como no encerramento de antes).
     } else {
       const opcoes: Desfecho[] = cobrado(x) ? ['reposicao', 'credito'] : ['reposicao', 'sem-reposicao']
       const resposta = respostas.alunos?.[`${a.id}:${x.aluno_id}`]
@@ -261,5 +287,56 @@ function excluir(a: AulaDaVarredura, respostas: Respostas, avisar: Varredura['av
     alunos,
     avisos,
     destino: segura ? 'excluida' : 'apagada',
+  }
+}
+
+export interface PlanoDeSaida {
+  /** Nao vazio: nada pode ser gravado. */
+  erros: string[]
+  /** As aulas que saem da agenda, com o desfecho de cada aluno. */
+  aulas: {
+    id: number
+    data: string
+    alunos: { aluno_id: number; desfecho: Desfecho }[]
+    /** Alunos que vinham repor: voltam para as reposicoes pendentes. */
+    devolver: number[]
+  }[]
+}
+
+const ddmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+
+/**
+ * Etapa 6c: a previa respondida vira o que sera gravado. Tudo ou nada: com
+ * uma escolha faltando, ou (no encerrar) uma aula que nao pode sair depois
+ * da data, nenhuma aula sai.
+ */
+export function planoDeSaida(aulas: AulaDaVarredura[], v: Varredura): PlanoDeSaida {
+  if (v.acao === 'editar') return { erros: ['Esta mudança não tira aulas da agenda.'], aulas: [] }
+
+  const erros: string[] = []
+  if (v.escolhas > 0) {
+    erros.push(`Falta escolha em ${v.escolhas === 1 ? '1 aula' : `${v.escolhas} aulas`}: responda antes de aplicar.`)
+  }
+  // Encerrar termina a turma: nada pode ficar depois da data.
+  const fica = v.aulas.find((a) => a.grupo === 'fica')
+  if (v.acao === 'encerrar' && fica) {
+    erros.push(`Aula de ${ddmm(fica.data)}: ${fica.motivo}`)
+  }
+  if (v.acao === 'excluir' && v.mudam === 0 && erros.length === 0) {
+    erros.push('Nenhuma aula para tirar da agenda.')
+  }
+  if (erros.length > 0) return { erros, aulas: [] }
+
+  const porId = new Map(aulas.map((a) => [a.id, a]))
+  return {
+    erros: [],
+    aulas: v.aulas
+      .filter((a) => a.grupo === 'muda')
+      .map((a) => ({
+        id: a.id,
+        data: a.data,
+        alunos: a.alunos.map((x) => ({ aluno_id: x.aluno_id, desfecho: x.escolhido as Desfecho })),
+        devolver: (porId.get(a.id)?.alunos ?? []).filter((x) => x.vinculo === 'reposicao').map((x) => x.aluno_id),
+      })),
   }
 }
