@@ -52,7 +52,7 @@ export async function gerarTokenPresenca(aulaId: number): Promise<string> {
 
   const { data: aula } = await supabase
     .from('aulas')
-    .select('id, turma:turmas!turma_id (professor_id)')
+    .select('id, professor_id')
     .eq('id', aulaId)
     .maybeSingle()
 
@@ -60,12 +60,11 @@ export async function gerarTokenPresenca(aulaId: number): Promise<string> {
 
   const token = randomBytes(24).toString('base64url')
   const expira = new Date(Date.now() + HORAS_DE_VALIDADE * 3600_000).toISOString()
-  const turma = aula.turma as unknown as { professor_id: number } | null
 
   const { error } = await supabase.from('presenca_tokens').insert({
     token,
     aula_id: aulaId,
-    professor_id: turma?.professor_id ?? null,
+    professor_id: aula.professor_id,
     expira_em: expira,
   })
 

@@ -46,6 +46,9 @@ function emGrupos<T>(lista: T[], tamanho = 100): T[][] {
  * presença de todos os professores, e o limite de mil linhas do Supabase
  * cortaria a lista calado.
  *
+ * Etapa 2 (29/10/2026): o professor é o da aula, não o da turma no dia do
+ * fechamento — trocar o professor da turma não leva as aulas já dadas.
+ *
  * P2 (Rodada 2): só existe "até". P1 garante que presença já reservada por
  * outro fechamento não entra de novo.
  */
@@ -60,8 +63,8 @@ export async function previaFechamento(professorId: number, ate: string) {
         id, flag_reposicao, aluno_id,
         aluno:alunos!aluno_id (nome),
         aula:aulas!aula_id!inner (
-          id, data_hora_inicio, status,
-          turma:turmas!turma_id!inner (id, nome, professor_id)
+          id, data_hora_inicio, status, professor_id,
+          turma:turmas!turma_id!inner (id, nome)
         )
       `)
       .eq('presente', true)
@@ -69,7 +72,7 @@ export async function previaFechamento(professorId: number, ate: string) {
       // aquele fechamento ainda esteja Pendente.
       .is('conta_pagar_id', null)
       .eq('aula.status', 'Realizada')
-      .eq('aula.turma.professor_id', professorId)
+      .eq('aula.professor_id', professorId)
       .lte('aula.data_hora_inicio', limite)
       .order('id')
       .range(a, b),
@@ -195,14 +198,14 @@ async function desistenciasAPagar(professorId: number, limite: string) {
           id, aluno_id, aula_origem_id,
           aluno:alunos!aluno_id (nome),
           aula:aulas!aula_origem_id!inner (
-            data_hora_inicio,
-            turma:turmas!turma_id!inner (id, nome, professor_id)
+            data_hora_inicio, professor_id,
+            turma:turmas!turma_id!inner (id, nome)
           )
         `)
         .eq('status', 'Desistida')
         .eq('cobrar', true)
         .eq('pagar_professor', true)
-        .eq('aula.turma.professor_id', professorId)
+        .eq('aula.professor_id', professorId)
         .lte('aula.data_hora_inicio', limite)
         .order('id')
         .range(a, b),

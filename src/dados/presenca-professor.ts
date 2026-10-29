@@ -36,19 +36,15 @@ export async function aulasDoLink(token: string, agora = new Date()): Promise<Le
   const relogio = agoraNaEscola(agora)
   const hoje = relogio.slice(0, 10)
 
-  const { data: turmas } = await admin.from('turmas').select('id').eq('professor_id', professor.id)
-  const idsDasTurmas = (turmas ?? []).map((t) => t.id)
-  if (idsDasTurmas.length === 0) {
-    return { ok: true, professor, tela: telaDoLink([], relogio) }
-  }
-
   // Do passado so interessa o que ainda esta sem chamada (e o confirmado de
   // hoje); o dominio aperta o resto. Aula cancelada ou em feriado nao tem
   // chamada para fazer.
   const { data } = await admin
     .from('aulas')
     .select('id, data_hora_inicio, data_hora_fim, status, turma:turmas!turma_id (nome)')
-    .in('turma_id', idsDasTurmas)
+    // Etapa 2 (29/10/2026): as aulas sao do professor da aula. Trocar o
+    // professor da turma deixa as ja dadas (e a chamada pendente) com quem deu.
+    .eq('professor_id', professor.id)
     .in('status', ['Agendada', 'Realizada'])
     .or(`status.eq.Agendada,data_hora_inicio.gte.${hoje}T00:00:00`)
     .lte('data_hora_inicio', `${ultimoDiaVisivel(relogio)}T23:59:59`)
@@ -97,16 +93,16 @@ export async function chamadaDaAula(
   const admin = clienteAdmin()
   const { data: aula } = await admin
     .from('aulas')
-    .select('id, data_hora_inicio, data_hora_fim, data_hora_referencia, status, turma_id, turma:turmas!turma_id (nome, professor_id)')
+    .select('id, data_hora_inicio, data_hora_fim, data_hora_referencia, status, turma_id, professor_id, turma:turmas!turma_id (nome)')
     .eq('id', aulaId)
     .maybeSingle()
 
   if (!aula) return { ok: false, motivo: 'Esta aula não existe mais.' }
 
-  const turma = aula.turma as unknown as { nome: string; professor_id: number } | null
+  const turma = aula.turma as unknown as { nome: string } | null
 
-  // Um id de aula na URL nao pode abrir a turma de outro professor.
-  if (turma?.professor_id !== professor.id) {
+  // Um id de aula na URL nao pode abrir a aula de outro professor.
+  if (aula.professor_id !== professor.id) {
     return { ok: false, motivo: 'Esta aula não é de uma turma sua.' }
   }
 

@@ -22,6 +22,8 @@ export interface AulaComTurma {
   data_hora_referencia: string
   link_online: string | null
   observacao: string | null
+  /** Etapa 2 (29/10/2026): quem da a aula; pode diferir do atual da turma. */
+  professor_id: number
   turma: {
     id: number
     nome: string
@@ -34,7 +36,7 @@ export interface AulaComTurma {
 
 const SELECT_AULA = `
   id, turma_id, google_calendar_event_id, data_hora_inicio, data_hora_fim,
-  status, link_online, observacao, data_hora_original, data_hora_referencia,
+  status, link_online, observacao, data_hora_original, data_hora_referencia, professor_id,
   turma:turmas!turma_id (id, nome, modalidade, professor_id, tipo_recorrencia, horario_fim)
 `
 
@@ -185,7 +187,7 @@ export async function listarAulas(filtros: {
 
   const aulas = (data ?? []) as unknown as AulaComTurma[]
   return filtros.professorId
-    ? aulas.filter((a) => a.turma?.professor_id === filtros.professorId)
+    ? aulas.filter((a) => a.professor_id === filtros.professorId)
     : aulas
 }
 

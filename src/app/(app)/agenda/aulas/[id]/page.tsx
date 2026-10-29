@@ -55,10 +55,11 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
       .select('aluno_id, presente, observacao, conta_pagar_id, aluno:alunos!aluno_id (nome)')
       .eq('aula_id', aula.id),
     tokenDaAula(aula.id),
+    // Etapa 2 (29/10/2026): o professor da aula, que pode diferir do atual da turma.
     supabase
-      .from('turmas')
+      .from('aulas')
       .select('professor:professores!professor_id (nome, telefone)')
-      .eq('id', aula.turma_id)
+      .eq('id', aula.id)
       .maybeSingle(),
     // Pedido de 16/10/2026: o link da aula online sai daqui, aluno por aluno.
     ehGestora ? linksDaAula(aula.id) : null,
