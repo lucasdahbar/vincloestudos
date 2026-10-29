@@ -7,6 +7,7 @@ import {
   sincronizarAulas,
 } from '@/dados/aulas'
 import { clienteServidor } from '@/dados/cliente'
+import { situacoesDasAulas } from '@/dados/situacao-das-aulas'
 import { exigirSessao } from '@/dados/sessao'
 import { opcoesDeTurma, turmasResumidas } from '@/dados/turmas'
 import { comFiltros, comoId, comoOpcao, comoTexto, deOpcoes, deValores } from '@/dominio/filtros'
@@ -158,12 +159,16 @@ export default async function PaginaAgenda({
     turmasResumidas(ehGestora ? {} : { professorId: sessao.professorId ?? -1 }),
   ])
 
+  // Etapa 3: o selo mostra a situacao da aula, nao o status gravado.
+  const situacoes = await situacoesDasAulas(aulas)
+
   // Somente dados simples atravessam a fronteira para os componentes de vista.
   const paraCalendario: AulaDoCalendario[] = aulas.map((a) => ({
     id: a.id,
     data_hora_inicio: a.data_hora_inicio,
     data_hora_fim: a.data_hora_fim,
     status: a.status,
+    situacao: situacoes.get(a.id)?.principal ?? 'Confirmada',
     turma_nome: a.turma?.nome ?? 'Turma',
   }))
 

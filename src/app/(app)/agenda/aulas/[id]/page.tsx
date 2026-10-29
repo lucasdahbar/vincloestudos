@@ -19,6 +19,8 @@ const ROTULO_AVISO = {
   Desistida: 'Sem reposição',
 } as const
 import { clienteServidor } from '@/dados/cliente'
+import { situacoesDasAulas } from '@/dados/situacao-das-aulas'
+import { pilulaDaSituacao } from '@/ui/situacao-da-aula'
 import { exigirSessao } from '@/dados/sessao'
 import { BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
@@ -46,6 +48,9 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
   // de uma aula que a turma trata como de 16/10 (caso Rafael, 15/10/2026).
   const dataDaAula = String(aula.data_hora_referencia ?? aula.data_hora_inicio).slice(0, 10)
   const novaMatricula = `/matriculas/nova?turma=${aula.turma_id}&inicio=${dataDaAula}&voltar=/agenda/aulas/${aula.id}`
+
+  // Etapa 3: a situacao da aula (e, para a gestora, onde estao cobranca e pagamento).
+  const situacao = (await situacoesDasAulas([aula])).get(aula.id)
 
   const supabase = await clienteServidor()
   const [lista, { data: presencas }, token, { data: daTurma }, links] = await Promise.all([
@@ -83,7 +88,21 @@ export default async function PaginaAula({ params }: { params: Promise<{ id: str
       <header>
         <h1 className="text-3xl">{aula.turma?.nome}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-tinta-suave">
-          <Selo tom={aula.status === 'Realizada' ? 'ativo' : 'neutro'}>{aula.status}</Selo>
+          {situacao && (
+            <span
+              className={`inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-0.5 text-sm font-medium ${pilulaDaSituacao(situacao.principal)}`}
+            >
+              {situacao.principal}
+            </span>
+          )}
+          {ehGestora && situacao?.cobranca && (
+            <Selo tom={situacao.cobranca === 'Recebida' ? 'ativo' : 'neutro'}>{situacao.cobranca}</Selo>
+          )}
+          {ehGestora && situacao?.pagamento && (
+            <Selo tom={situacao.pagamento === 'Paga' ? 'ativo' : 'neutro'}>
+              {situacao.pagamento === 'Paga' ? 'Professor pago' : 'Em pagamento'}
+            </Selo>
+          )}
           <span>
             {new Date(aula.data_hora_inicio).toLocaleDateString('pt-BR', {
               weekday: 'long',

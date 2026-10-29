@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { AulaDoCalendario } from './CalendarioMes'
+import { ESTILO_SITUACAO, pilulaDaSituacao } from '@/ui/situacao-da-aula'
 
 interface Props {
   /** Domingo da semana, em ISO. */
@@ -15,14 +16,6 @@ const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
 /** Altura de uma hora na grade, em rem. Define a escala vertical inteira. */
 const ALTURA_HORA = 3.5
-
-const ESTILO: Record<AulaDoCalendario['status'], string> = {
-  Agendada: 'bg-destaque-suave text-destaque-forte border-destaque/30 hover:bg-destaque hover:text-white',
-  Realizada: 'bg-apoio-suave text-apoio border-apoio/30 hover:bg-apoio hover:text-white',
-  Cancelada: 'bg-superficie-2 text-tinta-suave border-borda line-through',
-  Feriado: 'bg-alerta-suave text-alerta border-alerta/30',
-  Excluída: 'bg-superficie-2 text-tinta-suave border-borda line-through',
-}
 
 function minutos(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number)
@@ -105,9 +98,9 @@ export function VisaoSemana({ inicioSemana, aulas, feriados, hoje, agora }: Prop
                             </span>
                           </span>
                           <span
-                            className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${ESTILO[aula.status].split(' hover:')[0]}`}
+                            className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${pilulaDaSituacao(aula.situacao)}`}
                           >
-                            {aula.status}
+                            {aula.situacao}
                           </span>
                         </Link>
                       </li>
@@ -209,8 +202,8 @@ export function VisaoSemana({ inicioSemana, aulas, feriados, hoje, agora }: Prop
                     <Link
                       key={aula.id}
                       href={`/agenda/aulas/${aula.id}`}
-                      title={`${ini} às ${fim} — ${aula.turma_nome} (${aula.status})`}
-                      className={`absolute inset-x-0.5 z-10 overflow-hidden rounded-md border px-1.5 py-1 text-xs leading-tight transition-colors ${ESTILO[aula.status]}`}
+                      title={`${ini} às ${fim} — ${aula.turma_nome} (${aula.situacao})`}
+                      className={`absolute inset-x-0.5 z-10 overflow-hidden rounded-md border px-1.5 py-1 text-xs leading-tight transition-colors ${ESTILO_SITUACAO[aula.situacao]}`}
                       style={{ top: `${topo(ini)}rem`, height: `${altura}rem` }}
                     >
                       <span className="block font-semibold">{ini}</span>

@@ -1,11 +1,15 @@
 import Link from 'next/link'
 import type { StatusAula } from '@/dominio/tipos'
+import type { SituacaoPrincipal } from '@/dominio/agenda/situacao'
+import { ESTILO_SITUACAO, pilulaDaSituacao } from '@/ui/situacao-da-aula'
 
 export interface AulaDoCalendario {
   id: number
   data_hora_inicio: string
   data_hora_fim: string
   status: StatusAula
+  /** Etapa 3: o que o selo mostra, calculado no servidor. */
+  situacao: SituacaoPrincipal
   turma_nome: string
 }
 
@@ -20,16 +24,6 @@ interface Props {
 }
 
 const CABECALHO = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-
-/** Cores por status. Realizada em verde, cancelada apagada, feriado em alerta. */
-const ESTILO_AULA: Record<AulaDoCalendario['status'], string> = {
-  Agendada: 'bg-destaque-suave text-destaque-forte hover:bg-destaque hover:text-white',
-  Realizada: 'bg-apoio-suave text-apoio hover:bg-apoio hover:text-white',
-  Cancelada: 'bg-superficie-2 text-tinta-suave line-through hover:bg-borda',
-  Feriado: 'bg-alerta-suave text-alerta hover:bg-alerta hover:text-white',
-  // Não aparece na agenda (listarAulas filtra); só fecha o tipo.
-  Excluída: 'bg-superficie-2 text-tinta-suave line-through hover:bg-borda',
-}
 
 function iso(d: Date): string {
   return d.toISOString().slice(0, 10)
@@ -63,8 +57,8 @@ function Chip({ aula }: { aula: AulaDoCalendario }) {
   return (
     <Link
       href={`/agenda/aulas/${aula.id}`}
-      title={`${aula.data_hora_inicio.slice(11, 16)} — ${aula.turma_nome} (${aula.status})`}
-      className={`block truncate rounded-md px-1.5 py-1 text-xs leading-tight transition-colors ${ESTILO_AULA[aula.status]}`}
+      title={`${aula.data_hora_inicio.slice(11, 16)} — ${aula.turma_nome} (${aula.situacao})`}
+      className={`block truncate rounded-md px-1.5 py-1 text-xs leading-tight transition-colors ${ESTILO_SITUACAO[aula.situacao]}`}
     >
       <span className="font-semibold">{aula.data_hora_inicio.slice(11, 16)}</span>{' '}
       <span className="opacity-90">{aula.turma_nome}</span>
@@ -190,9 +184,9 @@ export function CalendarioMes({ mes, aulas, feriados, hoje }: Props) {
                         </span>
                       </span>
                       <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${ESTILO_AULA[aula.status].split(' hover:')[0]}`}
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${pilulaDaSituacao(aula.situacao)}`}
                       >
-                        {aula.status}
+                        {aula.situacao}
                       </span>
                     </Link>
                   </li>
