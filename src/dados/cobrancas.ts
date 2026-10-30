@@ -3,7 +3,7 @@ import type { OrigemAusencia, StatusAula } from '@/dominio/tipos'
 import { clienteServidor } from './cliente'
 import { deNumeric, formatarBRL, paraNumeric, somar, type Centavos } from '@/dominio/dinheiro'
 import { carregarVigencias } from './vigencias'
-import { podeCancelarCobranca, type StatusCobranca } from '@/dominio/cobrancas/cancelamento'
+import { creditosAoCancelarCobranca, podeCancelarCobranca, type StatusCobranca } from '@/dominio/cobrancas/cancelamento'
 import { montarCobrancas, type AulaFaturavel } from '@/dominio/cobrancas/geracao'
 import { planejarRascunho, type ItemDoRascunho } from '@/dominio/cobrancas/rascunho'
 import { gerarTextoCobranca, type ItemDoTexto } from '@/dominio/cobrancas/texto'
@@ -872,6 +872,55 @@ export async function cancelarCobranca(
     .from('itens_cobranca')
     .select('id')
     .eq('cobranca_id', cobrancaId)
+
+  // Revisao de 30/10/2026: o credito da saida (decisao 11) segura o item. Sem
+  // a cobranca, ele perde a razao: cancela junto e solta o item.
+  const idsItens = (itens ?? []).map((i) => i.id as number)
+  if (idsItens.length > 0) {
+    const { data: creditos, error: erroCreditos } = await supabase
+      .from('creditos')
+      .select('id, valor, aluno:alunos!aluno_id (nome), usos:usos_credito (tipo, valor)')
+      .in('item_cobranca_id', idsItens)
+    if (erroCreditos) return { ok: false, motivo: erroCreditos.message }
+
+    const lidos = (creditos ?? []) as unknown as {
+      id: number
+      valor: string
+      aluno: { nome: string } | null
+      usos: { tipo: string; valor: string }[]
+    }[]
+    const acerto = creditosAoCancelarCobranca(
+      lidos.map((c) => ({
+        id: c.id,
+        aluno_nome: c.aluno?.nome ?? 'aluno',
+        usado: c.usos.filter((u) => u.tipo !== 'Cancelamento').reduce((t, u) => t + deNumeric(u.valor), 0),
+        cancelado: c.usos.some((u) => u.tipo === 'Cancelamento'),
+      })),
+    )
+    if (acerto.erros.length > 0) return { ok: false, motivo: acerto.erros.join(' ') }
+
+    if (acerto.cancelar.length > 0) {
+      const { error: erroUso } = await supabase.from('usos_credito').insert(
+        lidos
+          .filter((c) => acerto.cancelar.includes(c.id))
+          .map((c) => ({
+            credito_id: c.id,
+            tipo: 'Cancelamento',
+            valor: c.valor,
+            observacao: 'A cobrança de onde o crédito saiu foi cancelada.',
+            registrado_por: usuario,
+          })),
+      )
+      if (erroUso) return { ok: false, motivo: `Falha ao cancelar o crédito: ${erroUso.message}` }
+    }
+    if (acerto.soltar.length > 0) {
+      const { error: erroSoltar } = await supabase
+        .from('creditos')
+        .update({ item_cobranca_id: null })
+        .in('id', acerto.soltar)
+      if (erroSoltar) return { ok: false, motivo: `Falha ao soltar o crédito: ${erroSoltar.message}` }
+    }
+  }
 
   // Apagar os itens e o que solta as aulas: `UNIQUE(aula_id, aluno_id)` e a
   // marca de "ja cobrada", entao sem item nao ha marca.

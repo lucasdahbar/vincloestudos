@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { podeCancelarCobranca, podeCancelarContaPagar } from './cancelamento'
+import { creditosAoCancelarCobranca, podeCancelarCobranca, podeCancelarContaPagar } from './cancelamento'
 
 describe('podeCancelarCobranca (C7)', () => {
   it('permite cancelar cobrança confirmada sem recebimento', () => {
@@ -80,5 +80,30 @@ describe('podeCancelarContaPagar: rascunho (etapa 7, decisão 3)', () => {
       pode: false,
       motivo: 'Um rascunho pode ser descartado, sem precisar cancelar.',
     })
+  })
+})
+
+describe('creditosAoCancelarCobranca (revisão de 30/10)', () => {
+  it('crédito da saída ainda intacto: é cancelado junto, e todos soltam o item', () => {
+    expect(
+      creditosAoCancelarCobranca([
+        { id: 1, aluno_nome: 'Ana', usado: 0, cancelado: false },
+        { id: 2, aluno_nome: 'Bia', usado: 0, cancelado: true },
+      ]),
+    ).toEqual({ erros: [], cancelar: [1], soltar: [1, 2] })
+  })
+
+  it('crédito já usado (abatido ou devolvido): não cancela a cobrança', () => {
+    expect(creditosAoCancelarCobranca([{ id: 1, aluno_nome: 'Ana', usado: 6000, cancelado: false }])).toEqual({
+      erros: [
+        'O crédito de Ana que saiu desta cobrança já foi usado (abatido ou devolvido). Cancele a cobrança só depois de desfazer esse uso.',
+      ],
+      cancelar: [],
+      soltar: [],
+    })
+  })
+
+  it('sem crédito: nada a fazer', () => {
+    expect(creditosAoCancelarCobranca([])).toEqual({ erros: [], cancelar: [], soltar: [] })
   })
 })

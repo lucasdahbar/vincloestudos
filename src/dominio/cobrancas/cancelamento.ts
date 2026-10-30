@@ -90,3 +90,31 @@ export function podeCancelarContaPagar(
 
   return { pode: true }
 }
+
+/**
+ * Revisao de 30/10/2026: o aluno que sai com aula ja cobrada ganha credito
+ * dela (decisao 11), ligado ao item. Cancelar a cobranca desfaz o que foi
+ * cobrado, entao o credito deixa de ter razao: e cancelado junto, e todo
+ * credito solta o item (senao o item nao sai). Ja usado (abatido ou
+ * devolvido), o dinheiro andou: a cobranca nao se cancela.
+ */
+export function creditosAoCancelarCobranca(
+  creditos: { id: number; aluno_nome: string; usado: number; cancelado: boolean }[],
+): { erros: string[]; cancelar: number[]; soltar: number[] } {
+  const usados = creditos.filter((c) => c.usado > 0)
+  if (usados.length > 0) {
+    return {
+      erros: usados.map(
+        (c) =>
+          `O crédito de ${c.aluno_nome} que saiu desta cobrança já foi usado (abatido ou devolvido). Cancele a cobrança só depois de desfazer esse uso.`,
+      ),
+      cancelar: [],
+      soltar: [],
+    }
+  }
+  return {
+    erros: [],
+    cancelar: creditos.filter((c) => !c.cancelado).map((c) => c.id),
+    soltar: creditos.map((c) => c.id),
+  }
+}
