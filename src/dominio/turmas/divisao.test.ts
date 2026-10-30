@@ -138,6 +138,18 @@ describe('planoDeDivisao: dia e horário a partir de uma data', () => {
     expect(r.aulas.find((a) => a.id === 4)?.inicio).toBe('2031-03-27T14:00')
   })
 
+  it('aula cancelada também vai junto (revisão de 30/10)', () => {
+    const lista = aulas.map((a) => (a.id === 4 ? { ...a, status: 'Cancelada' as const } : a))
+    const r = planoDeDivisao(turma, lista, varredura({ quando: true }, lista.filter((a) => a.id !== 4)), paraQuinta, opcoes)
+    expect(r.aulas.find((a) => a.id === 4)?.inicio).toBe('2031-03-27T14:00')
+  })
+
+  it('aula de feriado fica: o dia novo daquela semana pode ter aula', () => {
+    const lista = aulas.map((a) => (a.id === 4 ? { ...a, status: 'Feriado' as const } : a))
+    const r = planoDeDivisao(turma, lista, varredura({ quando: true }, lista.filter((a) => a.id !== 4)), paraQuinta, opcoes)
+    expect(r.aulas.find((a) => a.id === 4)?.inicio).toBe('2031-03-24T10:00')
+  })
+
   it('dia novo em feriado: a aula fica no dia de sempre, como remarcada, e a prévia avisa', () => {
     const r = planoDeDivisao(turma, aulas, varredura({ quando: true }), paraQuinta, {
       ...opcoes,

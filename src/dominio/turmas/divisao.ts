@@ -186,8 +186,11 @@ export function planoDeDivisao(
             : a.servico_id,
       }
 
-      // A excluida vai junto para a semana dela continuar sem aula.
-      const move = mudanca.quando && (campos.quando || a.status === 'Excluída')
+      // A excluida e a cancelada vao junto, para a semana delas continuar sem
+      // aula (revisao de 30/10/2026: a cancelada ficava e a semana ganhava
+      // aula). A de feriado fica: o dia novo daquela semana pode ter aula.
+      const semAula = a.status === 'Excluída' || a.status === 'Cancelada'
+      const move = mudanca.quando && (campos.quando || semAula)
       if (!move) return final
 
       const destino = novaRegra(a.data)
@@ -199,7 +202,7 @@ export function planoDeDivisao(
         // Remarcada: continua no dia escolhido; muda so o dia de onde saiu.
         return { ...final, original: novoInicio }
       }
-      if (opcoes.puladas.has(destino) && a.status !== 'Excluída') {
+      if (opcoes.puladas.has(destino) && !semAula) {
         // Feriado: a aula fica no dia de sempre, como remarcada dali.
         avisos.push(
           `${ddmm(destino)} é feriado ou recesso: a aula de ${ddmm(a.data)} continua em ${ddmm(a.data)} às ${a.inicio.slice(11, 16)}. Exclua-a se não houver aula.`,
