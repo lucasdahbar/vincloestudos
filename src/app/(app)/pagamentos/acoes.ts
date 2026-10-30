@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import {
   cancelarContaPagar,
+  confirmarContaPagar,
+  descartarRascunhoDePagamento,
   gerarContaPagar,
   previaFechamento,
   registrarBaixa,
@@ -85,5 +87,23 @@ export async function cancelarConta(contaId: number) {
     revalidatePath('/pagamentos')
     revalidatePath(`/pagamentos/${contaId}`)
   }
+  return r
+}
+
+/** Decisao 3: confirmar o rascunho reserva as presencas e trava as aulas. */
+export async function confirmarConta(contaId: number) {
+  const sessao = await exigirGestora()
+  const r = await confirmarContaPagar(contaId, sessao.nome)
+  revalidatePath('/pagamentos')
+  revalidatePath(`/pagamentos/${contaId}`)
+  revalidatePath('/agenda', 'layout')
+  return r
+}
+
+/** Decisao 3: o rascunho sai inteiro; nada estava reservado. */
+export async function descartarRascunho(contaId: number) {
+  await exigirGestora()
+  const r = await descartarRascunhoDePagamento(contaId)
+  if (r.ok) revalidatePath('/pagamentos')
   return r
 }

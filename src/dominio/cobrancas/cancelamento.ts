@@ -19,7 +19,7 @@ export type StatusCobranca =
   | 'Quitada'
   | 'Cancelada'
 
-export type StatusContaPagar = 'Pendente' | 'Parcial' | 'Pago' | 'Cancelada'
+export type StatusContaPagar = 'Rascunho' | 'Pendente' | 'Parcial' | 'Pago' | 'Cancelada'
 
 export type PodeCancelar = { pode: true } | { pode: false; motivo: string }
 
@@ -80,6 +80,10 @@ export function podeCancelarContaPagar(
   }
 
   if (status === 'Cancelada') return { pode: false, motivo: 'Esta conta já está cancelada.' }
+  // Etapa 7 (decisao 3): o rascunho nao reservou nada; sai inteiro.
+  if (status === 'Rascunho') {
+    return { pode: false, motivo: 'Um rascunho pode ser descartado, sem precisar cancelar.' }
+  }
   if (status !== 'Pendente') {
     return { pode: false, motivo: 'Só dá para cancelar uma conta que ainda está pendente.' }
   }

@@ -11,6 +11,7 @@ import { exigirGestora } from '@/dados/sessao'
 import { formatarBRL } from '@/dominio/dinheiro'
 import { Cartao } from '@/ui/Cartao'
 import { Selo } from '@/ui/Selo'
+import { ConfirmarRascunho } from './ConfirmarRascunho'
 import { FormularioBaixa } from './FormularioBaixa'
 import { RelatorioFechamento } from './RelatorioFechamento'
 
@@ -37,6 +38,7 @@ export default async function PaginaContaPagar({
   const pago = baixas.reduce((s, b) => s + b.valor, 0)
   const saldo = Math.max(0, conta.valor_total - pago)
   const cancelada = conta.status === 'Cancelada'
+  const rascunho = conta.status === 'Rascunho'
 
   return (
     <div className="flex flex-col gap-6">
@@ -47,7 +49,7 @@ export default async function PaginaContaPagar({
             Fechamento até {conta.periodo_fim.split('-').reverse().join('/')}
           </p>
         </div>
-        <Selo tom={conta.status === 'Pago' ? 'ativo' : cancelada ? 'encerrado' : 'alerta'}>
+        <Selo tom={conta.status === 'Pago' ? 'ativo' : cancelada ? 'encerrado' : rascunho ? 'neutro' : 'alerta'}>
           {conta.status}
         </Selo>
       </header>
@@ -79,8 +81,14 @@ export default async function PaginaContaPagar({
         </Cartao>
       )}
 
+      {rascunho && (
+        <div className="print:hidden">
+          <ConfirmarRascunho contaId={conta.id} />
+        </div>
+      )}
+
       {/* P3: a ação de dar baixa faltava por completo. */}
-      {!cancelada && saldo > 0 && (
+      {!cancelada && !rascunho && saldo > 0 && (
         <div className="print:hidden">
           <FormularioBaixa
             contaId={conta.id}

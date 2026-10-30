@@ -73,3 +73,12 @@ describe('podeCancelarCobranca e o pagamento do professor', () => {
     expect(podeCancelarCobranca('Confirmada', 0, 0)).toEqual({ pode: true })
   })
 })
+
+describe('podeCancelarContaPagar: rascunho (etapa 7, decisão 3)', () => {
+  it('rascunho não se cancela: descarta-se', () => {
+    expect(podeCancelarContaPagar('Rascunho', 0)).toEqual({
+      pode: false,
+      motivo: 'Um rascunho pode ser descartado, sem precisar cancelar.',
+    })
+  })
+})

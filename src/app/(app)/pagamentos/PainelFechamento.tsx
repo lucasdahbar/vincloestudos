@@ -99,15 +99,16 @@ export function PainelFechamento({ professores }: { professores: { id: number; n
               iniciar(async () => {
                 const r = await fechar(professorId!, ate)
                 if (r.ok) {
+                  // Decisao 3: nasce rascunho; a gestora confere e confirma la.
                   setPrevia(null)
-                  router.refresh()
+                  router.push(`/pagamentos/${r.id}`)
                 } else {
                   setErro(r.erros?.join(' ') ?? 'Falha ao fechar.')
                 }
               })
             }
           >
-            Gerar conta a pagar
+            Gerar rascunho
           </Botao>
         )}
       </div>

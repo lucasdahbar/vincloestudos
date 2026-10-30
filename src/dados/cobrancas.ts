@@ -834,8 +834,10 @@ async function aulasJaPagasAoProfessor(cobrancaId: number): Promise<number> {
   if (dosItens.length > 0) {
     const d = await supabase
       .from('itens_conta_pagar_professor')
-      .select('pendencia_id')
+      .select('pendencia_id, conta:contas_pagar_professor!inner (status)')
       .in('pendencia_id', dosItens.map((p) => p.id as number))
+      // Etapa 7 (decisao 3): o rascunho do pagamento nao trava.
+      .neq('conta.status', 'Rascunho')
     if (d.error) throw new Error(d.error.message)
     pagas += (d.data ?? []).length
   }

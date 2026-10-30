@@ -440,8 +440,10 @@ export async function cancelarAviso(
       .eq('pendencia_id', pendenciaId),
     supabase
       .from('itens_conta_pagar_professor')
-      .select('id', { count: 'exact', head: true })
-      .eq('pendencia_id', pendenciaId),
+      .select('id, conta:contas_pagar_professor!inner (status)', { count: 'exact', head: true })
+      .eq('pendencia_id', pendenciaId)
+      // Etapa 7 (decisao 3): o rascunho do pagamento nao trava.
+      .neq('conta.status', 'Rascunho'),
   ])
 
   if (!p) return { ok: false, erros: ['Aviso não encontrado.'] }

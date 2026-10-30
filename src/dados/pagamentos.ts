@@ -10,6 +10,7 @@ import {
   type ParteCobrada,
 } from '@/dominio/pagamentos/base-cobrada'
 import { saldoEStatusDaConta, validarBaixa, type Baixa } from '@/dominio/pagamentos/baixa'
+import { rascunhoBateComFechamento } from '@/dominio/pagamentos/rascunho'
 import { podeCancelarContaPagar, type StatusContaPagar } from '@/dominio/cobrancas/cancelamento'
 import { gerarRelatorioFechamento, type LinhaRelatorio } from '@/dominio/pagamentos/relatorio'
 
@@ -213,8 +214,10 @@ async function desistenciasAPagar(professorId: number, limite: string) {
     lerTudo((a, b) =>
       supabase
         .from('itens_conta_pagar_professor')
-        .select('id, pendencia_id')
+        .select('id, pendencia_id, conta:contas_pagar_professor!inner (status)')
         .not('pendencia_id', 'is', null)
+        // Etapa 7: o rascunho nao reserva nada (decisao 3).
+        .neq('conta.status', 'Rascunho')
         .order('id')
         .range(a, b),
     ),
@@ -240,12 +243,43 @@ async function desistenciasAPagar(professorId: number, limite: string) {
     }))
 }
 
+/** Apaga o rascunho do professor: itens e conta. Nada foi reservado. */
+async function apagarRascunhos(professorId: number): Promise<string | null> {
+  const supabase = await clienteServidor()
+  const { data: rascunhos, error } = await supabase
+    .from('contas_pagar_professor')
+    .select('id')
+    .eq('professor_id', professorId)
+    .eq('status', 'Rascunho')
+  if (error) return error.message
+  const ids = (rascunhos ?? []).map((r) => r.id as number)
+  if (ids.length === 0) return null
+  const { error: erroItens } = await supabase.from('itens_conta_pagar_professor').delete().in('conta_pagar_id', ids)
+  if (erroItens) return erroItens.message
+  const { error: erroContas } = await supabase
+    .from('contas_pagar_professor')
+    .delete()
+    .in('id', ids)
+    .eq('status', 'Rascunho')
+  return erroContas?.message ?? null
+}
+
+/**
+ * Decisao 3 do Julio (28/10/2026): gerar a conta do professor cria um
+ * RASCUNHO, como a cobranca, e gerar de novo o refaz. O rascunho nao reserva
+ * as presencas, entao nao trava a aula: so `confirmarContaPagar` reserva.
+ */
 export async function gerarContaPagar(
   professorId: number,
   ate: string,
   usuario: string,
 ): Promise<{ ok: boolean; erros?: string[]; id?: number; valor?: Centavos }> {
   const supabase = await clienteServidor()
+
+  // O rascunho anterior sai antes: as desistencias dele ficariam de fora.
+  const erroApagar = await apagarRascunhos(professorId)
+  if (erroApagar) return { ok: false, erros: [erroApagar] }
+
   const fechamento = await previaFechamento(professorId, ate)
 
   if (fechamento.itens.length === 0) {
@@ -271,6 +305,7 @@ export async function gerarContaPagar(
       periodo_inicio: primeiraAula,
       periodo_fim: ate,
       valor_total: paraNumeric(fechamento.valor_total),
+      status: 'Rascunho',
     })
     .select('id')
     .single()
@@ -296,28 +331,8 @@ export async function gerarContaPagar(
     return { ok: false, erros: [erroItens.message] }
   }
 
-  // P1: reserva as presenças IMEDIATAMENTE, sem esperar o pagamento. É isto que
-  // impede a mesma presença de ser paga duas vezes quando a gestora fecha
-  // períodos que se sobrepõem.
-  const { error: erroReserva } = await supabase
-    .from('presencas')
-    .update({ conta_pagar_id: conta.id })
-    // So as ainda livres: duas contas fechadas ao mesmo tempo nao reservam a
-    // mesma presenca.
-    .is('conta_pagar_id', null)
-    // Desistencia paga nao tem presenca: a reserva dela e o proprio item.
-    .in('id', fechamento.itens.flatMap((i) => (i.presenca_id ? [i.presenca_id] : [])))
-
-  if (erroReserva) {
-    // Sem a reserva a conta não pode existir: ela pagaria de novo no próximo
-    // fechamento. Desfaz tudo.
-    await supabase.from('itens_conta_pagar_professor').delete().eq('conta_pagar_id', conta.id)
-    await supabase.from('contas_pagar_professor').delete().eq('id', conta.id)
-    return { ok: false, erros: [`Falha ao reservar as presenças: ${erroReserva.message}`] }
-  }
-
   await supabase.from('logs_operacionais').insert({
-    acao: 'gerar_conta_pagar',
+    acao: 'gerar_rascunho_pagamento',
     entidade: 'contas_pagar_professor',
     entidade_id: conta.id,
     usuario,
@@ -330,6 +345,112 @@ export async function gerarContaPagar(
   })
 
   return { ok: true, id: conta.id, valor: fechamento.valor_total }
+}
+
+/**
+ * Decisao 3: confirmar o rascunho. O fechamento e calculado de novo; se nao
+ * bater com o rascunho (chamada corrigida, cobranca mudada, aviso cancelado),
+ * o rascunho e refeito e a gestora confere outra vez. Batendo, a conta vira
+ * Pendente e as presencas sao reservadas: so agora a aula trava (P1).
+ */
+export async function confirmarContaPagar(
+  contaId: number,
+  usuario: string,
+): Promise<{ ok: true } | { ok: false; erros: string[]; novoId?: number }> {
+  const supabase = await clienteServidor()
+  const { data: conta } = await supabase
+    .from('contas_pagar_professor')
+    .select('id, professor_id, periodo_fim, status')
+    .eq('id', contaId)
+    .maybeSingle()
+  if (!conta) return { ok: false, erros: ['Conta a pagar não encontrada.'] }
+  if (conta.status !== 'Rascunho') return { ok: false, erros: ['Esta conta já foi confirmada.'] }
+
+  const { data: itens, error: erroItens } = await supabase
+    .from('itens_conta_pagar_professor')
+    .select('presenca_id, pendencia_id, valor_professor')
+    .eq('conta_pagar_id', contaId)
+  if (erroItens) return { ok: false, erros: [erroItens.message] }
+
+  const fechamento = await previaFechamento(conta.professor_id, String(conta.periodo_fim))
+  const bate = rascunhoBateComFechamento(
+    (itens ?? []).map((i) => ({
+      presenca_id: i.presenca_id,
+      pendencia_id: i.pendencia_id,
+      valor_professor: deNumeric(i.valor_professor),
+    })),
+    fechamento.itens,
+  )
+  if (!bate) {
+    const r = await gerarContaPagar(conta.professor_id, String(conta.periodo_fim), usuario)
+    return {
+      ok: false,
+      erros: [
+        r.ok
+          ? 'Algo mudou desde o rascunho (chamada, cobrança ou aviso). Ele foi refeito: confira e confirme de novo.'
+          : `Algo mudou desde o rascunho, e ele não pôde ser refeito: ${(r.erros ?? []).join(' ')}`,
+      ],
+      novoId: r.id,
+    }
+  }
+
+  const { data: confirmadas, error } = await supabase
+    .from('contas_pagar_professor')
+    .update({ status: 'Pendente' })
+    .eq('id', contaId)
+    .eq('status', 'Rascunho')
+    .select('id')
+  if (error) return { ok: false, erros: [error.message] }
+  if (!confirmadas || confirmadas.length === 0) return { ok: false, erros: ['Esta conta já foi confirmada.'] }
+
+  // P1: a reserva, so das presencas ainda livres. Se outra conta pegou alguma
+  // no meio, volta tudo ao rascunho em vez de pagar pela metade.
+  const presencas = (itens ?? []).flatMap((i) => (i.presenca_id ? [i.presenca_id as number] : []))
+  if (presencas.length > 0) {
+    const { data: reservadas, error: erroReserva } = await supabase
+      .from('presencas')
+      .update({ conta_pagar_id: contaId })
+      .is('conta_pagar_id', null)
+      .in('id', presencas)
+      .select('id')
+    if (erroReserva || (reservadas ?? []).length !== presencas.length) {
+      await supabase.from('presencas').update({ conta_pagar_id: null }).eq('conta_pagar_id', contaId)
+      await supabase.from('contas_pagar_professor').update({ status: 'Rascunho' }).eq('id', contaId)
+      return {
+        ok: false,
+        erros: [
+          erroReserva
+            ? `Falha ao reservar as presenças: ${erroReserva.message}`
+            : 'Alguma presença já está em outra conta. Gere o rascunho de novo.',
+        ],
+      }
+    }
+  }
+
+  await supabase.from('logs_operacionais').insert({
+    acao: 'confirmar_conta_pagar',
+    entidade: 'contas_pagar_professor',
+    entidade_id: contaId,
+    usuario,
+    detalhe: { presencas: presencas.length, valor: fechamento.valor_total },
+  })
+  return { ok: true }
+}
+
+/** Decisao 3: o rascunho sai inteiro; nada estava reservado. */
+export async function descartarRascunhoDePagamento(contaId: number): Promise<{ ok: boolean; motivo?: string }> {
+  const supabase = await clienteServidor()
+  const { data: conta } = await supabase
+    .from('contas_pagar_professor')
+    .select('status')
+    .eq('id', contaId)
+    .maybeSingle()
+  if (!conta) return { ok: false, motivo: 'Conta a pagar não encontrada.' }
+  if (conta.status !== 'Rascunho') return { ok: false, motivo: 'Só um rascunho pode ser descartado.' }
+  const { error: erroItens } = await supabase.from('itens_conta_pagar_professor').delete().eq('conta_pagar_id', contaId)
+  if (erroItens) return { ok: false, motivo: erroItens.message }
+  const { error } = await supabase.from('contas_pagar_professor').delete().eq('id', contaId).eq('status', 'Rascunho')
+  return error ? { ok: false, motivo: error.message } : { ok: true }
 }
 
 export async function listarContasPagar(filtros: { professorId?: number; status?: string } = {}) {
@@ -388,6 +509,9 @@ export async function registrarBaixa(
   if (!conta) return { ok: false, erros: ['Conta a pagar não encontrada.'] }
   if (conta.status === 'Cancelada') {
     return { ok: false, erros: ['Esta conta foi cancelada e não recebe pagamento.'] }
+  }
+  if (conta.status === 'Rascunho') {
+    return { ok: false, erros: ['Confirme o rascunho antes de registrar o pagamento.'] }
   }
 
   const total = deNumeric(conta.valor_total)

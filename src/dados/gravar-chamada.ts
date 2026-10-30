@@ -54,7 +54,12 @@ export async function gravarChamada(
   const [rCreditos, rPagas] = idsPendencias.length
     ? await Promise.all([
         db.from('creditos').select('pendencia_id').in('pendencia_id', idsPendencias),
-        db.from('itens_conta_pagar_professor').select('pendencia_id').in('pendencia_id', idsPendencias),
+        db
+          .from('itens_conta_pagar_professor')
+          .select('pendencia_id, conta:contas_pagar_professor!inner (status)')
+          .in('pendencia_id', idsPendencias)
+          // Etapa 7 (decisao 3): o rascunho do pagamento nao trava.
+          .neq('conta.status', 'Rascunho'),
       ])
     : [{ data: [], error: null }, { data: [], error: null }]
   const erroExtras = falha(rCreditos.error ?? rPagas.error, 'Falha ao conferir a chamada')

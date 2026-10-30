@@ -16,7 +16,8 @@ export default async function PaginaPagamentos() {
     listarContasPagar(),
   ])
 
-  // Parcial tambem esta em aberto; Cancelada nao deve nada.
+  // Parcial tambem esta em aberto; Cancelada nao deve nada. Rascunho ainda
+  // nao foi confirmado (decisao 3).
   const pendentes = contas.filter((c) => c.status === 'Pendente' || c.status === 'Parcial')
 
   return (
