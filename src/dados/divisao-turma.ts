@@ -42,7 +42,9 @@ export async function mudarSerie(
 
   const { data: lidas, error } = await supabase
     .from('aulas')
-    .select('id, status, data_hora_inicio, data_hora_fim, data_hora_original, data_hora_referencia, professor_id, servico_id')
+    .select(
+      'id, status, data_hora_inicio, data_hora_fim, data_hora_original, data_hora_referencia, professor_id, servico_id, modalidade',
+    )
     .eq('turma_id', turmaId)
   if (error) return { ok: false, erros: [error.message] }
   const aulas: AulaDaDivisao[] = (lidas ?? []).map((a) => ({
@@ -54,6 +56,7 @@ export async function mudarSerie(
     status: a.status,
     professor_id: a.professor_id,
     servico_id: a.servico_id,
+    modalidade: a.modalidade,
   }))
 
   const v = varrer(
@@ -63,6 +66,7 @@ export async function mudarSerie(
       quando: mudanca.quando !== undefined,
       professor: mudanca.professor_id !== undefined,
       servico: mudanca.servico_id !== undefined,
+      modalidade: mudanca.modalidade_nova !== undefined,
     },
     escopo,
     respostas,
@@ -83,14 +87,16 @@ export async function mudarSerie(
     horario_fim: String(turma.horario_fim).slice(0, 5),
     professor_id: turma.professor_id,
     servico_id: turma.servico_id,
+    modalidade: turma.modalidade,
   }
   const plano = planoDeDivisao(regraDeHoje, aulas, v, mudanca, { escopo, aPartirDe, puladas })
   if (plano.erros.length > 0) return { ok: false, erros: plano.erros }
 
-  // O nome leva o servico: so muda com ele.
+  // O nome leva o servico e a modalidade: so muda com eles.
   const servicoId = mudanca.servico_id ?? turma.servico_id
+  const modalidadeNova = mudanca.modalidade_nova ?? turma.modalidade
   let nome = turma.nome
-  if (servicoId !== turma.servico_id) {
+  if (servicoId !== turma.servico_id || modalidadeNova !== turma.modalidade) {
     const { data: servico } = await supabase.from('servicos').select('nome').eq('id', servicoId).maybeSingle()
     if (!servico) return { ok: false, erros: ['Selecione um serviço válido.'] }
     nome = gerarNomeTurma({
@@ -98,7 +104,7 @@ export async function mudarSerie(
       anoEscolar: turma.ano_escolar?.nome ?? null,
       escola: turma.escola?.nome ?? null,
       servico: servico.nome,
-      modalidade: turma.modalidade,
+      modalidade: modalidadeNova,
     })
   }
 
@@ -114,6 +120,7 @@ export async function mudarSerie(
       horario_fim: quando.horario_fim,
       professor_id: mudanca.professor_id ?? turma.professor_id,
       servico_id: servicoId,
+      modalidade: modalidadeNova,
     },
     p_aulas: plano.aulas,
   })
