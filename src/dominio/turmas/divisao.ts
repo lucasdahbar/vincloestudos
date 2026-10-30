@@ -19,6 +19,7 @@ export interface MudancaDaSerie {
   quando?: { dias_semana: number[]; horario_inicio: string; horario_fim: string }
   professor_id?: number
   servico_id?: number
+  modalidade_nova?: 'Presencial' | 'Online'
 }
 
 export interface TurmaDaDivisao {
@@ -32,6 +33,7 @@ export interface TurmaDaDivisao {
   horario_fim: string
   professor_id: number
   servico_id: number
+  modalidade: 'Presencial' | 'Online'
 }
 
 export interface AulaDaDivisao {
@@ -46,6 +48,7 @@ export interface AulaDaDivisao {
   status: StatusAula
   professor_id: number
   servico_id: number
+  modalidade: 'Presencial' | 'Online'
 }
 
 /** Como a aula fica depois da mudanca. */
@@ -56,6 +59,7 @@ export interface AulaDividida {
   original: string | null
   professor_id: number
   servico_id: number
+  modalidade: 'Presencial' | 'Online'
 }
 
 export interface PlanoDeDivisao {
@@ -111,7 +115,8 @@ function errosDaMudanca(t: TurmaDaDivisao, m: MudancaDaSerie): string[] {
         m.quando.horario_inicio === t.horario_inicio &&
         m.quando.horario_fim === t.horario_fim)) &&
     (m.professor_id === undefined || m.professor_id === t.professor_id) &&
-    (m.servico_id === undefined || m.servico_id === t.servico_id)
+    (m.servico_id === undefined || m.servico_id === t.servico_id) &&
+    (m.modalidade_nova === undefined || m.modalidade_nova === t.modalidade)
   return igual ? ['A regra nova é igual à de hoje.'] : []
 }
 
@@ -184,6 +189,10 @@ export function planoDeDivisao(
           campos.servico && mudanca.servico_id !== undefined && a.servico_id === turma.servico_id
             ? mudanca.servico_id
             : a.servico_id,
+        modalidade:
+          campos.modalidade && mudanca.modalidade_nova !== undefined && a.modalidade === turma.modalidade
+            ? mudanca.modalidade_nova
+            : a.modalidade,
       }
 
       // A excluida e a cancelada vao junto, para a semana delas continuar sem

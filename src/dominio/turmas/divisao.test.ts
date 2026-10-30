@@ -19,6 +19,7 @@ const turma: TurmaDaDivisao = {
   horario_fim: '11:00',
   professor_id: 9,
   servico_id: 3,
+  modalidade: 'Presencial',
 }
 
 const aula = (id: number, data: string, over: Partial<AulaDaDivisao> = {}): AulaDaDivisao => ({
@@ -30,6 +31,7 @@ const aula = (id: number, data: string, over: Partial<AulaDaDivisao> = {}): Aula
   status: 'Agendada',
   professor_id: 9,
   servico_id: 3,
+  modalidade: 'Presencial',
   ...over,
 })
 
@@ -226,6 +228,21 @@ describe('planoDeDivisao: professor e serviço', () => {
     })
     expect(r.corte).toBe('2031-03-03')
     expect(r.novaTurma).toBe(false)
+  })
+})
+
+describe('planoDeDivisao: trocar a modalidade', () => {
+  it('toda aula do corte em diante recebe a modalidade nova', () => {
+    const r = planoDeDivisao(turma, aulas, varredura({ modalidade: true }), { modalidade_nova: 'Online' }, opcoes)
+    expect(r.erros).toEqual([])
+    expect(r.aulas.every((a) => a.modalidade === 'Online')).toBe(true)
+  })
+
+  it('aula com substituta de modalidade fica com ela, como o professor', () => {
+    const lista = aulas.map((a) => (a.id === 3 ? { ...a, modalidade: 'Online' as const } : a))
+    const r = planoDeDivisao(turma, lista, varredura({ modalidade: true }, lista), { modalidade_nova: 'Online' }, opcoes)
+    const dela = r.aulas.find((a) => a.id === 3)
+    expect(dela?.modalidade).toBe('Online')
   })
 })
 
