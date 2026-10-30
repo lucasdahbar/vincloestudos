@@ -1,5 +1,5 @@
 import 'server-only'
-import { clienteServidor } from './cliente'
+import { clienteServidor, type ClienteServidor } from './cliente'
 import { rotuloDaTurma } from '@/dominio/turmas/quando'
 import { alunosDaTurma, turmaVencida } from '@/dominio/turmas/lista'
 import { calendarioEscolar } from './calendario'
@@ -210,9 +210,11 @@ export async function opcoesDeTurma(): Promise<OpcoesDeTurma> {
  * banco confere de novo em `fechar_turma_vencida`. Com `ensaio`, so lista.
  */
 export async function fecharTurmasVencidas(
-  { ensaio = false }: { ensaio?: boolean } = {},
+  // Em `after()` de uma pagina o Next proibe ler cookies: o cliente vem
+  // criado de fora (revisao de 30/10/2026 — sem isso nada fechava).
+  { ensaio = false, cliente }: { ensaio?: boolean; cliente?: ClienteServidor } = {},
 ): Promise<{ id: number; nome: string }[]> {
-  const supabase = await clienteServidor()
+  const supabase = cliente ?? (await clienteServidor())
   const hoje = agoraNaEscola(new Date()).slice(0, 10)
   const { data, error } = await supabase
     .from('turmas')

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { after } from 'next/server'
+import { clienteServidor } from '@/dados/cliente'
 import { fecharTurmasVencidas, listarTurmas, opcoesDeTurma } from '@/dados/turmas'
 import { exigirSessao } from '@/dados/sessao'
 import { comoId, comoOpcao, deOpcoes, deValores } from '@/dominio/filtros'
@@ -38,9 +39,11 @@ export default async function PaginaTurmas({
   // Etapa 4: a turma que terminou (aula unica que passou, encerramento com
   // data futura que chegou) fecha sozinha, depois da resposta.
   if (ehGestora) {
+    // O cliente nasce aqui: dentro do `after()` o Next nao deixa ler cookies.
+    const cliente = await clienteServidor()
     after(async () => {
       try {
-        await fecharTurmasVencidas()
+        await fecharTurmasVencidas({ cliente })
       } catch (e) {
         console.error('falha ao fechar as turmas vencidas:', e)
       }

@@ -8,6 +8,8 @@ export function clienteNavegador() {
   return createBrowserClient(url, anonKey)
 }
 
+export type ClienteServidor = Awaited<ReturnType<typeof clienteServidor>>
+
 /** Cliente para Server Components e Server Actions. Respeita o RLS do usuario logado. */
 export async function clienteServidor() {
   const jar = await cookies()

@@ -132,9 +132,11 @@ export default async function PaginaAgenda({
   // abertura. Turma recem-criada nao espera por isso: o proprio salvamento da
   // turma ja materializa as aulas.
   if (sessao.papel === 'gestora') {
+    // O cliente nasce aqui: dentro do `after()` o Next nao deixa ler cookies.
+    const cliente = await clienteServidor()
     after(async () => {
       try {
-        await sincronizarAulas(ctx.de, ctx.ate)
+        await sincronizarAulas(ctx.de, ctx.ate, cliente)
       } catch (e) {
         console.error('falha ao sincronizar a agenda:', e)
       }

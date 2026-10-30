@@ -1,5 +1,5 @@
 import 'server-only'
-import { clienteServidor } from './cliente'
+import { clienteServidor, type ClienteServidor } from './cliente'
 import { montarListaDaAula, type AlunoDaAula, type ListaDaAula } from './lista-da-aula'
 import { provedorAtivo } from '@/agenda'
 import { semDiaOcupado } from '@/dominio/agenda/materializacao'
@@ -52,8 +52,11 @@ const SELECT_AULA = `
 export async function sincronizarAulas(
   de: string,
   ate: string,
+  // Em `after()` de uma pagina o Next proibe ler cookies: o cliente vem
+  // criado de fora (revisao de 30/10/2026).
+  cliente?: ClienteServidor,
 ): Promise<{ criadas: number; turmas: number }> {
-  const supabase = await clienteServidor()
+  const supabase = cliente ?? (await clienteServidor())
   const provedor = provedorAtivo()
 
   const { data: turmas, error } = await supabase
