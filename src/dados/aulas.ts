@@ -24,6 +24,8 @@ export interface AulaComTurma {
   observacao: string | null
   /** Etapa 2 (29/10/2026): quem da a aula; pode diferir do atual da turma. */
   professor_id: number
+  /** Extensao de 30/10/2026: pode diferir da modalidade atual da turma. */
+  modalidade: 'Presencial' | 'Online'
   turma: {
     id: number
     nome: string
@@ -36,7 +38,7 @@ export interface AulaComTurma {
 
 const SELECT_AULA = `
   id, turma_id, google_calendar_event_id, data_hora_inicio, data_hora_fim,
-  status, link_online, observacao, data_hora_original, data_hora_referencia, professor_id,
+  status, link_online, observacao, data_hora_original, data_hora_referencia, professor_id, modalidade,
   turma:turmas!turma_id (id, nome, modalidade, professor_id, tipo_recorrencia, horario_fim)
 `
 

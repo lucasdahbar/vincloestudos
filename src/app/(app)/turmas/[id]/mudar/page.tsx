@@ -9,23 +9,20 @@ import type { Acao, Escopo } from '@/dominio/agenda/varredura'
 import { Botao } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { entradaClasse } from '@/ui/Campo'
-import { PreviaDaMudanca, type DadosDaEdicao, type DadosDaSerie, type PedidoDeSaida } from './PreviaDaMudanca'
+import { PreviaDaMudanca, type DadosDaEdicao, type DadosDaSerie } from './PreviaDaMudanca'
 
 /**
- * Etapa 6a (29/10/2026): a previa de editar, excluir e encerrar. A gestora
- * escolhe o que muda e o escopo, e ve aula por aula o que muda, o que precisa
- * de escolha e o que fica como esta. Aplicar chegou por partes: 6b editar so
- * esta aula, 6c excluir e encerrar, 6d a serie a partir de uma data.
+ * Etapa 6a (29/10/2026): a previa de editar aulas. A gestora escolhe o escopo
+ * e ve aula por aula o que muda, o que precisa de escolha e o que fica como
+ * esta. Aplicar chegou por partes: 6b editar so esta aula, 6d a serie a
+ * partir de uma data. Excluir e encerrar saem por outros caminhos (botao na
+ * aula e na turma).
+ *
+ * Extensao de 30/10/2026: o seletor "O que mudar" saiu — editar e sempre
+ * "tudo junto" (dia/horario, professor, servico, modalidade); cada campo so
+ * aparece se a aula (ou a regra da serie) liberar.
  */
-
-const ACOES = {
-  quando: { rotulo: 'Dia ou horário', acao: { tipo: 'editar', quando: true } },
-  professor: { rotulo: 'Professor', acao: { tipo: 'editar', professor: true } },
-  servico: { rotulo: 'Serviço (e o preço)', acao: { tipo: 'editar', servico: true } },
-  excluir: { rotulo: 'Excluir aulas', acao: { tipo: 'excluir' } },
-  encerrar: { rotulo: 'Encerrar a turma', acao: { tipo: 'encerrar' } },
-} satisfies Record<string, { rotulo: string; acao: Acao }>
-type ChaveAcao = keyof typeof ACOES
+const ACAO_EDITAR: Acao = { tipo: 'editar', quando: true, professor: true, servico: true, modalidade: true }
 
 const ESCOPOS: Record<Escopo, string> = {
   esta: 'Só esta aula',
@@ -38,7 +35,7 @@ export default async function PaginaMudarTurma({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ acao?: string; escopo?: string; data?: string; aula?: string }>
+  searchParams: Promise<{ escopo?: string; data?: string; aula?: string }>
 }) {
   await exigirGestora()
   const { id } = await params
@@ -48,22 +45,19 @@ export default async function PaginaMudarTurma({
 
   const hoje = agoraNaEscola(new Date()).slice(0, 10)
   const aulaId = q.aula ? Number(q.aula) : undefined
-  const chave: ChaveAcao = q.acao && q.acao in ACOES ? (q.acao as ChaveAcao) : 'quando'
-  // Encerrar e sempre "a partir de uma data": o primeiro dia sem aula.
   const escopo: Escopo =
-    chave === 'encerrar'
-      ? 'a-partir'
-      : q.escopo && q.escopo in ESCOPOS && (q.escopo !== 'esta' || aulaId)
-        ? (q.escopo as Escopo)
-        : aulaId
-          ? 'esta'
-          : 'a-partir'
+    q.escopo && q.escopo in ESCOPOS && (q.escopo !== 'esta' || aulaId)
+      ? (q.escopo as Escopo)
+      : aulaId
+        ? 'esta'
+        : 'a-partir'
   const data = q.data && /^\d{4}-\d{2}-\d{2}$/.test(q.data) ? q.data : hoje
   const aulas = await aulasParaVarredura(turma.id, escopo, { aulaId, aPartirDe: data })
 
-  // Etapa 6b: "so esta aula" ja aplica dia/horario e professor.
+  // "So esta aula" ja aplica dia/horario, professor, servico e modalidade.
   let edicao: DadosDaEdicao | undefined
-  if (escopo === 'esta' && aulaId && (chave === 'quando' || chave === 'professor')) {
+  let semAplicar: string | undefined
+  if (escopo === 'esta' && aulaId) {
     const [aula, opcoes] = await Promise.all([obterAula(aulaId), opcoesDeTurma()])
     if (aula && aula.turma_id === turma.id) {
       const professores = opcoes.professores.some((p) => p.id === aula.professor_id)
@@ -75,28 +69,17 @@ export default async function PaginaMudarTurma({
         fim: String(aula.data_hora_fim).slice(0, 16),
         professorId: aula.professor_id,
         professores,
+        // Extensao de 30/10/2026: a modalidade da propria aula, que pode
+        // diferir da modalidade atual da turma.
+        modalidade: aula.modalidade,
       }
     }
   }
 
-  // Etapa 6c: excluir "so esta aula" e encerrar a recorrente ja aplicam. Varias
-  // aulas de uma vez e o caminho do encerrar; a serie inteira, o Excluir turma.
-  let saida: PedidoDeSaida | undefined
-  let semAplicar: string | undefined
-  if (chave === 'excluir') {
-    if (escopo === 'esta' && aulaId) saida = { tipo: 'excluir', aulaId }
-    else semAplicar = 'Para tirar da agenda as aulas a partir de uma data, use "Encerrar a turma". A série inteira sai pelo "Excluir turma", na página da turma.'
-  } else if (chave === 'encerrar') {
-    if (turma.tipo_recorrencia === 'Recorrente') saida = { tipo: 'encerrar', data }
-    else semAplicar = 'Turma de aula única: use o "Encerrar turma" da página da turma.'
-  }
-
-  // Etapa 6d: dia/horario, professor e servico na serie, a partir de uma data
-  // ou inteira.
+  // Dia/horario, professor, servico e modalidade na serie, a partir de uma
+  // data ou inteira.
   let serie: DadosDaSerie | undefined
-  if (escopo === 'esta' && chave === 'servico') {
-    semAplicar = 'Para mudar o serviço, escolha "A partir de uma data" ou "A série inteira".'
-  } else if (escopo !== 'esta' && (chave === 'quando' || chave === 'professor' || chave === 'servico')) {
+  if (escopo !== 'esta') {
     if (turma.tipo_recorrencia !== 'Recorrente') {
       semAplicar = 'Turma de aula única: mude a aula pelo "Só esta aula", a partir da aula na agenda.'
     } else if (turma.status !== 'Ativa') {
@@ -111,6 +94,7 @@ export default async function PaginaMudarTurma({
         horarioFim: turma.horario_fim.slice(0, 5),
         professorId: turma.professor_id,
         servicoId: turma.servico_id,
+        modalidade: turma.modalidade,
         professores: opcoes.professores.some((p) => p.id === turma.professor_id)
           ? opcoes.professores
           : [{ id: turma.professor_id, nome: turma.professor?.nome ?? 'Professor atual' }, ...opcoes.professores],
@@ -125,7 +109,7 @@ export default async function PaginaMudarTurma({
         <Link href={`/turmas/${turma.id}`} className="text-sm text-tinta-suave hover:text-destaque">
           ← {turma.nome}
         </Link>
-        <h1 className="mt-1 text-3xl">Prévia de mudança</h1>
+        <h1 className="mt-1 text-3xl">Editar aula</h1>
         <p className="mt-1 text-tinta-suave">
           Mostra, aula por aula, o que aconteceria. Nada é gravado antes de você aplicar.
         </p>
@@ -134,16 +118,6 @@ export default async function PaginaMudarTurma({
       <Cartao>
         <form className="flex flex-wrap items-end gap-4">
           {aulaId && <input type="hidden" name="aula" value={aulaId} />}
-          <label className="flex flex-col gap-1 text-sm">
-            O que mudar
-            <select name="acao" defaultValue={chave} className={entradaClasse}>
-              {Object.entries(ACOES).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v.rotulo}
-                </option>
-              ))}
-            </select>
-          </label>
           <label className="flex flex-col gap-1 text-sm">
             Quais aulas
             <select name="escopo" defaultValue={escopo} className={entradaClasse}>
@@ -164,24 +138,16 @@ export default async function PaginaMudarTurma({
             Ver prévia
           </Botao>
         </form>
-        {chave === 'encerrar' && (
-          <p className="mt-3 text-sm text-tinta-suave">
-            Encerrar tira da agenda as aulas a partir da data (o primeiro dia sem aula) e termina as
-            matrículas na véspera. Só o aluno que já foi cobrado por uma dessas aulas pede escolha:
-            reposição ou crédito.
-          </p>
-        )}
       </Cartao>
 
       <PreviaDaMudanca
         // Remonta ao trocar a pergunta: as respostas de uma previa nao valem para outra.
-        key={`${chave}:${escopo}:${data}:${aulaId ?? ''}`}
+        key={`${escopo}:${data}:${aulaId ?? ''}`}
         aulas={aulas}
-        acao={ACOES[chave].acao}
+        acao={ACAO_EDITAR}
         escopo={escopo}
         edicao={edicao}
         turmaId={turma.id}
-        saida={saida}
         serie={serie}
         semAplicar={semAplicar}
       />

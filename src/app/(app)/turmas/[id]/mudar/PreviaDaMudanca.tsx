@@ -29,6 +29,8 @@ export interface DadosDaEdicao {
   fim: string
   professorId: number
   professores: { id: number; nome: string }[]
+  /** Extensao de 30/10/2026: a modalidade propria da aula. */
+  modalidade: 'Presencial' | 'Online'
 }
 
 /** Etapa 6c: o que a previa pode aplicar ao tirar aulas da agenda. */
@@ -44,6 +46,8 @@ export interface DadosDaSerie {
   horarioFim: string
   professorId: number
   servicoId: number
+  /** Extensao de 30/10/2026: a modalidade atual da turma. */
+  modalidade: 'Presencial' | 'Online'
   professores: { id: number; nome: string }[]
   servicos: { id: number; nome: string }[]
 }
@@ -201,8 +205,6 @@ export function PreviaDaMudanca({
         <EditarEstaAula
           aula={v.aulas[0]}
           dados={edicao}
-          mudaQuando={acao.quando === true}
-          mudaProfessor={acao.professor === true}
           aconteceu={respostas.aconteceu?.[edicao.aulaId]}
         />
       ) : saida ? (
@@ -225,14 +227,10 @@ export function PreviaDaMudanca({
 function EditarEstaAula({
   aula,
   dados,
-  mudaQuando,
-  mudaProfessor,
   aconteceu,
 }: {
   aula: AulaVarrida | undefined
   dados: DadosDaEdicao
-  mudaQuando: boolean
-  mudaProfessor: boolean
   aconteceu: boolean | undefined
 }) {
   const router = useRouter()
@@ -240,16 +238,23 @@ function EditarEstaAula({
   const [horaInicio, setHoraInicio] = useState(dados.inicio.slice(11, 16))
   const [horaFim, setHoraFim] = useState(dados.fim.slice(11, 16))
   const [professorId, setProfessorId] = useState(dados.professorId)
+  const [modalidade, setModalidade] = useState(dados.modalidade)
   const [alerta, setAlerta] = useState<string | null>(null)
   const [erros, setErros] = useState<string[]>([])
   const [feito, setFeito] = useState<{ nome: string; data: string }[] | null>(null)
   const [pendente, iniciar] = useTransition()
 
+  // Extensao de 30/10/2026: nao ha mais escolha de "o que mudar" — a previa
+  // (`aula.campos`, da varredura) e que diz, aula por aula, o que se libera.
+  const podeQuando = aula?.campos?.quando ?? false
+  const podeModalidade = aula?.campos?.modalidade ?? false
+
   const mudouHorario =
-    mudaQuando && (data !== dados.inicio.slice(0, 10) || horaInicio !== dados.inicio.slice(11, 16) || horaFim !== dados.fim.slice(11, 16))
-  const mudouProfessor = mudaProfessor && professorId !== dados.professorId
-  const bloqueio = errosDaEdicao(aula, { quando: mudouHorario, professor: mudouProfessor })
-  const nadaMudou = !mudouHorario && !mudouProfessor
+    podeQuando && (data !== dados.inicio.slice(0, 10) || horaInicio !== dados.inicio.slice(11, 16) || horaFim !== dados.fim.slice(11, 16))
+  const mudouProfessor = professorId !== dados.professorId
+  const mudouModalidade = podeModalidade && modalidade !== dados.modalidade
+  const bloqueio = errosDaEdicao(aula, { quando: mudouHorario, professor: mudouProfessor, modalidade: mudouModalidade })
+  const nadaMudou = !mudouHorario && !mudouProfessor && !mudouModalidade
 
   // Mexer no horario depois do aviso de feriado pede outra conferencia.
   const mudou = (f: () => void) => {
@@ -264,6 +269,7 @@ function EditarEstaAula({
         const r = await editarEstaAula(dados.aulaId, {
           nova: mudouHorario ? { data, inicio: horaInicio, fim: horaFim } : null,
           professorId: mudouProfessor ? professorId : null,
+          modalidade: mudouModalidade ? modalidade : null,
           aconteceu,
           confirmouAlerta: alerta !== null,
         })
@@ -301,7 +307,7 @@ function EditarEstaAula({
     <Cartao>
       <h2 className="text-xl">Aplicar nesta aula</h2>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        {mudaQuando && (
+        {podeQuando && (
           <>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium">Dia</span>
@@ -317,20 +323,36 @@ function EditarEstaAula({
             </label>
           </>
         )}
-        {mudaProfessor && (
-          <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-            <span className="font-medium">Professor desta aula</span>
-            <select value={professorId} onChange={(e) => setProfessorId(Number(e.target.value))} className={entradaClasse}>
-              {dados.professores.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nome}
-                </option>
-              ))}
+        <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+          <span className="font-medium">Professor desta aula</span>
+          <select value={professorId} onChange={(e) => setProfessorId(Number(e.target.value))} className={entradaClasse}>
+            {dados.professores.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
+        </label>
+        {podeModalidade && (
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">Modalidade desta aula</span>
+            <select
+              value={modalidade}
+              onChange={(e) => setModalidade(e.target.value as 'Presencial' | 'Online')}
+              className={entradaClasse}
+            >
+              <option value="Presencial">Presencial</option>
+              <option value="Online">Online</option>
             </select>
           </label>
         )}
       </div>
 
+      {!podeQuando && (
+        <p className="mt-3 text-sm text-tinta-suave">
+          Esta aula já aconteceu: só o professor e o serviço se corrigem.
+        </p>
+      )}
       {!nadaMudou && bloqueio.length > 0 && (
         <p className="mt-3 text-sm text-tinta-suave">{bloqueio[0]}</p>
       )}
@@ -481,6 +503,7 @@ function AplicarNaSerie({
   const [horaFim, setHoraFim] = useState(dados.horarioFim)
   const [professorId, setProfessorId] = useState(dados.professorId)
   const [servicoId, setServicoId] = useState(dados.servicoId)
+  const [modalidade, setModalidade] = useState(dados.modalidade)
   const [erros, setErros] = useState<string[]>([])
   const [feito, setFeito] = useState<Extract<Awaited<ReturnType<typeof mudarSerieDaTurma>>, { ok: true }> | null>(null)
   const [pendente, iniciar] = useTransition()
@@ -492,6 +515,7 @@ function AplicarNaSerie({
     ...(acao.quando && { quando: { dias_semana: dias, horario_inicio: horaInicio, horario_fim: horaFim } }),
     ...(acao.professor && { professor_id: professorId }),
     ...(acao.servico && { servico_id: servicoId }),
+    ...(acao.modalidade && { modalidade_nova: modalidade }),
   }
   const rotulo =
     dados.escopo === 'serie' ? 'Aplicar na série' : `Aplicar a partir de ${ddmmaaaa(dados.aPartirDe)}`
@@ -593,6 +617,19 @@ function AplicarNaSerie({
                   {s.nome}
                 </option>
               ))}
+            </select>
+          </label>
+        )}
+        {acao.modalidade && (
+          <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+            <span className="font-medium">Modalidade</span>
+            <select
+              value={modalidade}
+              onChange={(e) => setModalidade(e.target.value as 'Presencial' | 'Online')}
+              className={entradaClasse}
+            >
+              <option value="Presencial">Presencial</option>
+              <option value="Online">Online</option>
             </select>
           </label>
         )}
