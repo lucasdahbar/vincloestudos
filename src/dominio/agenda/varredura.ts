@@ -17,7 +17,7 @@ import type { SituacaoDaAula, SituacaoPrincipal } from './situacao'
 export type Escopo = 'esta' | 'a-partir' | 'serie'
 
 export type Acao =
-  | { tipo: 'editar'; quando?: boolean; professor?: boolean; servico?: boolean }
+  | { tipo: 'editar'; quando?: boolean; professor?: boolean; servico?: boolean; modalidade?: boolean }
   | { tipo: 'excluir' }
   | { tipo: 'encerrar' }
 
@@ -77,7 +77,7 @@ export interface AulaVarrida {
   /** Excluir: a aula some de vez ou fica como Excluida, segurando o que aponta para ela. */
   destino?: 'apagada' | 'excluida'
   /** Editar: o que de fato muda nesta aula. */
-  campos?: { quando?: boolean; professor?: boolean; servico?: boolean }
+  campos?: { quando?: boolean; professor?: boolean; servico?: boolean; modalidade?: boolean }
 }
 
 export interface Varredura {
@@ -152,7 +152,7 @@ function editar(
 
   // So dia/horario e professor dependem de a aula ter acontecido; o servico
   // segue a cobranca (decisao 8).
-  if (acao.quando || acao.professor) {
+  if (acao.quando || acao.professor || acao.modalidade) {
     const r = perguntar(a, respostas, 'A aula aconteceu: faça a chamada, ou exclua a aula, antes de mudá-la.')
     if (r) return r
   }
@@ -202,12 +202,22 @@ function editar(
     }
   }
 
+  if (acao.modalidade) {
+    campos.modalidade = !realizada
+    if (realizada) motivos.push(JA_ACONTECEU)
+  }
+
   const algum = Object.values(campos).some(Boolean)
   if (!algum) return { ...base(a), grupo: 'fica', motivo: motivos[0], campos }
   return { ...base(a), grupo: 'muda', campos, avisos: [...avisos, ...motivos] }
 }
 
-const NOME_DO_CAMPO = { quando: 'o dia ou o horário', professor: 'o professor', servico: 'o serviço' } as const
+const NOME_DO_CAMPO = {
+  quando: 'o dia ou o horário',
+  professor: 'o professor',
+  servico: 'o serviço',
+  modalidade: 'a modalidade',
+} as const
 
 /**
  * Etapa 6b: o que impede aplicar a edicao de uma aula. Tudo ou nada: se um
@@ -215,15 +225,20 @@ const NOME_DO_CAMPO = { quando: 'o dia ou o horário', professor: 'o professor',
  */
 export function errosDaEdicao(
   aula: AulaVarrida | undefined,
-  pedido: { quando?: boolean; professor?: boolean; servico?: boolean },
+  pedido: { quando?: boolean; professor?: boolean; servico?: boolean; modalidade?: boolean },
 ): string[] {
   if (!aula) return ['Esta aula não está mais na agenda.']
   if (aula.pergunta === 'aconteceu') return ['Responda se a aula aconteceu antes de mudá-la.']
-  if (aula.grupo === 'fica') return [aula.motivo ?? 'Esta aula não pode mudar.']
 
   const presos = (Object.keys(NOME_DO_CAMPO) as (keyof typeof NOME_DO_CAMPO)[]).filter(
     (c) => pedido[c] && !aula.campos?.[c],
   )
+  if (aula.grupo === 'fica') {
+    if (presos.length === 0) return [aula.motivo ?? 'Esta aula não pode mudar.']
+    return [
+      `Nesta aula não dá para mudar ${presos.map((c) => NOME_DO_CAMPO[c]).join(' nem ')}. ${aula.motivo ?? ''}`.trim(),
+    ]
+  }
   if (presos.length === 0) return []
   return [
     `Nesta aula não dá para mudar ${presos.map((c) => NOME_DO_CAMPO[c]).join(' nem ')}. ${aula.avisos.join(' ')}`.trim(),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { errosDaEdicao, planoDeSaida, varrer, type AlunoDaVarredura, type AulaDaVarredura } from './varredura'
+import { errosDaEdicao, planoDeSaida, varrer, type AlunoDaVarredura, type AulaDaVarredura, type AulaVarrida } from './varredura'
 import type { SituacaoDaAula } from './situacao'
 
 const sit = (principal: SituacaoDaAula['principal'], over: Partial<SituacaoDaAula> = {}): SituacaoDaAula => ({
@@ -279,6 +279,46 @@ describe('varrer: encerrar (etapa 6c)', () => {
     expect(varrer([a], encerrar, 'a-partir').aulas[0].pergunta).toBe('aconteceu')
     expect(varrer([a], encerrar, 'a-partir', { aconteceu: { 10: true } }).aulas[0].motivo).toMatch(/chamada/)
     expect(varrer([a], encerrar, 'a-partir', { aconteceu: { 10: false } }).aulas[0].grupo).toBe('muda')
+  })
+})
+
+describe('varrer: editar a modalidade', () => {
+  const modalidade = { tipo: 'editar', modalidade: true } as const
+
+  it('muda em qualquer aula que ainda não aconteceu', () => {
+    const v = varrer([aula({ situacao: sit('Confirmada', { cobranca: 'Recebida' }) })], modalidade, 'serie')
+    expect(v.aulas[0].grupo).toBe('muda')
+    expect(v.aulas[0].campos).toMatchObject({ modalidade: true })
+  })
+
+  it('aula realizada não muda, como dia/horário', () => {
+    const realizada = aula({ situacao: sit('Realizada') })
+    expect(varrer([realizada], modalidade, 'serie').aulas[0].grupo).toBe('fica')
+    expect(varrer([realizada], modalidade, 'esta').aulas[0].grupo).toBe('fica')
+  })
+
+  it('aula aguardando chamada pergunta se aconteceu, como dia/horário', () => {
+    const pendente = aula({ situacao: sit('Aguardando chamada') })
+    expect(varrer([pendente], modalidade, 'serie').aulas[0]).toMatchObject({ grupo: 'escolha', pergunta: 'aconteceu' })
+  })
+})
+
+describe('errosDaEdicao: modalidade', () => {
+  it('bloqueia modalidade quando a aula não libera o campo', () => {
+    const presa: AulaVarrida = {
+      id: 10,
+      data: '2026-11-09',
+      inicio: '2026-11-09T18:00',
+      situacao: 'Realizada',
+      grupo: 'fica',
+      motivo: 'Esta aula já aconteceu: a chamada foi feita.',
+      alunos: [],
+      avisos: [],
+      campos: {},
+    }
+    expect(errosDaEdicao(presa, { modalidade: true })).toEqual([
+      'Nesta aula não dá para mudar a modalidade. Esta aula já aconteceu: a chamada foi feita.',
+    ])
   })
 })
 
