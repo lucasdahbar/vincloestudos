@@ -202,6 +202,8 @@ function editar(
     }
   }
 
+  // Modalidade segue a mesma regra de quando/professor: so depende da aula
+  // ja ter acontecido, sem olhar cobranca nem pagamento.
   if (acao.modalidade) {
     campos.modalidade = !realizada
     if (realizada) motivos.push(JA_ACONTECEU)
@@ -230,18 +232,16 @@ export function errosDaEdicao(
   if (!aula) return ['Esta aula não está mais na agenda.']
   if (aula.pergunta === 'aconteceu') return ['Responda se a aula aconteceu antes de mudá-la.']
 
+  // A aula pode estar presa por outro motivo (ex: pagamento) mesmo com o
+  // campo pedido liberado nela — por isso os presos contam tambem no `fica`.
   const presos = (Object.keys(NOME_DO_CAMPO) as (keyof typeof NOME_DO_CAMPO)[]).filter(
     (c) => pedido[c] && !aula.campos?.[c],
   )
-  if (aula.grupo === 'fica') {
-    if (presos.length === 0) return [aula.motivo ?? 'Esta aula não pode mudar.']
-    return [
-      `Nesta aula não dá para mudar ${presos.map((c) => NOME_DO_CAMPO[c]).join(' nem ')}. ${aula.motivo ?? ''}`.trim(),
-    ]
-  }
+  if (aula.grupo === 'fica' && presos.length === 0) return [aula.motivo ?? 'Esta aula não pode mudar.']
   if (presos.length === 0) return []
+  const motivo = aula.grupo === 'fica' ? (aula.motivo ?? '') : aula.avisos.join(' ')
   return [
-    `Nesta aula não dá para mudar ${presos.map((c) => NOME_DO_CAMPO[c]).join(' nem ')}. ${aula.avisos.join(' ')}`.trim(),
+    `Nesta aula não dá para mudar ${presos.map((c) => NOME_DO_CAMPO[c]).join(' nem ')}. ${motivo}`.trim(),
   ]
 }
 
