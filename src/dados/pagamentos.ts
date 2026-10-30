@@ -265,6 +265,42 @@ async function apagarRascunhos(professorId: number): Promise<string | null> {
 }
 
 /**
+ * Revisao de 30/10/2026: a presenca (ou a desistencia) pode estar no rascunho
+ * de OUTRO professor — o professor da aula foi corrigido depois (decisao 7),
+ * o que o rascunho deixa fazer. O unique de presenca_id/pendencia_id, que
+ * protege a conta confirmada, barraria este rascunho. O outro perde o item;
+ * confirmar la calcula tudo de novo e refaz o rascunho de qualquer jeito.
+ */
+async function soltarDeOutrosRascunhos(presencas: number[], pendencias: number[]): Promise<string | null> {
+  const supabase = await clienteServidor()
+  const presos: { id: number; conta_pagar_id: number }[] = []
+  for (const [coluna, ids] of [['presenca_id', presencas], ['pendencia_id', pendencias]] as const) {
+    for (const grupo of emGrupos(ids)) {
+      const { data, error } = await supabase
+        .from('itens_conta_pagar_professor')
+        .select('id, conta_pagar_id, conta:contas_pagar_professor!inner (status)')
+        .in(coluna, grupo)
+        .eq('conta.status', 'Rascunho')
+      if (error) return error.message
+      presos.push(...(data ?? []).map((i) => ({ id: i.id as number, conta_pagar_id: i.conta_pagar_id as number })))
+    }
+  }
+  if (presos.length === 0) return null
+
+  const { error } = await supabase.from('itens_conta_pagar_professor').delete().in('id', presos.map((i) => i.id))
+  if (error) return error.message
+  for (const contaId of new Set(presos.map((i) => i.conta_pagar_id))) {
+    const { data: itens } = await supabase
+      .from('itens_conta_pagar_professor')
+      .select('valor_professor')
+      .eq('conta_pagar_id', contaId)
+    const total = (itens ?? []).reduce((s, i) => s + deNumeric(i.valor_professor), 0)
+    await supabase.from('contas_pagar_professor').update({ valor_total: paraNumeric(total) }).eq('id', contaId)
+  }
+  return null
+}
+
+/**
  * Decisao 3 do Julio (28/10/2026): gerar a conta do professor cria um
  * RASCUNHO, como a cobranca, e gerar de novo o refaz. O rascunho nao reserva
  * as presencas, entao nao trava a aula: so `confirmarContaPagar` reserva.
@@ -292,6 +328,12 @@ export async function gerarContaPagar(
       ],
     }
   }
+
+  const erroSoltar = await soltarDeOutrosRascunhos(
+    fechamento.itens.flatMap((i) => (i.presenca_id ? [i.presenca_id] : [])),
+    fechamento.itens.flatMap((i) => (i.pendencia_id ? [i.pendencia_id] : [])),
+  )
+  if (erroSoltar) return { ok: false, erros: [erroSoltar] }
 
   // O periodo_inicio deixa de ser escolhido pela gestora (P2), mas continua
   // gravado: e o que o relatorio e o historico usam para dizer o que a conta
