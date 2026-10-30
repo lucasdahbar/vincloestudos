@@ -75,6 +75,24 @@ export default async function PaginaCobranca({ params }: { params: Promise<{ id:
         }))}
       />
 
+      {cobranca.cobradas_antes.length > 0 && (
+        <Cartao>
+          <h2 className="text-lg">Aulas deste mês já cobradas antes</h2>
+          <p className="mt-1 text-sm text-tinta-suave">
+            Mudaram de mês depois de cobradas: continuam na cobrança de antes e aparecem aqui a R$ 0,00,
+            também no texto do WhatsApp.
+          </p>
+          <ul className="mt-3 flex flex-col gap-1 text-sm">
+            {cobranca.cobradas_antes.map((c) => (
+              <li key={`${c.aluno_nome}:${c.data}:${c.descricao}`}>
+                {c.aluno_nome}: {c.data.split('-').reverse().slice(0, 2).join('/')} {c.descricao} ({c.nota}) ·{' '}
+                {formatarBRL(0)}
+              </li>
+            ))}
+          </ul>
+        </Cartao>
+      )}
+
       {saldo > 0 && cobranca.status !== 'Rascunho' && cobranca.status !== 'Cancelada' && (
         <BotaoLink href={`/recebimentos?cobranca=${cobranca.id}`}>Registrar recebimento</BotaoLink>
       )}

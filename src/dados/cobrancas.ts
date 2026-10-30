@@ -7,6 +7,7 @@ import { podeCancelarCobranca, type StatusCobranca } from '@/dominio/cobrancas/c
 import { montarCobrancas, type AulaFaturavel } from '@/dominio/cobrancas/geracao'
 import { planejarRascunho, type ItemDoRascunho } from '@/dominio/cobrancas/rascunho'
 import { gerarTextoCobranca, type ItemDoTexto } from '@/dominio/cobrancas/texto'
+import { cobradasEmOutroMes } from '@/dominio/cobrancas/outro-mes'
 
 export interface CobrancaResumo {
   id: number
@@ -289,8 +290,30 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
     cobranca: { responsavel_id: number }
   }[]
 
+  // Etapa 7 (30/10/2026): item no rascunho de OUTRO mes cuja aula agora e
+  // deste (mudar a serie a partir de uma data). Vem para o rascunho deste mes,
+  // com o desconto; sem isso o unique (aula, aluno) recusava o rascunho todo.
+  const deOutroMes = (await lerTudo((a, b) =>
+    supabase
+      .from('itens_cobranca')
+      .select(
+        'id, aula_id, aluno_id, descricao, valor_original, desconto, cobranca:cobrancas!inner (responsavel_id, status, mes_referencia), aula:aulas!inner (data_hora_referencia)',
+      )
+      .eq('cobranca.status', 'Rascunho')
+      .neq('cobranca.mes_referencia', primeiro)
+      .gte('aula.data_hora_referencia', de)
+      .lte('aula.data_hora_referencia', ate)
+      .order('id')
+      .range(a, b),
+  )) as unknown as typeof doRascunho
+
+  const trazer = new Map<number, number[]>()
+  for (const i of deOutroMes) {
+    trazer.set(i.cobranca.responsavel_id, [...(trazer.get(i.cobranca.responsavel_id) ?? []), i.id])
+  }
+
   const noRascunho = new Map<number, ItemDoRascunho[]>()
-  for (const i of doRascunho) {
+  for (const i of [...doRascunho, ...deOutroMes]) {
     const lista = noRascunho.get(i.cobranca.responsavel_id) ?? []
     lista.push({
       id: i.id,
@@ -315,7 +338,15 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
       noRascunho.get(responsavelId) ?? [],
       devidas.get(responsavelId)?.itens ?? [],
     )
-    if (plano.apagar.length === 0 && plano.atualizar.length === 0 && plano.inserir.length === 0) continue
+    const trazidos = trazer.get(responsavelId) ?? []
+    if (
+      plano.apagar.length === 0 &&
+      plano.atualizar.length === 0 &&
+      plano.inserir.length === 0 &&
+      trazidos.length === 0
+    ) {
+      continue
+    }
 
     const { data, error } = await supabase.rpc('aplicar_plano_rascunho', {
       p_responsavel_id: responsavelId,
@@ -336,6 +367,7 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
         desconto: paraNumeric(i.desconto),
         valor_final: paraNumeric(i.valor_final),
       })),
+      p_trazer: trazidos,
     })
     if (error) {
       // Cada responsavel e uma transacao: o que falhou ficou como estava, e os
@@ -445,8 +477,38 @@ export async function obterCobranca(id: number) {
     responsavel: { id: number; nome: string; telefone: string | null } | null
   }
 
+  // Decisao 6: aulas deste mes ja cobradas em outro, que aparecem a R$ 0,00.
+  const { primeiro, ultimo } = limitesDoMes(c.mes_referencia.slice(0, 7))
+  const { data: antes } = await supabase
+    .from('itens_cobranca')
+    .select(
+      'descricao, data_aula, aluno:alunos!aluno_id (nome), cobranca:cobrancas!inner (responsavel_id, status, mes_referencia), aula:aulas!inner (data_hora_inicio, data_hora_referencia)',
+    )
+    .eq('cobranca.responsavel_id', c.responsavel_id)
+    .not('cobranca.status', 'in', '(Rascunho,Cancelada)')
+    .neq('cobranca.mes_referencia', primeiro)
+    .gte('aula.data_hora_referencia', `${primeiro}T00:00:00`)
+    .lte('aula.data_hora_referencia', `${ultimo}T23:59:59`)
+  const cobradas_antes = cobradasEmOutroMes(
+    ((antes ?? []) as unknown as {
+      descricao: string
+      data_aula: string | null
+      aluno: { nome: string } | null
+      cobranca: { mes_referencia: string }
+      aula: { data_hora_inicio: string }
+    }[]).map((i) => ({
+      aluno_nome: i.aluno?.nome ?? 'Aluno',
+      descricao: i.descricao,
+      mes_cobranca: i.cobranca.mes_referencia,
+      data_atual: i.aula.data_hora_inicio.slice(0, 16),
+      data_cobrada: (i.data_aula ?? i.aula.data_hora_inicio).slice(0, 16),
+    })),
+    c.mes_referencia,
+  )
+
   return {
     ...c,
+    cobradas_antes,
     valor_bruto: deNumeric(c.valor_bruto),
     valor_desconto: deNumeric(c.valor_desconto),
     valor_total: deNumeric(c.valor_total),
@@ -550,6 +612,7 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
     chave_pix: conta?.chave_pix ?? null,
     vencimento: `${ano}-${mes}-05`,
     itens: itensTexto,
+    cobradasAntes: cobranca.cobradas_antes,
   })
 
   const { data: confirmadas, error } = await supabase

@@ -1,4 +1,5 @@
 import { formatarBRL, somar, type Centavos } from '@/dominio/dinheiro'
+import type { LinhaCobradaAntes } from './outro-mes'
 
 export interface ItemDoTexto {
   aluno_nome: string
@@ -23,6 +24,8 @@ export interface DadosDoTexto {
   /** Data de vencimento em ISO. */
   vencimento: string
   itens: ItemDoTexto[]
+  /** Decisao 6: aulas deste mes que ja foram cobradas em outro, a R$ 0,00. */
+  cobradasAntes?: LinhaCobradaAntes[]
 }
 
 const MESES = [
@@ -92,6 +95,15 @@ export function gerarTextoCobranca(dados: DadosDoTexto): string {
       linhas.push(`${rotulo} ${pontos} ${valor}`)
     }
 
+    linhas.push('')
+  }
+
+  if (dados.cobradasAntes && dados.cobradasAntes.length > 0) {
+    linhas.push('Aulas deste mês já cobradas antes:')
+    for (const c of dados.cobradasAntes) {
+      const descricao = c.descricao.split(' — ').slice(-1)[0]
+      linhas.push(`${c.aluno_nome}: ${dataCurta(c.data)} ${descricao} (${c.nota}) ${formatarBRL(0)}`)
+    }
     linhas.push('')
   }
 

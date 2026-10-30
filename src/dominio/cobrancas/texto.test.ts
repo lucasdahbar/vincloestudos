@@ -113,3 +113,28 @@ describe('cobrança complementar', () => {
     expect(gerarTextoCobranca(dados)).not.toContain('complementar')
   })
 })
+
+describe('aulas já cobradas em outro mês (decisão 6)', () => {
+  const texto = gerarTextoCobranca({
+    ...dados,
+    cobradasAntes: [
+      {
+        aluno_nome: 'Maria',
+        descricao: 'Matemática — 9º ano — Aula regular',
+        data: '2026-08-03',
+        nota: 'cobrada em julho, era 31/07 às 10:00',
+      },
+    ],
+  })
+
+  it('lista a aula a R$ 0,00, com o aviso, antes do total', () => {
+    const linha = 'Maria: 03/08 Aula regular (cobrada em julho, era 31/07 às 10:00) R$ 0,00'
+    expect(texto).toContain('Aulas deste mês já cobradas antes:')
+    expect(texto).toContain(linha)
+    expect(texto.indexOf(linha)).toBeLessThan(texto.indexOf('TOTAL:'))
+  })
+
+  it('sem aula cobrada antes, o texto não muda', () => {
+    expect(gerarTextoCobranca({ ...dados, cobradasAntes: [] })).toBe(gerarTextoCobranca(dados))
+  })
+})
