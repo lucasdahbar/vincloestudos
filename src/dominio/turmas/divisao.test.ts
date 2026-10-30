@@ -239,21 +239,15 @@ describe('planoDeDivisao: trocar a modalidade', () => {
   })
 
   it('aula com substituta de modalidade fica com ela', () => {
-    // Confere o resultado correto do sistema: turma Presencial, mudanca
-    // pede Online, aula 3 ja estava em Online por conta propria (igual a
-    // "aula substituta" do teste de professor_id) e continua em Online.
+    // Turma Presencial, mudanca pede Online, aula 3 ja estava em Online
+    // por conta propria (a "aula substituta") e continua em Online.
     //
-    // Limitacao conhecida: com um enum de so 2 valores, e matematicamente
-    // impossivel provar por resultado observavel que a condicao de
-    // override (`a.modalidade === turma.modalidade`, em divisao.ts) de
-    // fato resiste - toda mudanca valida (errosDaMudanca recusa
-    // modalidade_nova igual a turma.modalidade) tem um unico valor
-    // possivel, que e sempre o mesmo que uma aula substituta ja teria. O
-    // teste de professor_id evita isso usando um terceiro valor (18
-    // substituto, 20 mudanca, 9 turma). Aqui a condicao existe por
-    // consistencia com o padrao de professor_id/servico_id, mas este
-    // teste nao a isola - confirmado removendo a condicao do codigo e
-    // vendo o teste continuar passando por coincidencia.
+    // Diferente do teste de professor_id/servico_id (que isola o override
+    // com um terceiro valor: 18 substituto, 20 mudanca, 9 turma), aqui so
+    // ha 2 valores possiveis: o resultado da aula 3 coincide com o que a
+    // mudanca ja aplicaria a todas as outras. O teste nao prova que a
+    // condicao de override e necessaria, so que o resultado final esta
+    // certo.
     const lista = aulas.map((a) => (a.id === 3 ? { ...a, modalidade: 'Online' as const } : a))
     const r = planoDeDivisao(turma, lista, varredura({ modalidade: true }, lista), { modalidade_nova: 'Online' }, opcoes)
     expect(r.aulas.find((a) => a.id === 3)?.modalidade).toBe('Online')
