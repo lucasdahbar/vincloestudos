@@ -10,6 +10,8 @@ export interface EdicaoDaAula {
   nova: NovoHorario | null
   /** Professor novo; nulo = nao muda. */
   professorId: number | null
+  /** Modalidade nova; nulo = nao muda. */
+  modalidade: 'Presencial' | 'Online' | null
   /** Decisao 5: resposta a "a aula aconteceu?", quando ela passou sem chamada. */
   aconteceu?: boolean
   /** A data nova cai em feriado ou recesso, e a gestora confirmou. */
@@ -32,15 +34,18 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
   const supabase = await clienteServidor()
   const { data: aula, error } = await supabase
     .from('aulas')
-    .select('id, turma_id, professor_id')
+    .select('id, turma_id, professor_id, modalidade')
     .eq('id', aulaId)
     .maybeSingle()
   if (error) return { ok: false, erros: ['Não foi possível conferir a aula agora. Tente de novo.'] }
   if (!aula) return { ok: false, erros: ['Esta aula não existe mais.'] }
 
   const trocaProfessor = e.professorId !== null && e.professorId !== aula.professor_id
-  const pedido = { quando: e.nova !== null, professor: trocaProfessor }
-  if (!pedido.quando && !pedido.professor) return { ok: false, erros: ['Nada mudou nesta aula.'] }
+  const trocaModalidade = e.modalidade !== null && e.modalidade !== aula.modalidade
+  const pedido = { quando: e.nova !== null, professor: trocaProfessor, modalidade: trocaModalidade }
+  if (!pedido.quando && !pedido.professor && !pedido.modalidade) {
+    return { ok: false, erros: ['Nada mudou nesta aula.'] }
+  }
 
   if (trocaProfessor) {
     const { data: professor } = await supabase
@@ -85,6 +90,18 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
     }
     // O link da chamada que ainda nao foi usado era do professor anterior.
     await supabase.from('presenca_tokens').delete().eq('aula_id', aulaId).is('usado_em', null)
+  }
+
+  if (trocaModalidade) {
+    // So a modalidade no banco: sala do Meet e link_online ficam para a
+    // integracao com o Google, tratada em separado (nao faz parte daqui).
+    const { error: erroModalidade } = await supabase
+      .from('aulas')
+      .update({ modalidade: e.modalidade })
+      .eq('id', aulaId)
+    if (erroModalidade) {
+      return { ok: false, erros: [`A modalidade não mudou: ${erroModalidade.message}`] }
+    }
   }
 
   return { ok: true, turmaId: aula.turma_id, avisar: pedido.quando ? v.avisar : [] }
