@@ -55,6 +55,10 @@ describe('situacaoDaAula', () => {
     expect(situacaoDaAula({ ...passada, pagamentos: [null] }).pagamento).toBeNull()
   })
 
+  it('pagamento: conta paga em parte continua Em pagamento (revisão de 30/10)', () => {
+    expect(situacaoDaAula({ ...passada, pagamentos: ['Parcial'] }).pagamento).toBe('Em pagamento')
+  })
+
   it('Concluída: realizada, tudo recebido por inteiro e todo professor pago', () => {
     const feita = { ...passada, chamadaFeita: true }
     expect(situacaoDaAula({ ...feita, cobrancas: ['Quitada', 'Quitada'], pagamentos: ['Pago', 'Pago'] }).principal).toBe('Concluída')

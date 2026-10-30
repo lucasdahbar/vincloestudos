@@ -1,4 +1,5 @@
 import 'server-only'
+import type { StatusContaPagar } from '@/dominio/cobrancas/cancelamento'
 import { clienteAdmin } from './admin'
 import { lerTudo } from './cobrancas'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
@@ -44,7 +45,7 @@ export async function situacoesDasAulas(aulas: AulaParaSituacao[]): Promise<Map<
   const ids = aulas.map((a) => a.id)
   const turmas = [...new Set(aulas.map((a) => a.turma_id))]
 
-  const presencas: { aula_id: number; presente: boolean; conta: { status: 'Pendente' | 'Pago' } | null }[] = []
+  const presencas: { aula_id: number; presente: boolean; conta: { status: StatusContaPagar } | null }[] = []
   const itens: { aula_id: number; cobranca: { status: StatusCobranca } }[] = []
   for (const grupo of emGrupos(ids)) {
     const [p, i] = await Promise.all([

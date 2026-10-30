@@ -1,3 +1,4 @@
+import type { StatusContaPagar } from '@/dominio/cobrancas/cancelamento'
 import type { StatusAula } from '@/dominio/tipos'
 import type { StatusCobranca } from '@/dominio/reposicoes/desfecho'
 
@@ -34,7 +35,8 @@ export interface FatosDaAula {
   /** A cobranca de cada item da aula (um por aluno cobrado). */
   cobrancas: StatusCobranca[]
   /** Para cada presenca: o status da conta a pagar em que entrou, ou null. */
-  pagamentos: ('Pendente' | 'Pago' | null)[]
+  /** Status da conta que reservou cada presenca (rascunho nao reserva). */
+  pagamentos: (StatusContaPagar | null)[]
 }
 
 export interface SituacaoDaAula {
@@ -55,7 +57,13 @@ export function situacaoDaAula(f: FatosDaAula): SituacaoDaAula {
     : f.cobrancas.some((c) => EM_COBRANCA.includes(c))
       ? 'Em cobrança'
       : null
-  const pagamento = f.pagamentos.includes('Pago') ? 'Paga' : f.pagamentos.includes('Pendente') ? 'Em pagamento' : null
+  // Parcial ja teve dinheiro saindo e ainda deve: segue Em pagamento (revisao
+  // de 30/10/2026 — antes so Pendente contava, e a aula ficava destravada).
+  const pagamento = f.pagamentos.includes('Pago')
+    ? 'Paga'
+    : f.pagamentos.some((p) => p === 'Pendente' || p === 'Parcial')
+      ? 'Em pagamento'
+      : null
 
   if (f.status === 'Excluída' || f.status === 'Cancelada' || f.status === 'Feriado') {
     return { principal: f.status, cobranca, pagamento }
