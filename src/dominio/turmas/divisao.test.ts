@@ -239,10 +239,24 @@ describe('planoDeDivisao: trocar a modalidade', () => {
   })
 
   it('aula com substituta de modalidade fica com ela, como o professor', () => {
+    // Com so 2 valores no enum, nao da para a mudanca pedir um valor
+    // diferente da turma de hoje E diferente do substituto ao mesmo tempo
+    // (como o teste de professor_id faz, com professor 9/18/20). Aqui a
+    // prova de que o campo "trava" por aula (em vez de aplicar cego) esta
+    // em `errosDaEdicao`/`varrer`, testados em varredura.test.ts; este
+    // teste confirma so que `planoDeDivisao` respeita o `campos.modalidade`
+    // que a varredura decidiu — a aula substituta (3) nao tem o campo
+    // liberado (ver fixture `varredura`), entao fica com o proprio valor.
     const lista = aulas.map((a) => (a.id === 3 ? { ...a, modalidade: 'Online' as const } : a))
-    const r = planoDeDivisao(turma, lista, varredura({ modalidade: true }, lista), { modalidade_nova: 'Online' }, opcoes)
-    const dela = r.aulas.find((a) => a.id === 3)
-    expect(dela?.modalidade).toBe('Online')
+    const r = planoDeDivisao(
+      turma,
+      lista,
+      varredura({ modalidade: true }, lista, { 3: 'Esta aula já aconteceu.' }),
+      { modalidade_nova: 'Online' },
+      opcoes,
+    )
+    expect(r.aulas.find((a) => a.id === 3)?.modalidade).toBe('Online')
+    expect(r.aulas.find((a) => a.id === 4)?.modalidade).toBe('Online')
   })
 })
 
