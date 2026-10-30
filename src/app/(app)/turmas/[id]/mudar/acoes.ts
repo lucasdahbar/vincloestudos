@@ -13,6 +13,21 @@ import type { Respostas } from '@/dominio/agenda/varredura'
 import type { MudancaDaSerie } from '@/dominio/turmas/divisao'
 
 /**
+ * A varredura le muito do banco e estoura numa falha de leitura, de proposito
+ * (contar "nenhuma cobranca" por engano liberaria o que nao podia). Aqui a
+ * falha vira mensagem para a tela, como manda o padrao `{ ok, erros }`
+ * (revisao de 30/10/2026).
+ */
+async function semEstourar<T>(f: () => Promise<T>): Promise<T | { ok: false; erros: string[]; parcial?: boolean }> {
+  try {
+    return await f()
+  } catch (e) {
+    console.error('falha ao aplicar a mudanca:', e)
+    return { ok: false, erros: ['Não foi possível ler os dados da turma agora. Nada foi gravado; tente de novo.'] }
+  }
+}
+
+/**
  * Etapa 6b (29/10/2026): aplica a edicao de "so esta aula". O Google vem
  * depois, como na remarcacao: a aula sai da serie e ganha evento proprio, na
  * agenda do professor dela. Falha do Google nao desfaz a mudanca.
@@ -24,7 +39,7 @@ export async function editarEstaAula(
   { ok: true; avisar: { nome: string; data: string }[] } | { ok: false; erros?: string[]; alerta?: string }
 > {
   await exigirGestora()
-  const r = await editarAula(aulaId, edicao)
+  const r = await semEstourar(() => editarAula(aulaId, edicao))
   if (!r.ok) return r
 
   after(async () => {
@@ -53,10 +68,11 @@ export async function tirarDaAgenda(
   respostas: Respostas,
 ): Promise<ResultadoDaSaida> {
   await exigirGestora()
-  const r =
+  const r = await semEstourar(() =>
     pedido.tipo === 'excluir'
-      ? await excluirPelaPrevia(turmaId, pedido.aulaId, respostas)
-      : await encerrarPelaPrevia(turmaId, pedido.data, respostas)
+      ? excluirPelaPrevia(turmaId, pedido.aulaId, respostas)
+      : encerrarPelaPrevia(turmaId, pedido.data, respostas),
+  )
 
   if (r.ok || r.parcial) {
     // A data vira excecao na serie (ou a serie termina na vespera), e quem
@@ -91,7 +107,9 @@ export async function mudarSerieDaTurma(
   respostas: Respostas,
 ): Promise<ResultadoDaDivisao> {
   await exigirGestora()
-  const r = await mudarSerie(turmaId, pedido.escopo, pedido.aPartirDe, pedido.mudanca, respostas)
+  const r = await semEstourar(() =>
+    mudarSerie(turmaId, pedido.escopo, pedido.aPartirDe, pedido.mudanca, respostas),
+  )
   if (!r.ok) return r
 
   // O professor novo recebe o aviso da turma (G4), como numa turma criada.
