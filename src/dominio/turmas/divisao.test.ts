@@ -238,23 +238,24 @@ describe('planoDeDivisao: trocar a modalidade', () => {
     expect(r.aulas.every((a) => a.modalidade === 'Online')).toBe(true)
   })
 
-  it('aula com substituta de modalidade fica com ela, como o professor', () => {
-    // Com so 2 valores no enum, nao da para a mudanca pedir um valor
-    // diferente da turma de hoje E diferente do substituto ao mesmo tempo
-    // (como o teste de professor_id faz, com professor 9/18/20). Aqui a
-    // prova de que o campo "trava" por aula (em vez de aplicar cego) esta
-    // em `errosDaEdicao`/`varrer`, testados em varredura.test.ts; este
-    // teste confirma so que `planoDeDivisao` respeita o `campos.modalidade`
-    // que a varredura decidiu — a aula substituta (3) nao tem o campo
-    // liberado (ver fixture `varredura`), entao fica com o proprio valor.
+  it('aula com substituta de modalidade fica com ela', () => {
+    // Confere o resultado correto do sistema: turma Presencial, mudanca
+    // pede Online, aula 3 ja estava em Online por conta propria (igual a
+    // "aula substituta" do teste de professor_id) e continua em Online.
+    //
+    // Limitacao conhecida: com um enum de so 2 valores, e matematicamente
+    // impossivel provar por resultado observavel que a condicao de
+    // override (`a.modalidade === turma.modalidade`, em divisao.ts) de
+    // fato resiste - toda mudanca valida (errosDaMudanca recusa
+    // modalidade_nova igual a turma.modalidade) tem um unico valor
+    // possivel, que e sempre o mesmo que uma aula substituta ja teria. O
+    // teste de professor_id evita isso usando um terceiro valor (18
+    // substituto, 20 mudanca, 9 turma). Aqui a condicao existe por
+    // consistencia com o padrao de professor_id/servico_id, mas este
+    // teste nao a isola - confirmado removendo a condicao do codigo e
+    // vendo o teste continuar passando por coincidencia.
     const lista = aulas.map((a) => (a.id === 3 ? { ...a, modalidade: 'Online' as const } : a))
-    const r = planoDeDivisao(
-      turma,
-      lista,
-      varredura({ modalidade: true }, lista, { 3: 'Esta aula já aconteceu.' }),
-      { modalidade_nova: 'Online' },
-      opcoes,
-    )
+    const r = planoDeDivisao(turma, lista, varredura({ modalidade: true }, lista), { modalidade_nova: 'Online' }, opcoes)
     expect(r.aulas.find((a) => a.id === 3)?.modalidade).toBe('Online')
     expect(r.aulas.find((a) => a.id === 4)?.modalidade).toBe('Online')
   })
