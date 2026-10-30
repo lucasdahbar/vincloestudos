@@ -12,7 +12,7 @@ const SELECT_TURMA = `
   id, nome, modalidade, tipo_recorrencia, data_unica,
   frequencia, intervalo, data_inicio, data_fim, fim_automatico,
   dias_semana, horario_inicio, horario_fim, status,
-  google_calendar_event_id, link_videochamada,
+  google_calendar_event_id, link_videochamada, continua_de,
   servico_id, materia_id, escola_id, ano_escolar_id, professor_id,
   servico:servicos!servico_id (id, nome, permite_materia, permite_escola, valor_padrao),
   materia:materias!materia_id (id, nome),
@@ -38,6 +38,8 @@ export interface TurmaComRelacoes {
   status: 'Ativa' | 'Encerrada'
   google_calendar_event_id: string | null
   link_videochamada: string | null
+  /** Etapa 6d: a turma de que esta e a continuacao. */
+  continua_de: number | null
   servico_id: number
   materia_id: number | null
   escola_id: number | null
@@ -142,6 +144,27 @@ export async function obterTurma(id: number): Promise<TurmaComRelacoes | null> {
 
   if (error) throw new Error(`Falha ao carregar turma: ${error.message}`)
   return (data ?? null) as unknown as TurmaComRelacoes | null
+}
+
+/**
+ * Etapa 6d: a turma que mudou a partir de uma data termina na vespera e
+ * continua em outra. As duas se apontam na tela.
+ */
+export async function continuidadeDaTurma(turma: {
+  id: number
+  continua_de: number | null
+}): Promise<{ anterior: { id: number; data_fim: string } | null; seguinte: { id: number; data_inicio: string } | null }> {
+  const supabase = await clienteServidor()
+  const [anterior, seguinte] = await Promise.all([
+    turma.continua_de
+      ? supabase.from('turmas').select('id, data_fim').eq('id', turma.continua_de).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase.from('turmas').select('id, data_inicio').eq('continua_de', turma.id).limit(1).maybeSingle(),
+  ])
+  return {
+    anterior: anterior.data ? { id: anterior.data.id, data_fim: String(anterior.data.data_fim) } : null,
+    seguinte: seguinte.data ? { id: seguinte.data.id, data_inicio: String(seguinte.data.data_inicio) } : null,
+  }
 }
 
 export interface OpcoesDeTurma {

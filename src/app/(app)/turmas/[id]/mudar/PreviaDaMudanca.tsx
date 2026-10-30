@@ -16,8 +16,10 @@ import {
 import { Botao, BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { entradaClasse } from '@/ui/Campo'
+import { somarDias } from '@/dominio/agenda/recorrencia'
+import type { MudancaDaSerie } from '@/dominio/turmas/divisao'
 import { pilulaDaSituacao } from '@/ui/situacao-da-aula'
-import { editarEstaAula, tirarDaAgenda } from './acoes'
+import { editarEstaAula, mudarSerieDaTurma, tirarDaAgenda } from './acoes'
 
 /** O que a edicao de "so esta aula" precisa saber da aula (etapa 6b). */
 export interface DadosDaEdicao {
@@ -31,6 +33,20 @@ export interface DadosDaEdicao {
 
 /** Etapa 6c: o que a previa pode aplicar ao tirar aulas da agenda. */
 export type PedidoDeSaida = { tipo: 'excluir'; aulaId: number } | { tipo: 'encerrar'; data: string }
+
+/** Etapa 6d: a regra de hoje da serie e as opcoes da regra nova. */
+export interface DadosDaSerie {
+  escopo: 'a-partir' | 'serie'
+  aPartirDe: string
+  diasSemana: number[]
+  /** HH:MM */
+  horarioInicio: string
+  horarioFim: string
+  professorId: number
+  servicoId: number
+  professores: { id: number; nome: string }[]
+  servicos: { id: number; nome: string }[]
+}
 
 const ROTULO_DESFECHO: Record<Desfecho, string> = {
   reposicao: 'Reposição',
@@ -59,6 +75,7 @@ export function PreviaDaMudanca({
   edicao,
   turmaId,
   saida,
+  serie,
   semAplicar,
 }: {
   aulas: AulaDaVarredura[]
@@ -69,6 +86,8 @@ export function PreviaDaMudanca({
   turmaId: number
   /** Excluir esta aula ou encerrar: a previa ganha o "aplicar" (6c). */
   saida?: PedidoDeSaida
+  /** A serie a partir de uma data, ou inteira: a previa ganha o "aplicar" (6d). */
+  serie?: DadosDaSerie
   /** Por que esta combinacao ainda nao aplica. */
   semAplicar?: string
 }) {
@@ -86,8 +105,9 @@ export function PreviaDaMudanca({
       return { ...r, alunos }
     })
 
-  // Encerrar sem aula pela frente ainda termina a turma: o "aplicar" aparece.
-  if (v.aulas.length === 0 && !(saida?.tipo === 'encerrar')) {
+  // Encerrar sem aula pela frente ainda termina a turma, e a regra nova vale
+  // para as aulas que ainda nem nasceram: o "aplicar" aparece.
+  if (v.aulas.length === 0 && !(saida?.tipo === 'encerrar') && !serie) {
     return <Cartao>Nenhuma aula neste período.</Cartao>
   }
 
@@ -187,6 +207,8 @@ export function PreviaDaMudanca({
         />
       ) : saida ? (
         <AplicarSaida turmaId={turmaId} pedido={saida} aulas={aulas} varredura={v} respostas={respostas} />
+      ) : serie && acao.tipo === 'editar' ? (
+        <AplicarNaSerie turmaId={turmaId} dados={serie} acao={acao} escolhas={v.escolhas} respostas={respostas} />
       ) : (
         <p className="text-sm text-tinta-suave">
           {semAplicar ?? 'Esta é só a prévia: aplicar esta mudança chega nas próximas atualizações.'}
@@ -427,6 +449,167 @@ function AplicarSaida({
       )}
       <div className="mt-4">
         <Botao type="button" disabled={pendente || bloqueio.length > 0} onClick={aplicar}>
+          {pendente ? 'Aplicando…' : rotulo}
+        </Botao>
+      </div>
+    </Cartao>
+  )
+}
+
+const ddmmaaaa = (iso: string) => iso.split('-').reverse().join('/')
+
+/**
+ * Etapa 6d: a regra nova da serie. Com aula antes da data, a turma termina na
+ * vespera e nasce uma continuacao; o servidor monta o plano e confere tudo.
+ */
+function AplicarNaSerie({
+  turmaId,
+  dados,
+  acao,
+  escolhas,
+  respostas,
+}: {
+  turmaId: number
+  dados: DadosDaSerie
+  acao: Extract<Acao, { tipo: 'editar' }>
+  escolhas: number
+  respostas: Respostas
+}) {
+  const router = useRouter()
+  const [dias, setDias] = useState(dados.diasSemana)
+  const [horaInicio, setHoraInicio] = useState(dados.horarioInicio)
+  const [horaFim, setHoraFim] = useState(dados.horarioFim)
+  const [professorId, setProfessorId] = useState(dados.professorId)
+  const [servicoId, setServicoId] = useState(dados.servicoId)
+  const [erros, setErros] = useState<string[]>([])
+  const [feito, setFeito] = useState<Extract<Awaited<ReturnType<typeof mudarSerieDaTurma>>, { ok: true }> | null>(null)
+  const [pendente, iniciar] = useTransition()
+
+  const alternarDia = (d: number) =>
+    setDias((atual) => (atual.includes(d) ? atual.filter((x) => x !== d) : [...atual, d].sort()))
+
+  const mudanca: MudancaDaSerie = {
+    ...(acao.quando && { quando: { dias_semana: dias, horario_inicio: horaInicio, horario_fim: horaFim } }),
+    ...(acao.professor && { professor_id: professorId }),
+    ...(acao.servico && { servico_id: servicoId }),
+  }
+  const rotulo =
+    dados.escopo === 'serie' ? 'Aplicar na série' : `Aplicar a partir de ${ddmmaaaa(dados.aPartirDe)}`
+
+  function aplicar() {
+    setErros([])
+    iniciar(async () => {
+      try {
+        const r = await mudarSerieDaTurma(turmaId, { escopo: dados.escopo, aPartirDe: dados.aPartirDe, mudanca }, respostas)
+        if (r.ok) {
+          setFeito(r)
+          router.refresh()
+        } else setErros(r.erros)
+      } catch {
+        setErros(['Não foi possível aplicar agora. Tente de novo.'])
+      }
+    })
+  }
+
+  if (feito) {
+    return (
+      <Cartao>
+        <p className="font-medium">
+          {feito.novaTurma
+            ? `Pronto. A turma termina em ${ddmmaaaa(somarDias(feito.corte, -1))} e continua em outra, com a regra nova, a partir de ${ddmmaaaa(feito.corte)}.`
+            : 'Pronto. A turma mudou.'}
+        </p>
+        <p className="mt-1 text-sm text-tinta-suave">
+          Alunos, avisos, reposições e cobranças foram junto com as aulas. A agenda do professor no
+          Google acompanha em instantes.
+        </p>
+        {feito.avisos.map((x) => (
+          <p key={x} className="mt-2 rounded-campo bg-alerta-suave px-3 py-1.5 text-sm text-alerta">
+            {x}
+          </p>
+        ))}
+        {feito.avisar.length > 0 && (
+          <p className="mt-2 text-sm">Avise quem vem repor: {feito.avisar.map((x) => x.nome).join(', ')}.</p>
+        )}
+        <div className="mt-4">
+          <BotaoLink href={`/turmas/${feito.turmaId}`} aparencia="secundario">
+            Ver a turma
+          </BotaoLink>
+        </div>
+      </Cartao>
+    )
+  }
+
+  return (
+    <Cartao>
+      <h2 className="text-xl">{dados.escopo === 'serie' ? 'Aplicar na série' : 'Aplicar a partir da data'}</h2>
+      <p className="mt-1 text-sm text-tinta-suave">
+        Se a turma já teve aula antes {dados.escopo === 'serie' ? 'da primeira aula que muda' : 'dessa data'}, ela
+        termina na véspera e continua em outra turma com a regra nova, como o Google faz. As aulas que ficam
+        como estão vão junto, com o que já tinham.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        {acao.quando && (
+          <>
+            <fieldset className="flex flex-col gap-1 text-sm sm:col-span-3">
+              <legend className="font-medium">Dias da semana</legend>
+              <div className="flex flex-wrap gap-3">
+                {DIAS.map((nome, d) => (
+                  <label key={nome} className="flex items-center gap-1">
+                    <input type="checkbox" checked={dias.includes(d)} onChange={() => alternarDia(d)} />
+                    {nome}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Início</span>
+              <input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} className={entradaClasse} />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Término</span>
+              <input type="time" value={horaFim} onChange={(e) => setHoraFim(e.target.value)} className={entradaClasse} />
+            </label>
+          </>
+        )}
+        {acao.professor && (
+          <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+            <span className="font-medium">Professor</span>
+            <select value={professorId} onChange={(e) => setProfessorId(Number(e.target.value))} className={entradaClasse}>
+              {dados.professores.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {acao.servico && (
+          <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+            <span className="font-medium">Serviço</span>
+            <select value={servicoId} onChange={(e) => setServicoId(Number(e.target.value))} className={entradaClasse}>
+              {dados.servicos.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
+      {escolhas > 0 && (
+        <p className="mt-3 text-sm text-tinta-suave">Responda as aulas que precisam de escolha antes de aplicar.</p>
+      )}
+      {erros.length > 0 && (
+        <ul role="alert" className="mt-3 flex flex-col gap-1 rounded-campo bg-erro-suave px-4 py-3 text-sm text-erro">
+          {erros.map((e) => (
+            <li key={e}>{e}</li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-4">
+        <Botao type="button" disabled={pendente || escolhas > 0} onClick={aplicar}>
           {pendente ? 'Aplicando…' : rotulo}
         </Botao>
       </div>

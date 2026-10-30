@@ -9,12 +9,12 @@ import type { Acao, Escopo } from '@/dominio/agenda/varredura'
 import { Botao } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { entradaClasse } from '@/ui/Campo'
-import { PreviaDaMudanca, type DadosDaEdicao, type PedidoDeSaida } from './PreviaDaMudanca'
+import { PreviaDaMudanca, type DadosDaEdicao, type DadosDaSerie, type PedidoDeSaida } from './PreviaDaMudanca'
 
 /**
  * Etapa 6a (29/10/2026): a previa de editar, excluir e encerrar. A gestora
  * escolhe o que muda e o escopo, e ve aula por aula o que muda, o que precisa
- * de escolha e o que fica como esta. Aplicar chega por partes: 6b editar so
+ * de escolha e o que fica como esta. Aplicar chegou por partes: 6b editar so
  * esta aula, 6c excluir e encerrar, 6d a serie a partir de uma data.
  */
 
@@ -91,6 +91,34 @@ export default async function PaginaMudarTurma({
     else semAplicar = 'Turma de aula única: use o "Encerrar turma" da página da turma.'
   }
 
+  // Etapa 6d: dia/horario, professor e servico na serie, a partir de uma data
+  // ou inteira.
+  let serie: DadosDaSerie | undefined
+  if (escopo === 'esta' && chave === 'servico') {
+    semAplicar = 'Para mudar o serviço, escolha "A partir de uma data" ou "A série inteira".'
+  } else if (escopo !== 'esta' && (chave === 'quando' || chave === 'professor' || chave === 'servico')) {
+    if (turma.tipo_recorrencia !== 'Recorrente') {
+      semAplicar = 'Turma de aula única: mude a aula pelo "Só esta aula", a partir da aula na agenda.'
+    } else if (turma.status !== 'Ativa') {
+      semAplicar = 'Esta turma está encerrada.'
+    } else {
+      const opcoes = await opcoesDeTurma()
+      serie = {
+        escopo,
+        aPartirDe: data,
+        diasSemana: turma.dias_semana,
+        horarioInicio: turma.horario_inicio.slice(0, 5),
+        horarioFim: turma.horario_fim.slice(0, 5),
+        professorId: turma.professor_id,
+        servicoId: turma.servico_id,
+        professores: opcoes.professores.some((p) => p.id === turma.professor_id)
+          ? opcoes.professores
+          : [{ id: turma.professor_id, nome: turma.professor?.nome ?? 'Professor atual' }, ...opcoes.professores],
+        servicos: opcoes.servicos.map((s) => ({ id: s.id, nome: s.nome })),
+      }
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <header>
@@ -154,6 +182,7 @@ export default async function PaginaMudarTurma({
         edicao={edicao}
         turmaId={turma.id}
         saida={saida}
+        serie={serie}
         semAplicar={semAplicar}
       />
     </div>

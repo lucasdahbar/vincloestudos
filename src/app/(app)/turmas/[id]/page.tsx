@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { obterTurma } from '@/dados/turmas'
+import { continuidadeDaTurma, obterTurma } from '@/dados/turmas'
 import { listarMatriculas } from '@/dados/matriculas'
 import { exigirSessao } from '@/dados/sessao'
 import { textoDaRegra } from '@/dominio/agenda/recorrencia'
@@ -18,7 +18,11 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
   const turma = await obterTurma(Number(id))
   if (!turma) notFound()
 
-  const matriculas = await listarMatriculas({ turmaId: turma.id, status: 'Ativa' })
+  const [matriculas, continuidade] = await Promise.all([
+    listarMatriculas({ turmaId: turma.id, status: 'Ativa' }),
+    continuidadeDaTurma(turma),
+  ])
+  const ddmmaaaa = (iso: string) => iso.slice(0, 10).split('-').reverse().join('/')
   const ehGestora = sessao.papel === 'gestora'
   // Aula única: a data já vem certa. Antes o início vinha como hoje, e a
   // matrícula podia ficar fora do dia da aula (caso Kelly, 17/10/2026).
@@ -47,6 +51,24 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
             </span>
           </div>
           {periodoDaTurma(turma) && <p className="mt-1 text-sm text-tinta-suave">{periodoDaTurma(turma)}</p>}
+          {continuidade.anterior && (
+            <p className="mt-1 text-sm text-tinta-suave">
+              Continua a{' '}
+              <Link href={`/turmas/${continuidade.anterior.id}`} className="text-destaque hover:underline">
+                turma de antes
+              </Link>{' '}
+              (até {ddmmaaaa(continuidade.anterior.data_fim)}).
+            </p>
+          )}
+          {continuidade.seguinte && (
+            <p className="mt-1 text-sm text-tinta-suave">
+              Continua em{' '}
+              <Link href={`/turmas/${continuidade.seguinte.id}`} className="text-destaque hover:underline">
+                outra turma
+              </Link>{' '}
+              a partir de {ddmmaaaa(continuidade.seguinte.data_inicio)}, com a regra nova.
+            </p>
+          )}
         </div>
         {ehGestora && (
           <div className="flex flex-wrap gap-3">
