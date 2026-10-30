@@ -6,6 +6,7 @@ import {
   primeiraOcorrencia,
   regraDoEvento,
   eventoSaiDaAgenda,
+  serieEmOutraAgenda,
   temEventoProprio,
   unicaSemAula,
   type TurmaDoEvento,
@@ -362,5 +363,27 @@ describe('temEventoProprio', () => {
 
   it('aula excluída não tem evento', () => {
     expect(temEventoProprio({ ...aula, professor_id: 9, status: 'Excluída' }, 3)).toBe(false)
+  })
+})
+
+describe('serieEmOutraAgenda (etapa 6d)', () => {
+  it('professor trocado: a série está na agenda do anterior', () => {
+    expect(serieEmOutraAgenda({ eventoId: 'abc', agenda: 'kelly@g' }, 'diego@g')).toBe('kelly@g')
+  })
+
+  it('mesma agenda: nada a tirar', () => {
+    expect(serieEmOutraAgenda({ eventoId: 'abc', agenda: 'kelly@g' }, 'kelly@g')).toBeNull()
+  })
+
+  it('sem evento ainda: nada a tirar', () => {
+    expect(serieEmOutraAgenda({ eventoId: null, agenda: 'kelly@g' }, 'diego@g')).toBeNull()
+  })
+
+  it('sem agenda guardada (antes da etapa 6d): não arrisca apagar', () => {
+    expect(serieEmOutraAgenda({ eventoId: 'abc', agenda: null }, 'diego@g')).toBeNull()
+  })
+
+  it('professor novo sem agenda: a série sai da agenda do anterior', () => {
+    expect(serieEmOutraAgenda({ eventoId: 'abc', agenda: 'kelly@g' }, null)).toBe('kelly@g')
   })
 })

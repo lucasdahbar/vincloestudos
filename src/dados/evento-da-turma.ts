@@ -14,6 +14,7 @@ import {
   exdatesDoEvento,
   regraDoEvento,
   eventoSaiDaAgenda,
+  serieEmOutraAgenda,
   temEventoProprio,
   type MatriculaDoEvento,
   type TurmaDoEvento,
@@ -29,7 +30,7 @@ import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import type { Frequencia } from '@/dominio/tipos'
 
 const CAMPOS_TURMA =
-  'id, nome, tipo_recorrencia, data_unica, frequencia, intervalo, dias_semana, data_inicio, data_fim, horario_inicio, horario_fim, modalidade, status, escola_id, professor_id, google_calendar_event_id, link_videochamada, google_meet_sala, professor:professores!professor_id (email, google_calendar_id)'
+  'id, nome, tipo_recorrencia, data_unica, frequencia, intervalo, dias_semana, data_inicio, data_fim, horario_inicio, horario_fim, modalidade, status, escola_id, professor_id, google_calendar_event_id, google_evento_agenda, link_videochamada, google_meet_sala, professor:professores!professor_id (email, google_calendar_id)'
 
 type TurmaLida = {
   professor_id: number
@@ -409,6 +410,9 @@ export async function sincronizarEventoDaTurma(
     | { email: string | null; google_calendar_id: string | null }
     | null
 
+  // A agenda onde a série está (etapa 6d); a do professor, se é de antes.
+  const agendaDaSerie = turma.google_evento_agenda ?? professor?.google_calendar_id ?? null
+
   // Aula que não vai acontecer não pode ficar na agenda do professor. Desde
   // o encerramento com data (13/10/2026), a recorrente encerrada fica, mas
   // termina na véspera — as aulas passadas continuam lá.
@@ -417,14 +421,34 @@ export async function sincronizarEventoDaTurma(
     const falhas = professor?.google_calendar_id
       ? await sincronizarAvulsos(turmaId, turma, professor.google_calendar_id, null, [], true)
       : []
-    if (turma.google_calendar_event_id && professor?.google_calendar_id) {
-      const r = await apagarEvento(professor.google_calendar_id, turma.google_calendar_event_id)
+    if (turma.google_calendar_event_id && agendaDaSerie) {
+      const r = await apagarEvento(agendaDaSerie, turma.google_calendar_event_id)
       if (r.ok) {
-        await admin.from('turmas').update({ google_calendar_event_id: null }).eq('id', turmaId)
+        await admin
+          .from('turmas')
+          .update({ google_calendar_event_id: null, google_evento_agenda: null })
+          .eq('id', turmaId)
       }
       return comAvulsos(r, falhas)
     }
     return comAvulsos({ ok: true }, falhas)
+  }
+
+  // Professor trocado: a série sai da agenda do anterior antes de nascer na
+  // do novo. Se o Google recusar, para aqui: seguir deixaria duas séries.
+  let eventoId = turma.google_calendar_event_id as string | null
+  const sair = serieEmOutraAgenda(
+    { eventoId, agenda: turma.google_evento_agenda },
+    professor?.google_calendar_id ?? null,
+  )
+  if (sair && eventoId) {
+    const r = await apagarEvento(sair, eventoId)
+    if (!r.ok) return r
+    await admin
+      .from('turmas')
+      .update({ google_calendar_event_id: null, google_evento_agenda: null })
+      .eq('id', turmaId)
+    eventoId = null
   }
 
   // G3: a sala do Meet vem antes do evento, para o link já entrar nele.
@@ -443,13 +467,16 @@ export async function sincronizarEventoDaTurma(
     ...evento,
     alunos: alunosDaDescricaoGeral(turma, matriculas),
     google_calendar_id: professor?.google_calendar_id ?? null,
-    evento_id: turma.google_calendar_event_id,
+    evento_id: eventoId,
   })
 
   if (!r.ok) return r
 
-  if (r.eventoId !== turma.google_calendar_event_id) {
-    await admin.from('turmas').update({ google_calendar_event_id: r.eventoId }).eq('id', turmaId)
+  if (r.eventoId !== eventoId || turma.google_evento_agenda !== professor?.google_calendar_id) {
+    await admin
+      .from('turmas')
+      .update({ google_calendar_event_id: r.eventoId, google_evento_agenda: professor?.google_calendar_id ?? null })
+      .eq('id', turmaId)
   }
 
   // Mexer na série pode desfazer o que cada ocorrência tinha de próprio:
@@ -495,9 +522,17 @@ export async function atualizarAlunosNoEvento(
     | { email: string | null; google_calendar_id: string | null }
     | null
 
-  // Sem evento ainda (o Google estava fora quando a turma foi salva): criar
-  // agora é o mesmo que salvar a turma de novo.
-  if (!turma.google_calendar_event_id || !professor?.google_calendar_id) {
+  // Sem evento ainda (o Google estava fora quando a turma foi salva), ou com
+  // a série na agenda de um professor anterior: é o mesmo que salvar a turma
+  // de novo.
+  if (
+    !turma.google_calendar_event_id ||
+    !professor?.google_calendar_id ||
+    serieEmOutraAgenda(
+      { eventoId: turma.google_calendar_event_id, agenda: turma.google_evento_agenda },
+      professor.google_calendar_id,
+    )
+  ) {
     return sincronizarEventoDaTurma(turmaId)
   }
 
@@ -575,12 +610,13 @@ export async function apagarEventoDaTurma(
   const admin = clienteAdmin()
   const { data: turma } = await admin
     .from('turmas')
-    .select('google_calendar_event_id, professor:professores!professor_id (google_calendar_id)')
+    .select('google_calendar_event_id, google_evento_agenda, professor:professores!professor_id (google_calendar_id)')
     .eq('id', turmaId)
     .maybeSingle()
 
   const professor = turma?.professor as unknown as { google_calendar_id: string | null } | null
   if (!professor?.google_calendar_id) return { ok: true }
+  const agendaDaSerie = turma?.google_evento_agenda ?? professor.google_calendar_id
 
   // As aulas remarcadas têm evento próprio (13/10/2026): saem também, antes
   // de as aulas serem apagadas — depois não haveria de onde ler os ids.
@@ -595,7 +631,7 @@ export async function apagarEventoDaTurma(
   }
 
   if (!turma?.google_calendar_event_id) return { ok: true }
-  return apagarEvento(professor.google_calendar_id, turma.google_calendar_event_id)
+  return apagarEvento(agendaDaSerie, turma.google_calendar_event_id)
 }
 
 /**

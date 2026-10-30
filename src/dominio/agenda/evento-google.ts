@@ -159,6 +159,21 @@ export function temEventoProprio(
 }
 
 /**
+ * Etapa 6d (29/10/2026): a série mora na agenda do professor que a turma
+ * tinha quando o evento foi criado. Trocado o professor, o Google não acha o
+ * evento na agenda nova e cria outro — e o antigo ficava órfão na agenda do
+ * anterior. Devolve a agenda de onde a série tem de sair antes, ou `null`.
+ * Sem a agenda guardada não dá para saber, e apagar às cegas não vale o risco.
+ */
+export function serieEmOutraAgenda(
+  serie: { eventoId: string | null; agenda: string | null },
+  agendaDoProfessor: string | null,
+): string | null {
+  if (!serie.eventoId || !serie.agenda) return null
+  return serie.agenda === agendaDoProfessor ? null : serie.agenda
+}
+
+/**
  * Turma única cuja aula foi excluída: o evento sai da agenda, como o da turma
  * encerrada. Única não tem EXDATE — a data dela é o evento inteiro.
  */
