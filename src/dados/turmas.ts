@@ -3,6 +3,7 @@ import { clienteServidor, type ClienteServidor } from './cliente'
 import { rotuloDaTurma } from '@/dominio/turmas/quando'
 import { alunosDaTurma, turmaVencida } from '@/dominio/turmas/lista'
 import { calendarioEscolar } from './calendario'
+import { lerTudo } from './cobrancas'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import type { Feriado } from '@/dominio/agenda/feriados'
 import type { RecessoEscolar } from '@/dominio/agenda/recessos'
@@ -87,13 +88,19 @@ export async function listarTurmas(
   // na turma. O avulso de um dia e a reposicao contam a parte, e so os que
   // ainda vao acontecer. A regra e `alunosDaTurma`.
   const hoje = agoraNaEscola(new Date()).slice(0, 10)
-  const { data: matriculas } = await supabase
-    .from('matriculas')
-    .select('turma_id, flag_reposicao, data_inicio, data_fim')
-    .eq('status', 'Ativa')
+  // Paginado: o Supabase corta em mil linhas, calado, e a contagem saia
+  // errada (revisao de 30/10/2026).
+  const matriculas = (await lerTudo((de, ate) =>
+    supabase
+      .from('matriculas')
+      .select('id, turma_id, flag_reposicao, data_inicio, data_fim')
+      .eq('status', 'Ativa')
+      .order('id')
+      .range(de, ate),
+  )) as { turma_id: number; flag_reposicao: boolean; data_inicio: string; data_fim: string | null }[]
 
   const porTurma = new Map<number, { flag_reposicao: boolean; data_inicio: string; data_fim: string | null }[]>()
-  for (const m of matriculas ?? []) {
+  for (const m of matriculas) {
     const lista = porTurma.get(m.turma_id) ?? []
     lista.push({
       flag_reposicao: m.flag_reposicao,
