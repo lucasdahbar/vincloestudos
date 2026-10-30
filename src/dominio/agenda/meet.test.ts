@@ -14,6 +14,10 @@ const online: TurmaDaSala = {
 }
 
 describe('oQueFazerComASala', () => {
+  it('turma que continua em outra não mexe mais na sala, que é da continuação (revisão de 30/10)', () => {
+    expect(oQueFazerComASala({ ...online, google_meet_sala: 'spaces/abc', continuada: true })).toBe('nada')
+  })
+
   it('cria a sala para turma online ativa sem link', () => {
     expect(oQueFazerComASala(online)).toBe('criar')
   })

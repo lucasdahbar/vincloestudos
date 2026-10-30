@@ -15,10 +15,17 @@ export interface TurmaDaSala {
   link_videochamada: string | null
   /** Sala criada pelo sistema (`spaces/...`), se houver. */
   google_meet_sala: string | null
+  /**
+   * Etapa 6d: a turma continua em outra, que ficou com a mesma sala. Quem
+   * manda nela e a continuacao; senao, sincronizar a turma antiga devolvia o
+   * coorganizador ao professor de antes (revisao de 30/10/2026).
+   */
+  continuada?: boolean
 }
 
 export function oQueFazerComASala(turma: TurmaDaSala): 'criar' | 'ajustar' | 'nada' {
   if (turma.status !== 'Ativa' || turma.modalidade !== 'Online') return 'nada'
+  if (turma.continuada) return 'nada'
   // A sala já existe: só confere o coorganizador. Criar outra trocaria o link
   // que alunos e professor já receberam.
   if (turma.google_meet_sala) return 'ajustar'

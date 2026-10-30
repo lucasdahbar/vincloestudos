@@ -651,7 +651,15 @@ async function prepararSala(
   },
   emailProfessor: string | null,
 ): Promise<string | null> {
-  const acao = oQueFazerComASala(turma)
+  // A continuacao (etapa 6d) herda a sala; a turma de antes nao mexe mais nela.
+  const { count } = turma.google_meet_sala
+    ? await clienteAdmin()
+        .from('turmas')
+        .select('id', { count: 'exact', head: true })
+        .eq('continua_de', turmaId)
+        .eq('google_meet_sala', turma.google_meet_sala)
+    : { count: 0 }
+  const acao = oQueFazerComASala({ ...turma, continuada: (count ?? 0) > 0 })
 
   if (acao === 'criar') {
     const r = await criarSala(emailProfessor)
