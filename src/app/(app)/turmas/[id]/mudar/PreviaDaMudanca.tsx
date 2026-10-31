@@ -350,7 +350,7 @@ function EditarEstaAula({
 
       {!podeQuando && (
         <p className="mt-3 text-sm text-tinta-suave">
-          Esta aula já aconteceu: só o professor e o serviço se corrigem.
+          Esta aula já aconteceu: só o professor se corrige.
         </p>
       )}
       {!nadaMudou && bloqueio.length > 0 && (
