@@ -8,7 +8,6 @@ import { AvisarFalta } from './AvisarFalta'
 import { EnviarLink } from './EnviarLink'
 import { ExcluirAula } from './ExcluirAula'
 import { CorrigirChamada } from './CorrigirChamada'
-import { RemarcarAula } from './RemarcarAula'
 import { CancelarAviso } from '../../../reposicoes/CancelarAviso'
 
 /** O que aconteceu depois do aviso, do ponto de vista desta aula. */
@@ -270,31 +269,17 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
 
       {ehGestora && aula.status !== 'Excluída' && aula.status !== 'Realizada' && (
         <div className="flex flex-wrap gap-3">
-          {registradas.length === 0 && aula.status === 'Agendada' && (
-            <RemarcarAula
-              aulaId={aula.id}
-              inicio={String(aula.data_hora_inicio).slice(0, 16)}
-              fim={String(aula.data_hora_fim).slice(0, 16)}
-              original={original}
-              fimOriginal={
-                original && aula.turma
-                  ? `${original.slice(0, 10)}T${String(aula.turma.horario_fim).slice(0, 5)}`
-                  : null
-              }
-            />
-          )}
           <ExcluirAula aulaId={aula.id} quando={quando} />
         </div>
       )}
 
-      {/* Etapa 6: vale tambem para a aula dada, que so corrige o professor (decisao 7). */}
+      {/* Botao unico (30/10/2026): a tela de editar pergunta o escopo e ja
+          mostra todos os campos que a aula libera, sem precisar dizer qual
+          campo mudar na URL. */}
       {ehGestora && aula.status !== 'Excluída' && (
         <div>
-          <BotaoLink
-            href={`/turmas/${aula.turma_id}/mudar?aula=${aula.id}&escopo=esta&acao=${aula.status === 'Realizada' ? 'professor' : 'quando'}`}
-            aparencia="secundario"
-          >
-            Mudar esta aula
+          <BotaoLink href={`/turmas/${aula.turma_id}/mudar?aula=${aula.id}`} aparencia="secundario">
+            Editar aula
           </BotaoLink>
         </div>
       )}
