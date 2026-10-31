@@ -245,13 +245,15 @@ function EditarEstaAula({
   const [pendente, iniciar] = useTransition()
 
   // Extensao de 30/10/2026: nao ha mais escolha de "o que mudar" — a previa
-  // (`aula.campos`, da varredura) e que diz, aula por aula, o que se libera.
+  // (`aula.campos`, da varredura) e que diz, aula por aula, o que se libera:
+  // quando, professor e modalidade.
   const podeQuando = aula?.campos?.quando ?? false
+  const podeProfessor = aula?.campos?.professor ?? false
   const podeModalidade = aula?.campos?.modalidade ?? false
 
   const mudouHorario =
     podeQuando && (data !== dados.inicio.slice(0, 10) || horaInicio !== dados.inicio.slice(11, 16) || horaFim !== dados.fim.slice(11, 16))
-  const mudouProfessor = professorId !== dados.professorId
+  const mudouProfessor = podeProfessor && professorId !== dados.professorId
   const mudouModalidade = podeModalidade && modalidade !== dados.modalidade
   const bloqueio = errosDaEdicao(aula, { quando: mudouHorario, professor: mudouProfessor, modalidade: mudouModalidade })
   const nadaMudou = !mudouHorario && !mudouProfessor && !mudouModalidade
@@ -323,16 +325,18 @@ function EditarEstaAula({
             </label>
           </>
         )}
-        <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-          <span className="font-medium">Professor desta aula</span>
-          <select value={professorId} onChange={(e) => setProfessorId(Number(e.target.value))} className={entradaClasse}>
-            {dados.professores.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nome}
-              </option>
-            ))}
-          </select>
-        </label>
+        {podeProfessor && (
+          <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+            <span className="font-medium">Professor desta aula</span>
+            <select value={professorId} onChange={(e) => setProfessorId(Number(e.target.value))} className={entradaClasse}>
+              {dados.professores.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {podeModalidade && (
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium">Modalidade desta aula</span>
@@ -350,7 +354,9 @@ function EditarEstaAula({
 
       {!podeQuando && (
         <p className="mt-3 text-sm text-tinta-suave">
-          Esta aula já aconteceu: só o professor se corrige.
+          {podeProfessor
+            ? 'Esta aula já aconteceu: só o professor se corrige.'
+            : 'Esta aula já aconteceu e está no pagamento do professor: nada mais muda nela.'}
         </p>
       )}
       {!nadaMudou && bloqueio.length > 0 && (
