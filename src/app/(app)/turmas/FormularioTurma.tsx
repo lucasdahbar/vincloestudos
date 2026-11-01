@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMemo, useState, useTransition } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
@@ -341,8 +342,31 @@ export function FormularioTurma({
           </select>
         </Campo>
 
+        {/* Bug de 31/10/2026: editar por aqui mudava a série inteira sem
+            perguntar. Na turma já criada, dia, horário e repetição só mudam
+            pela tela de editar aula, que pergunta o alcance. */}
+        {turma && (
+          <div className="rounded-campo bg-superficie-2 px-4 py-3 text-sm">
+            <p>
+              <strong>{ROTULO_OPCAO[opcao]}</strong>
+              {recorrente && estado.dias_semana.length > 0 &&
+                `, ${DIAS_SEMANA.filter((d) => estado.dias_semana.includes(d.valor)).map((d) => d.curto).join(', ')}`}
+              {!recorrente && estado.data_unica && `, ${ddmmaaaa(estado.data_unica)}`}
+              , das {estado.horario_inicio} às {estado.horario_fim}.
+            </p>
+            <p className="mt-1 text-tinta-suave">
+              Para mudar dia, horário ou repetição, use{' '}
+              <Link href={`/turmas/${turma.id}/mudar`} className="font-medium text-destaque underline">
+                Editar aula
+              </Link>
+              : lá você escolhe se muda só uma aula, a partir de uma data ou a série inteira.
+            </p>
+          </div>
+        )}
+
         {/* Rodada 4: como um compromisso no Google Agenda — não se repete,
             diário, semanal, quinzenal, mensal ou "a cada N". */}
+        {!turma && (
         <Campo etiqueta="Repetição" obrigatorio grupo>
           <div className="flex flex-wrap gap-2">
             {(Object.keys(ROTULO_OPCAO) as OpcaoRepeticao[]).map((op) => {
@@ -365,8 +389,10 @@ export function FormularioTurma({
             })}
           </div>
         </Campo>
+        )}
 
         {!recorrente ? (
+          !turma && (
           <>
             <Campo etiqueta="Data da aula" ajuda="Esta turma acontece uma vez só." obrigatorio>
               <input
@@ -393,9 +419,10 @@ export function FormularioTurma({
               </div>
             )}
           </>
+          )
         ) : (
           <>
-            {opcao === 'Personalizado' && (
+            {!turma && opcao === 'Personalizado' && (
               <Campo etiqueta="Repete a cada" obrigatorio grupo>
                 <div className="flex gap-2">
                   <input
@@ -423,7 +450,7 @@ export function FormularioTurma({
               </Campo>
             )}
 
-            {mostraDias && (
+            {!turma && mostraDias && (
               <Campo etiqueta="Dias da semana" ajuda="Em quais dias esta turma tem aula." obrigatorio grupo>
                 <div className="flex flex-wrap gap-2">
                   {DIAS_SEMANA.map((dia) => {
@@ -449,10 +476,11 @@ export function FormularioTurma({
             )}
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <Campo etiqueta="Começa em" ajuda="Pode ser uma data passada." obrigatorio>
+              <Campo etiqueta="Começa em" ajuda={turma ? 'Muda pela tela de editar aula.' : 'Pode ser uma data passada.'} obrigatorio>
                 <input
                   type="date"
                   value={estado.data_inicio ?? ''}
+                  disabled={!!turma}
                   onChange={(e) => setEstado((a) => ({ ...a, data_inicio: e.target.value || null }))}
                   className={entradaClasse}
                 />
@@ -491,6 +519,7 @@ export function FormularioTurma({
           </>
         )}
 
+        {!turma && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Campo etiqueta="Início" obrigatorio>
             <input
@@ -509,6 +538,7 @@ export function FormularioTurma({
             />
           </Campo>
         </div>
+        )}
 
         {/* O professor recebe este link no e-mail de turma nova. */}
         <Campo

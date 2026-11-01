@@ -114,3 +114,36 @@ export function validarTurma(turma: EntradaTurma, servico: ServicoDaTurma): stri
 
   return erros
 }
+
+type QuandoDaTurma = Pick<
+  EntradaTurma,
+  | 'tipo_recorrencia'
+  | 'data_unica'
+  | 'frequencia'
+  | 'intervalo'
+  | 'data_inicio'
+  | 'dias_semana'
+  | 'horario_inicio'
+  | 'horario_fim'
+>
+
+/**
+ * O "Editar turma" tentou mudar dia, horario ou repeticao? Bug de 31/10/2026:
+ * salvar por ali mudava a serie inteira de hoje em diante, e a gestora queria
+ * mudar uma aula so. Isso agora so se faz pela tela de editar aula, que
+ * pergunta o alcance (so esta, a partir de uma data, serie inteira).
+ */
+export function mudaQuandoDaTurma(atual: QuandoDaTurma, entrada: QuandoDaTurma): boolean {
+  const hora = (h: string) => h.slice(0, 5)
+  const dias = (d: number[]) => [...d].sort((a, b) => a - b).join(',')
+  return (
+    atual.tipo_recorrencia !== entrada.tipo_recorrencia ||
+    (atual.data_unica ?? null) !== (entrada.data_unica ?? null) ||
+    (atual.frequencia ?? null) !== (entrada.frequencia ?? null) ||
+    (atual.intervalo ?? null) !== (entrada.intervalo ?? null) ||
+    (atual.data_inicio ?? null) !== (entrada.data_inicio ?? null) ||
+    dias(atual.dias_semana) !== dias(entrada.dias_semana) ||
+    hora(atual.horario_inicio) !== hora(entrada.horario_inicio) ||
+    hora(atual.horario_fim) !== hora(entrada.horario_fim)
+  )
+}

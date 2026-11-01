@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validarTurma, type EntradaTurma, type ServicoDaTurma } from './regras'
+import { mudaQuandoDaTurma, validarTurma, type EntradaTurma, type ServicoDaTurma } from './regras'
 
 const servicoCompleto: ServicoDaTurma = {
   permite_materia: true,
@@ -153,5 +153,38 @@ describe('validarTurma — regra e período (Rodada 4)', () => {
         servicoCompleto,
       ),
     ).toEqual([])
+  })
+})
+
+// Bug de 31/10/2026: o "Editar turma" mudava o horario da serie inteira.
+// Dia, horario e repeticao agora so mudam pela tela de editar aula.
+describe('mudaQuandoDaTurma', () => {
+  const atual = {
+    tipo_recorrencia: 'Recorrente' as const,
+    data_unica: null,
+    frequencia: 'Semanal' as const,
+    intervalo: 1,
+    data_inicio: '2026-10-07',
+    dias_semana: [1],
+    horario_inicio: '19:00:00',
+    horario_fim: '20:00:00',
+  }
+
+  it('não muda quando os campos vêm iguais, com ou sem segundos', () => {
+    expect(mudaQuandoDaTurma(atual, { ...atual, horario_inicio: '19:00', horario_fim: '20:00' })).toBe(false)
+  })
+
+  it('muda quando o horário muda', () => {
+    expect(mudaQuandoDaTurma(atual, { ...atual, horario_inicio: '16:00' })).toBe(true)
+  })
+
+  it('muda quando os dias mudam, sem ligar para a ordem', () => {
+    expect(mudaQuandoDaTurma({ ...atual, dias_semana: [1, 3] }, { ...atual, dias_semana: [3, 1] })).toBe(false)
+    expect(mudaQuandoDaTurma(atual, { ...atual, dias_semana: [2] })).toBe(true)
+  })
+
+  it('muda quando a repetição ou o início mudam', () => {
+    expect(mudaQuandoDaTurma(atual, { ...atual, intervalo: 2 })).toBe(true)
+    expect(mudaQuandoDaTurma(atual, { ...atual, data_inicio: '2026-10-01' })).toBe(true)
   })
 })

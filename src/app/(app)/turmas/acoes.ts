@@ -9,7 +9,7 @@ import { exigirGestora } from '@/dados/sessao'
 import { limparAulasDaTurma, moverAulasDaTurma } from '@/dados/limpeza-aulas'
 import { deveOferecerRenovacao, fimRenovado, resolverFim } from '@/dominio/agenda/recorrencia'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
-import { validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
+import { mudaQuandoDaTurma, validarTurma, type EntradaTurma } from '@/dominio/turmas/regras'
 import { avaliarExclusaoTurma } from '@/dominio/turmas/exclusao'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
 import { avisarProfessorDaTurma } from '@/dados/avisos-turma'
@@ -57,7 +57,25 @@ export async function salvarTurma(
   // vez de ficarem duplicadas (ver `moverAulasDaTurma`).
   let horarioAntigo: string | null = null
   if (id !== null) {
-    const { data } = await supabase.from('turmas').select('horario_inicio').eq('id', id).maybeSingle()
+    const { data } = await supabase
+      .from('turmas')
+      .select('tipo_recorrencia, data_unica, frequencia, intervalo, data_inicio, dias_semana, horario_inicio, horario_fim')
+      .eq('id', id)
+      .maybeSingle()
+    // Bug de 31/10/2026: dia e horario so mudam pela tela de editar aula.
+    const quando = data && {
+      ...data,
+      horario_inicio: String(data.horario_inicio),
+      horario_fim: String(data.horario_fim),
+      // A unica so tem data_unica; o formulario manda o padrao de hoje.
+      data_inicio: data.tipo_recorrencia === 'Recorrente' ? data.data_inicio : entrada.data_inicio,
+    }
+    if (quando && mudaQuandoDaTurma(quando, entrada)) {
+      return {
+        ok: false,
+        erros: ['Para mudar dia, horário, início ou repetição, use "Editar aula" na agenda da turma.'],
+      }
+    }
     horarioAntigo = data ? String(data.horario_inicio) : null
   }
 
