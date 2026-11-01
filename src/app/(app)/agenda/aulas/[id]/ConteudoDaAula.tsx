@@ -6,6 +6,7 @@ import { tokenDaAula } from '@/dados/presencas'
 import { LinkDeChamada } from './LinkDeChamada'
 import { AvisarFalta } from './AvisarFalta'
 import { EnviarLink } from './EnviarLink'
+import { MensagemDoLink } from './MensagemDoLink'
 import { ExcluirAula } from './ExcluirAula'
 import { CorrigirChamada } from './CorrigirChamada'
 import { CancelarAviso } from '../../../reposicoes/CancelarAviso'
@@ -86,6 +87,15 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
     aluno: { nome: string } | null
   }[]
 
+  // A mensagem do link como sai para o primeiro aluno com contato.
+  const exemploDoLink = (() => {
+    for (const m of lista.chamada) {
+      const d = links?.get(m.aluno_id)?.[0]
+      if (d) return { texto: d.texto, aluno: m.nome }
+    }
+    return null
+  })()
+
   return (
     <div className="flex flex-col gap-6">
       <header>
@@ -106,14 +116,16 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
               {situacao.pagamento === 'Paga' ? 'Professor pago' : 'Em pagamento'}
             </Selo>
           )}
+          {/* Inicio e fim (pedido de 01/11/2026). O horario gravado ja e o do
+              relogio da escola, por isso a data sai em UTC. */}
           <span>
             {new Date(aula.data_hora_inicio).toLocaleDateString('pt-BR', {
               weekday: 'long',
               day: '2-digit',
               month: 'long',
-              hour: '2-digit',
-              minute: '2-digit',
+              timeZone: 'UTC',
             })}
+            , das {String(aula.data_hora_inicio).slice(11, 16)} às {String(aula.data_hora_fim).slice(11, 16)}
           </span>
           {original && (
             <Selo tom="alerta">
@@ -122,6 +134,8 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
           )}
         </div>
       </header>
+
+      {exemploDoLink && <MensagemDoLink texto={exemploDoLink.texto} aluno={exemploDoLink.aluno} />}
 
       <Cartao>
         <h2 className="mb-3 text-lg">

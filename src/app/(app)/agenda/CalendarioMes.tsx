@@ -57,10 +57,12 @@ function Chip({ aula }: { aula: AulaDoCalendario }) {
   return (
     <Link
       href={`/agenda/aulas/${aula.id}`}
-      title={`${aula.data_hora_inicio.slice(11, 16)} — ${aula.turma_nome} (${aula.situacao})`}
+      title={`${aula.data_hora_inicio.slice(11, 16)}–${aula.data_hora_fim.slice(11, 16)} — ${aula.turma_nome} (${aula.situacao})`}
       className={`block truncate rounded-md px-1.5 py-1 text-xs leading-tight transition-colors ${ESTILO_SITUACAO[aula.situacao]}`}
     >
-      <span className="font-semibold">{aula.data_hora_inicio.slice(11, 16)}</span>{' '}
+      <span className="font-semibold">
+        {aula.data_hora_inicio.slice(11, 16)}–{aula.data_hora_fim.slice(11, 16)}
+      </span>{' '}
       <span className="opacity-90">{aula.turma_nome}</span>
     </Link>
   )
@@ -177,7 +179,7 @@ export function CalendarioMes({ mes, aulas, feriados, hoje }: Props) {
                           para caber, e a barra de navegacao fixa saia da tela. */}
                       <span className="flex min-w-0 items-baseline gap-2">
                         <span className="shrink-0 font-medium">
-                          {aula.data_hora_inicio.slice(11, 16)}
+                          {aula.data_hora_inicio.slice(11, 16)}–{aula.data_hora_fim.slice(11, 16)}
                         </span>
                         <span className="min-w-0 truncate text-sm text-tinta-suave">
                           {aula.turma_nome}
