@@ -2,6 +2,7 @@ import 'server-only'
 import { clienteAdmin } from './admin'
 import { calendarioEscolar } from './calendario'
 import {
+  ajustarHorarioDaOcorrencia,
   apagarEvento,
   atualizarDescricao,
   listarOcorrencias,
@@ -25,6 +26,7 @@ import {
   alunosDaSerie,
   alunosNaData,
   fimDoHorizonte,
+  horariosPassadosDivergentes,
 } from '@/dominio/agenda/ocorrencias'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import type { Frequencia } from '@/dominio/tipos'
@@ -384,6 +386,59 @@ async function ajustarOcorrencias(
 }
 
 /**
+ * Mudar o horario da serie leva junto, no Google, as ocorrencias que ja
+ * passaram (bug de 31/10/2026). Cada uma volta ao horario que a aula tem no
+ * sistema, que nunca muda aula passada. Aula remarcada fica de fora: ela tem
+ * evento proprio.
+ */
+async function ajustarHorariosPassados(
+  googleCalendarId: string,
+  eventoId: string,
+  turmaId: number,
+  evento: Omit<TurmaDoEvento, 'alunos'>,
+): Promise<{ ok: boolean; motivo?: string }> {
+  if (evento.tipo_recorrencia !== 'Recorrente' || !evento.data_inicio) return { ok: true }
+  const hoje = hojeISO()
+  if (evento.data_inicio >= hoje) return { ok: true }
+
+  const { data: aulas, error } = await clienteAdmin()
+    .from('aulas')
+    .select('data_hora_inicio, data_hora_fim')
+    .eq('turma_id', turmaId)
+    .neq('status', 'Excluída')
+    .is('data_hora_original', null)
+    .gte('data_hora_inicio', `${evento.data_inicio}T00:00:00`)
+    .lt('data_hora_inicio', `${hoje}T00:00:00`)
+  if (error) return { ok: false, motivo: 'Não foi possível ler as aulas passadas da turma.' }
+  if (!aulas || aulas.length === 0) return { ok: true }
+
+  const ontem = new Date(Date.parse(`${hoje}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10)
+  const lidas = await listarOcorrencias(googleCalendarId, eventoId, evento.data_inicio, ontem)
+  if (!lidas.ok) return lidas
+
+  const ajustes = horariosPassadosDivergentes(
+    lidas.ocorrencias,
+    aulas.map((a) => ({
+      data: String(a.data_hora_inicio).slice(0, 10),
+      inicio: String(a.data_hora_inicio).slice(11, 16),
+      fim: String(a.data_hora_fim).slice(11, 16),
+    })),
+  )
+  const falhas: string[] = []
+  for (let i = 0; i < ajustes.length; i += 5) {
+    const lote = await Promise.all(
+      ajustes
+        .slice(i, i + 5)
+        .map((a) => ajustarHorarioDaOcorrencia(googleCalendarId, a.id, a.data, a.inicio, a.fim)),
+    )
+    for (const r of lote) if (!r.ok) falhas.push(r.motivo)
+  }
+  return falhas.length === 0
+    ? { ok: true }
+    : { ok: false, motivo: `${falhas.length} aula(s) passada(s) com horário errado no Google: ${falhas[0]}` }
+}
+
+/**
  * G2 (Rodada 2): mantém o evento da turma na agenda do professor.
  *
  * Chamado depois de salvar a turma, em `after()`. Nada aqui pode derrubar o
@@ -483,6 +538,7 @@ export async function sincronizarEventoDaTurma(
   // confere todas de novo.
   if (!professor?.google_calendar_id) return { ok: true }
   const ajuste = await ajustarOcorrencias(professor.google_calendar_id, r.eventoId, evento, matriculas)
+  const passadas = await ajustarHorariosPassados(professor.google_calendar_id, r.eventoId, turmaId, evento)
   const falhas = await sincronizarAvulsos(
     turmaId,
     turma,
@@ -490,7 +546,7 @@ export async function sincronizarEventoDaTurma(
     link,
     matriculas,
   )
-  return comAvulsos(ajuste, falhas)
+  return comAvulsos(ajuste.ok ? passadas : ajuste, falhas)
 }
 
 /**

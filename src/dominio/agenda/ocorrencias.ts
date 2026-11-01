@@ -16,6 +16,30 @@ export interface OcorrenciaNoGoogle {
   /** Data da ocorrência no fuso da escola, AAAA-MM-DD. */
   data: string
   descricao: string | null
+  /** Horário que a ocorrência tem hoje no Google, HH:MM no fuso da escola. */
+  inicio?: string
+  fim?: string
+}
+
+/**
+ * As ocorrências passadas cujo horário no Google não é o da aula no sistema.
+ *
+ * Bug de 31/10/2026: mudar o horário da turma regrava a série inteira no
+ * Google, e o Google muda junto as ocorrências que já passaram (a Biologia 2º
+ * ano, das 19h, apareceu às 16h em 19 e 26/10). O sistema não mexe nas aulas
+ * passadas, então é ele que diz o horário de cada uma.
+ */
+export function horariosPassadosDivergentes(
+  ocorrencias: OcorrenciaNoGoogle[],
+  aulas: { data: string; inicio: string; fim: string }[],
+): { id: string; data: string; inicio: string; fim: string }[] {
+  const porData = new Map(aulas.map((a) => [a.data, a]))
+  return ocorrencias.flatMap((o) => {
+    const aula = porData.get(o.data)
+    if (!aula || !o.inicio || !o.fim) return []
+    if (o.inicio === aula.inicio && o.fim === aula.fim) return []
+    return [{ id: o.id, data: o.data, inicio: aula.inicio, fim: aula.fim }]
+  })
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   alunosDaSerie,
   alunosNaData,
   fimDoHorizonte,
+  horariosPassadosDivergentes,
   type OcorrenciaNoGoogle,
 } from './ocorrencias'
 
@@ -149,5 +150,36 @@ describe('quem avisou que não vem', () => {
   it('o horizonte alcança um aviso além da última matrícula', () => {
     const longe = matricula({ ausencias: ['2028-03-06'] })
     expect(fimDoHorizonte([longe], '2026-10-14') >= '2028-03-06').toBe(true)
+  })
+})
+
+// Bug de 31/10/2026: mudar o horário da série no Google muda também as
+// ocorrências passadas (Biologia 2º ano: 19h viraram 16h no Google).
+describe('horariosPassadosDivergentes', () => {
+  const oc = (data: string, inicio: string, fim: string) => ({
+    id: `ev_${data}`,
+    data,
+    descricao: null,
+    inicio,
+    fim,
+  })
+
+  it('devolve a ocorrência passada cujo horário não é o da aula no sistema', () => {
+    const r = horariosPassadosDivergentes(
+      [oc('2026-10-19', '16:00', '18:00'), oc('2026-10-26', '19:00', '20:00')],
+      [
+        { data: '2026-10-19', inicio: '19:00', fim: '20:00' },
+        { data: '2026-10-26', inicio: '19:00', fim: '20:00' },
+      ],
+    )
+    expect(r).toEqual([{ id: 'ev_2026-10-19', data: '2026-10-19', inicio: '19:00', fim: '20:00' }])
+  })
+
+  it('ignora a ocorrência sem aula correspondente ou sem horário lido', () => {
+    const r = horariosPassadosDivergentes(
+      [oc('2026-10-12', '16:00', '18:00'), { id: 'x', data: '2026-10-19', descricao: null }],
+      [{ data: '2026-10-19', inicio: '19:00', fim: '20:00' }],
+    )
+    expect(r).toEqual([])
   })
 })

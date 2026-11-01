@@ -183,6 +183,8 @@ export async function listarOcorrencias(
           status?: string
           description?: string
           originalStartTime?: { dateTime?: string; date?: string }
+          start?: { dateTime?: string }
+          end?: { dateTime?: string }
         }[]
         nextPageToken?: string
       }
@@ -190,7 +192,14 @@ export async function listarOcorrencias(
       for (const item of json.items ?? []) {
         const inicio = item.originalStartTime?.dateTime ?? item.originalStartTime?.date
         if (item.status === 'cancelled' || !inicio) continue
-        ocorrencias.push({ id: item.id, data: inicio.slice(0, 10), descricao: item.description ?? null })
+        ocorrencias.push({
+          id: item.id,
+          data: inicio.slice(0, 10),
+          descricao: item.description ?? null,
+          // Lido com timeZone da escola: o HH:MM ja e o do relogio dela.
+          inicio: item.start?.dateTime?.slice(11, 16),
+          fim: item.end?.dateTime?.slice(11, 16),
+        })
       }
 
       pagina = json.nextPageToken
@@ -200,6 +209,45 @@ export async function listarOcorrencias(
   }
 
   return { ok: true, ocorrencias }
+}
+
+/**
+ * Poe uma ocorrencia da serie no horario dado (data AAAA-MM-DD, HH:MM no fuso
+ * da escola). Usado para devolver as aulas passadas ao horario que tiveram
+ * quando a serie muda de horario (bug de 31/10/2026).
+ */
+export async function ajustarHorarioDaOcorrencia(
+  googleCalendarId: string,
+  ocorrenciaId: string,
+  data: string,
+  inicio: string,
+  fim: string,
+  buscar: typeof fetch = fetch,
+): Promise<{ ok: true } | { ok: false; motivo: string }> {
+  const token = await accessToken(buscar)
+  if (!token.ok) return { ok: false, motivo: token.motivo }
+
+  try {
+    const resposta = await buscar(
+      `${API}/${encodeURIComponent(googleCalendarId)}/events/${encodeURIComponent(ocorrenciaId)}?sendUpdates=none`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          start: { dateTime: `${data}T${inicio}:00`, timeZone: FUSO },
+          end: { dateTime: `${data}T${fim}:00`, timeZone: FUSO },
+        }),
+        signal: AbortSignal.timeout(10_000),
+      },
+    )
+    if (resposta.ok) return { ok: true }
+    return { ok: false, motivo: `O Google recusou o horário da aula de ${data} (HTTP ${resposta.status}).` }
+  } catch {
+    return { ok: false, motivo: 'Não foi possível falar com o Google Agenda agora.' }
+  }
 }
 
 /** Turma encerrada: o evento sai da agenda do professor. */
