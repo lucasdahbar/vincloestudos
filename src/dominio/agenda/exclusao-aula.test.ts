@@ -75,4 +75,41 @@ describe('validarEscolhas', () => {
       validarEscolhas(av, 99, [{ aluno_id: 1, aula_destino_id: 99 }], [{ pendencia_id: 30, aula_destino_id: null }]),
     ).toEqual(['A reposição de Ana não pode ser na aula que está sendo excluída.'])
   })
+
+  describe('sem reposição', () => {
+    const semReposicao = { cobrar: false, pagarProfessor: false }
+
+    it('aceita "não gerar reposição" com a decisão de cobrança, para quem é da turma e para quem repunha', () => {
+      expect(
+        validarEscolhas(
+          av,
+          99,
+          [{ aluno_id: 1, aula_destino_id: null, sem_reposicao: semReposicao }],
+          [{ pendencia_id: 30, aula_destino_id: null, sem_reposicao: { cobrar: true, pagarProfessor: true } }],
+        ),
+      ).toEqual([])
+    })
+
+    it('não aceita sem reposição junto de uma aula de reposição escolhida', () => {
+      expect(
+        validarEscolhas(
+          av,
+          99,
+          [{ aluno_id: 1, aula_destino_id: 50, sem_reposicao: semReposicao }],
+          [{ pendencia_id: 30, aula_destino_id: null }],
+        ),
+      ).toEqual(['Ana não pode ficar sem reposição e ter uma aula de reposição ao mesmo tempo.'])
+    })
+
+    it('o professor só recebe por uma aula cobrada (regra de 09/10/2026)', () => {
+      expect(
+        validarEscolhas(
+          av,
+          99,
+          [{ aluno_id: 1, aula_destino_id: null }],
+          [{ pendencia_id: 30, aula_destino_id: null, sem_reposicao: { cobrar: false, pagarProfessor: true } }],
+        ),
+      ).toEqual(['Caio: o professor só recebe por uma aula que foi cobrada.'])
+    })
+  })
 })

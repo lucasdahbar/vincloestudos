@@ -1,3 +1,4 @@
+import { validarDecisao, type Decisao } from '@/dominio/reposicoes/desfecho'
 import type { StatusAula } from '@/dominio/tipos'
 
 /**
@@ -5,7 +6,8 @@ import type { StatusAula } from '@/dominio/tipos'
  *
  * Aula que aconteceu (presença registrada) não sai. Sem alunos, basta
  * confirmar. Com alunos, cada um vai para reposição antes — pelas regras de
- * reposição de sempre, sem cobrança.
+ * reposição de sempre, sem cobrança — ou fica sem reposição, com a decisão de
+ * cobrança do "avisou que não vem".
  */
 export interface AlunoNaAula {
   aluno_id: number
@@ -51,14 +53,20 @@ export function avaliarExclusaoAula(s: SituacaoDaAula): AvaliacaoExclusaoAula {
   return { tipo: 'com-alunos', regulares, reposicoes: s.reposicoes }
 }
 
-/** `aula_destino_id` nulo = deixar a reposição pendente. */
+/**
+ * `aula_destino_id` nulo = deixar a reposição pendente. `sem_reposicao` (pedido
+ * do Julio, 01/11/2026) = não gerar reposição: a mesma decisão de cobrança do
+ * "avisou que não vem" (cobrar a aula? pagar o professor?).
+ */
 export interface EscolhaRegular {
   aluno_id: number
   aula_destino_id: number | null
+  sem_reposicao?: Decisao
 }
 export interface EscolhaReposicao {
   pendencia_id: number
   aula_destino_id: number | null
+  sem_reposicao?: Decisao
 }
 
 export function validarEscolhas(
@@ -69,10 +77,18 @@ export function validarEscolhas(
 ): string[] {
   const erros: string[] = []
 
-  const conferir = (nome: string, escolha: { aula_destino_id: number | null } | undefined) => {
+  const conferir = (
+    nome: string,
+    escolha: { aula_destino_id: number | null; sem_reposicao?: Decisao } | undefined,
+  ) => {
     if (!escolha) erros.push(`Escolha o que fazer com ${nome}.`)
     else if (escolha.aula_destino_id === aulaId) {
       erros.push(`A reposição de ${nome} não pode ser na aula que está sendo excluída.`)
+    } else if (escolha.sem_reposicao) {
+      if (escolha.aula_destino_id !== null) {
+        erros.push(`${nome} não pode ficar sem reposição e ter uma aula de reposição ao mesmo tempo.`)
+      }
+      for (const e of validarDecisao(escolha.sem_reposicao)) erros.push(`${nome}: ${e.charAt(0).toLowerCase()}${e.slice(1)}`)
     }
   }
 
