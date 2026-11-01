@@ -5,19 +5,39 @@ import { useState, useTransition } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { consultarExclusaoAula, excluirAula } from '../../acoes'
 import type { PreviaExclusaoAula } from '@/dados/exclusao-aula'
+import type { Decisao } from '@/dominio/reposicoes/desfecho'
 import { Botao } from '@/ui/Botao'
 import { entradaClasse } from '@/ui/Campo'
+import { PerguntasDeCobranca } from '../../../reposicoes/PerguntasDeCobranca'
+
+/** Valor do seletor para "não gerar reposição" (nenhuma aula tem esse id). */
+const SEM_REPOSICAO = 'sem'
+
+function semChave<T>(mapa: Record<string, T>, chave: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(mapa).filter(([k]) => k !== chave))
+}
+
+function resumoDaDecisao(d: Decisao): string {
+  if (!d.cobrar) return 'Sem reposição e sem cobrar a aula. Se já foi cobrada, o valor vira crédito do responsável.'
+  return d.pagarProfessor
+    ? 'Sem reposição. A aula é cobrada e o professor recebe por ela (desistência paga).'
+    : 'Sem reposição. A aula é cobrada.'
+}
 
 /**
  * Rodada 4 (spec 6.2), no mesmo desenho de ExcluirTurma: consulta primeiro,
  * mostra o que vai acontecer e só então pergunta. Com alunos, cada um escolhe
- * a aula de reposição ali mesmo — ou fica pendente.
+ * a aula de reposição ali mesmo, fica pendente ou fica sem reposição (pedido do
+ * Julio, 01/11/2026), com as mesmas perguntas de cobrança do "avisou que não vem".
  */
 export function ExcluirAula({ aulaId, quando }: { aulaId: number; quando: string }) {
   const router = useRouter()
   const [aberto, setAberto] = useState(false)
   const [previa, setPrevia] = useState<PreviaExclusaoAula | null>(null)
   const [destinos, setDestinos] = useState<Record<string, number | null>>({})
+  // Chave presente = "não gerar reposição"; null = a cobrança ainda não foi decidida.
+  const [semReposicao, setSemReposicao] = useState<Record<string, Decisao | null>>({})
+  const [excluida, setExcluida] = useState(false)
   const [erros, setErros] = useState<string[]>([])
   const [erroAbrir, setErroAbrir] = useState<string | null>(null)
   const [pendente, iniciar] = useTransition()
@@ -34,6 +54,8 @@ export function ExcluirAula({ aulaId, quando }: { aulaId: number; quando: string
         }
         setPrevia(p)
         setDestinos({})
+        setSemReposicao({})
+        setExcluida(false)
         setAberto(true)
       } catch {
         setErroAbrir('Não foi possível verificar a aula agora. Tente de novo.')
@@ -46,17 +68,36 @@ export function ExcluirAula({ aulaId, quando }: { aulaId: number; quando: string
     const av = previa.avaliacao
     const regulares =
       av.tipo === 'com-alunos'
-        ? av.regulares.map((a) => ({ aluno_id: a.aluno_id, aula_destino_id: destinos[`a${a.aluno_id}`] ?? null }))
+        ? av.regulares.map((a) => ({
+            aluno_id: a.aluno_id,
+            aula_destino_id: destinos[`a${a.aluno_id}`] ?? null,
+            sem_reposicao: semReposicao[`a${a.aluno_id}`] ?? undefined,
+          }))
         : []
     const reposicoes =
       av.tipo === 'com-alunos'
-        ? av.reposicoes.map((r) => ({ pendencia_id: r.pendencia_id, aula_destino_id: destinos[`p${r.pendencia_id}`] ?? null }))
+        ? av.reposicoes.map((r) => ({
+            pendencia_id: r.pendencia_id,
+            aula_destino_id: destinos[`p${r.pendencia_id}`] ?? null,
+            sem_reposicao: semReposicao[`p${r.pendencia_id}`] ?? undefined,
+          }))
         : []
+
+    const faltaDecidir = Object.values(semReposicao).some((d) => d === null)
+    if (faltaDecidir) {
+      setErros(['Responda se a aula será cobrada de quem ficou sem reposição.'])
+      return
+    }
 
     iniciar(async () => {
       try {
         const r = await excluirAula(aulaId, regulares, reposicoes)
-        if (r.ok) {
+        if (r.ok && r.avisos?.length) {
+          // A aula já foi excluída; só a decisão de cobrança de alguém falhou.
+          setExcluida(true)
+          setErros(r.avisos)
+          router.refresh()
+        } else if (r.ok) {
           setAberto(false)
           router.push('/agenda')
           router.refresh()
@@ -70,25 +111,53 @@ export function ExcluirAula({ aulaId, quando }: { aulaId: number; quando: string
   }
 
   const av = previa?.avaliacao
-  const seletor = (chave: string, nome: string) => (
-    <label key={chave} className="flex flex-col gap-1 text-sm">
-      <span className="font-medium">{nome}</span>
-      <select
-        className={entradaClasse}
-        value={destinos[chave] ?? ''}
-        onChange={(e) =>
-          setDestinos((d) => ({ ...d, [chave]: e.target.value ? Number(e.target.value) : null }))
-        }
-      >
-        <option value="">Deixar a reposição pendente</option>
-        {previa?.destinos.map((d) => (
-          <option key={d.id} value={d.id}>
-            {d.rotulo}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
+  const seletor = (chave: string, nome: string) => {
+    const sem = chave in semReposicao
+    const decisao = semReposicao[chave]
+    return (
+      <div key={chave} className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1">
+          <span className="font-medium">{nome}</span>
+          <select
+            className={entradaClasse}
+            value={sem ? SEM_REPOSICAO : (destinos[chave] ?? '')}
+            onChange={(e) => {
+              const v = e.target.value
+              setSemReposicao((s) => (v === SEM_REPOSICAO ? { ...s, [chave]: null } : semChave(s, chave)))
+              setDestinos((d) => ({ ...d, [chave]: v && v !== SEM_REPOSICAO ? Number(v) : null }))
+            }}
+          >
+            <option value="">Deixar a reposição pendente</option>
+            <option value={SEM_REPOSICAO}>Não gerar reposição</option>
+            {previa?.destinos.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.rotulo}
+              </option>
+            ))}
+          </select>
+        </label>
+        {sem && decisao === null && (
+          <PerguntasDeCobranca
+            pendente={false}
+            onDecidir={(d) => setSemReposicao((s) => ({ ...s, [chave]: d }))}
+            onVoltar={() => setSemReposicao((s) => semChave(s, chave))}
+          />
+        )}
+        {sem && decisao && (
+          <span className="text-tinta-suave">
+            {resumoDaDecisao(decisao)}{' '}
+            <button
+              type="button"
+              className="font-medium text-destaque underline-offset-4 hover:underline"
+              onClick={() => setSemReposicao((s) => ({ ...s, [chave]: null }))}
+            >
+              Alterar
+            </button>
+          </span>
+        )}
+      </div>
+    )
+  }
 
   return (
     <>
@@ -136,8 +205,10 @@ export function ExcluirAula({ aulaId, quando }: { aulaId: number; quando: string
               {av.tipo === 'com-alunos' && (
                 <div className="mt-3 flex flex-col gap-4">
                   <p className="text-tinta-suave">
-                    Antes de excluir, diga para onde vai cada aluno. A reposição não gera cobrança
-                    nova; quem ficar pendente aparece em Reposições.
+                    Antes de excluir, diga o que fazer com cada aluno: marcar a reposição, deixar
+                    pendente (aparece em Reposições) ou não gerar reposição, caso em que você decide
+                    se a aula é cobrada, como no &quot;avisou que não vem&quot;. A reposição marcada não
+                    gera cobrança nova.
                   </p>
                   {av.regulares.map((a) => seletor(`a${a.aluno_id}`, a.nome))}
                   {av.reposicoes.length > 0 && (
@@ -161,14 +232,26 @@ export function ExcluirAula({ aulaId, quando }: { aulaId: number; quando: string
                     Entendi
                   </Botao>
                 ) : (
-                  <>
-                    <Botao aparencia="perigo" disabled={pendente} onClick={confirmar}>
-                      {pendente ? 'Excluindo…' : 'Sim, excluir a aula'}
+                  excluida ? (
+                    <Botao
+                      aparencia="secundario"
+                      onClick={() => {
+                        setAberto(false)
+                        router.push('/agenda')
+                      }}
+                    >
+                      Ir para a agenda
                     </Botao>
-                    <Botao aparencia="secundario" onClick={() => setAberto(false)}>
-                      Cancelar
-                    </Botao>
-                  </>
+                  ) : (
+                    <>
+                      <Botao aparencia="perigo" disabled={pendente} onClick={confirmar}>
+                        {pendente ? 'Excluindo…' : 'Sim, excluir a aula'}
+                      </Botao>
+                      <Botao aparencia="secundario" onClick={() => setAberto(false)}>
+                        Cancelar
+                      </Botao>
+                    </>
+                  )
                 )}
               </div>
             </motion.div>
