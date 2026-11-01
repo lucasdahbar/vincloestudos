@@ -1,6 +1,6 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
-import { aulasDisponiveis } from './reposicoes'
+import { aplicarEfeitoFinanceiro, aulasDisponiveis } from './reposicoes'
 import {
   avaliarExclusaoAula,
   validarEscolhas,
@@ -10,6 +10,7 @@ import {
 } from '@/dominio/agenda/exclusao-aula'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import { planejarReposicao } from '@/dominio/reposicoes/agendamento'
+import type { Decisao } from '@/dominio/reposicoes/desfecho'
 
 const dia = (v: unknown) => String(v).slice(0, 10)
 
@@ -92,7 +93,7 @@ export async function executarExclusaoAula(
   regulares: EscolhaRegular[],
   reposicoes: EscolhaReposicao[],
 ): Promise<
-  { ok: true; turmaId: number; turmasDestino: number[] } | { ok: false; erros: string[] }
+  { ok: true; turmaId: number; turmasDestino: number[]; avisos: string[] } | { ok: false; erros: string[] }
 > {
   const previa = await previaExclusaoAula(aulaId)
   if (!previa) return { ok: false, erros: ['Esta aula não existe mais.'] }
@@ -129,7 +130,19 @@ export async function executarExclusaoAula(
   async function planoDe(
     pendencia: { id: number; aluno_id: number; aula_origem_id: number; turma_origem_id: number },
     destinoId: number | null,
+    semReposicao?: Decisao,
   ) {
+    if (semReposicao) {
+      // Sem reposição: a pendência já nasce Desistida, com a decisão de cobrança.
+      return {
+        aula_destino_id: null,
+        matricula_turma_id: null,
+        matricula_data: null,
+        desistida: true,
+        cobrar: semReposicao.cobrar,
+        pagar_professor: semReposicao.pagarProfessor,
+      }
+    }
     if (destinoId === null) return { aula_destino_id: null, matricula_turma_id: null, matricula_data: null }
     const destino = destinoPorId.get(destinoId)
     if (!destino) {
@@ -173,6 +186,7 @@ export async function executarExclusaoAula(
       const plano = await planoDe(
         { id: 0, aluno_id: a.aluno_id, aula_origem_id: aulaId, turma_origem_id: previa.turmaId },
         escolha.aula_destino_id,
+        escolha.sem_reposicao,
       )
       if (plano) novas.push({ aluno_id: a.aluno_id, ...plano })
     }
@@ -189,6 +203,7 @@ export async function executarExclusaoAula(
     const plano = await planoDe(
       { id: p.id, aluno_id: p.aluno_id, aula_origem_id: p.aula_origem_id, turma_origem_id: origem?.turma_id ?? 0 },
       r.aula_destino_id,
+      r.sem_reposicao,
     )
     if (plano) devolvidas.push({ pendencia_id: p.id, ...plano })
   }
@@ -202,10 +217,45 @@ export async function executarExclusaoAula(
   })
   if (error) return { ok: false, erros: [error.message] }
 
+  // Quem ficou sem reposição e sem cobrança: o crédito (aula já cobrada) ou a
+  // saída do rascunho, o mesmo efeito do "avisou que não vem". A exclusão já
+  // foi gravada, então uma falha aqui vira aviso, não erro.
+  const avisos: string[] = []
+  const semReposicaoIds = [
+    ...reposicoes.filter((r) => r.sem_reposicao).map((r) => r.pendencia_id),
+    ...(await pendenciasSemReposicaoDeAlunos(
+      supabase,
+      aulaId,
+      regulares.filter((r) => r.sem_reposicao).map((r) => r.aluno_id),
+    )),
+  ]
+  for (const id of semReposicaoIds) {
+    const r = await aplicarEfeitoFinanceiro(id)
+    if (!r.ok) avisos.push(...(r.erros ?? ['Não foi possível aplicar a decisão de cobrança.']))
+  }
+
   // As turmas que receberam alunos para repor: o evento delas ganha o aluno na
   // ocorrencia do dia (correcao de 13/10/2026).
   const turmasDestino = [...new Set((destinos ?? []).map((d) => d.turma_id as number))].filter(
     (t) => t !== previa.turmaId,
   )
-  return { ok: true, turmaId: previa.turmaId, turmasDestino }
+  return { ok: true, turmaId: previa.turmaId, turmasDestino, avisos }
+}
+
+/** As pendências que a exclusão acabou de criar já Desistidas, pelo aluno. */
+async function pendenciasSemReposicaoDeAlunos(
+  supabase: Awaited<ReturnType<typeof clienteServidor>>,
+  aulaId: number,
+  alunoIds: number[],
+): Promise<number[]> {
+  if (alunoIds.length === 0) return []
+  const { data, error } = await supabase
+    .from('pendencias_reposicao')
+    .select('id')
+    .eq('aula_origem_id', aulaId)
+    .eq('origem', 'Exclusão')
+    .eq('status', 'Desistida')
+    .in('aluno_id', alunoIds)
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((p) => p.id as number)
 }

@@ -340,7 +340,7 @@ export async function registrarAviso(
  * Não cobrar uma aula que já foi cobrada vira crédito do responsável. Se ainda
  * não foi, não há nada a fazer aqui: a geração de cobrança já a deixa de fora.
  */
-async function aplicarEfeitoFinanceiro(
+export async function aplicarEfeitoFinanceiro(
   pendenciaId: number,
 ): Promise<{ ok: boolean; erros?: string[] }> {
   const supabase = await clienteServidor()

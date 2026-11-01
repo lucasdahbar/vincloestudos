@@ -110,7 +110,7 @@ export async function excluirAula(
   aulaId: number,
   regulares: EscolhaRegular[],
   reposicoes: EscolhaReposicao[],
-): Promise<{ ok: boolean; erros?: string[] }> {
+): Promise<{ ok: boolean; erros?: string[]; avisos?: string[] }> {
   await exigirGestora()
   const r = await executarExclusaoAula(aulaId, regulares, reposicoes)
   if (!r.ok) return r
@@ -130,7 +130,8 @@ export async function excluirAula(
   revalidatePath('/agenda')
   revalidatePath(`/agenda/aulas/${aulaId}`)
   revalidatePath('/reposicoes')
-  return { ok: true }
+  revalidatePath('/creditos')
+  return { ok: true, avisos: r.avisos }
 }
 
 /**
