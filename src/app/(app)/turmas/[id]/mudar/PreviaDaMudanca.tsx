@@ -117,13 +117,18 @@ export function PreviaDaMudanca({
 
   const grupo = (g: AulaVarrida['grupo']) => v.aulas.filter((a) => a.grupo === g)
   const comAlunos = v.aulas.some((a) => a.alunos.length > 0)
+  // Pedido de 01/11/2026: em "so esta aula" a contagem e a lista repetiam a
+  // propria aula; fica so o que ainda precisa de resposta e os campos.
+  const soEsta = escopo === 'esta'
 
   return (
     <div className="flex flex-col gap-4">
+      {!soEsta && (
       <p className="text-lg">
         {plural(v.mudam, 'aula muda', 'aulas mudam')}, {plural(v.escolhas, 'precisa', 'precisam')} de
         escolha, {plural(v.ficam, 'fica como está', 'ficam como estão')}.
       </p>
+      )}
 
       {v.avisar.length > 0 && (
         <Cartao>
@@ -168,7 +173,7 @@ export function PreviaDaMudanca({
         </section>
       )}
 
-      {grupo('muda').length > 0 && (
+      {!soEsta && grupo('muda').length > 0 && (
         <section className="flex flex-col gap-2">
           <h2 className="text-xl">Mudam</h2>
           {grupo('muda').map((a) => (

@@ -30,6 +30,13 @@ const ESCOPOS: Record<Escopo, string> = {
   serie: 'A série inteira',
 }
 
+const EXPLICACAO: Record<Escopo, string> = {
+  esta: 'Muda só esta aula: data, horário, professor e modalidade. A turma e as outras aulas ficam como estão.',
+  'a-partir':
+    'Muda a turma a partir da data escolhida: dias, horário, professor, serviço e modalidade. As aulas antes dela ficam como estão.',
+  serie: 'Muda todas as aulas que ainda vão acontecer: dias, horário, professor, serviço e modalidade. As que já passaram ficam como estão.',
+}
+
 export default async function PaginaMudarTurma({
   params,
   searchParams,
@@ -115,29 +122,51 @@ export default async function PaginaMudarTurma({
         </p>
       </header>
 
+      {/* Pedido de 01/11/2026: a tela parecia a mesma nos tres casos (o
+          seletor so mudava depois de "Ver previa", e a data aparecia sempre).
+          Agora cada alcance e um botao que troca a tela na hora, com o que
+          vale para ele. */}
       <Cartao>
-        <form className="flex flex-wrap items-end gap-4">
-          {aulaId && <input type="hidden" name="aula" value={aulaId} />}
-          <label className="flex flex-col gap-1 text-sm">
-            Quais aulas
-            <select name="escopo" defaultValue={escopo} className={entradaClasse}>
-              {Object.entries(ESCOPOS)
-                .filter(([k]) => k !== 'esta' || aulaId)
-                .map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            A partir de
-            <input type="date" name="data" defaultValue={data} className={entradaClasse} />
-          </label>
-          <Botao type="submit" aparencia="secundario">
-            Ver prévia
-          </Botao>
-        </form>
+        <p className="text-sm font-medium">Quais aulas</p>
+        <nav className="mt-2 flex flex-wrap gap-2" aria-label="Quais aulas">
+          {(Object.entries(ESCOPOS) as [Escopo, string][])
+            .filter(([k]) => k !== 'esta' || aulaId)
+            .map(([k, v]) => {
+              const marcado = k === escopo
+              const busca = new URLSearchParams({ escopo: k })
+              if (aulaId) busca.set('aula', String(aulaId))
+              if (k === 'a-partir') busca.set('data', data)
+              return (
+                <Link
+                  key={k}
+                  href={`/turmas/${turma.id}/mudar?${busca}`}
+                  aria-current={marcado ? 'page' : undefined}
+                  className={`inline-flex min-h-[44px] items-center rounded-campo border px-4 font-medium transition-all ${
+                    marcado
+                      ? 'border-destaque bg-destaque text-white'
+                      : 'border-borda bg-superficie text-tinta-suave hover:border-destaque/40'
+                  }`}
+                >
+                  {v}
+                </Link>
+              )
+            })}
+        </nav>
+        <p className="mt-3 text-sm text-tinta-suave">{EXPLICACAO[escopo]}</p>
+
+        {escopo === 'a-partir' && (
+          <form className="mt-4 flex flex-wrap items-end gap-4">
+            <input type="hidden" name="escopo" value="a-partir" />
+            {aulaId && <input type="hidden" name="aula" value={aulaId} />}
+            <label className="flex flex-col gap-1 text-sm">
+              A partir de
+              <input type="date" name="data" defaultValue={data} className={entradaClasse} />
+            </label>
+            <Botao type="submit" aparencia="secundario">
+              Ver aulas a partir desta data
+            </Botao>
+          </form>
+        )}
       </Cartao>
 
       <PreviaDaMudanca
