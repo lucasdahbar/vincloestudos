@@ -19,6 +19,11 @@ export const CHAVES = [
   'chamada_professor',
   'convite_cadastro',
   'aviso_turma_professor',
+  'cobranca_abertura',
+  'cobranca_abertura_complementar',
+  'cobranca_rodape',
+  'relatorio_professor_abertura',
+  'relatorio_professor_rodape',
 ] as const
 
 export type ChaveModelo = (typeof CHAVES)[number]
@@ -26,7 +31,7 @@ export type ChaveModelo = (typeof CHAVES)[number]
 /** O que a gestora editou; chave ausente = vale o texto original. */
 export type ModelosEditados = Partial<Record<ChaveModelo, string>>
 
-export type GrupoModelo = 'Famílias e alunos' | 'Professores' | 'Cadastro'
+export type GrupoModelo = 'Famílias e alunos' | 'Professores' | 'Cadastro' | 'Cobrança e pagamento'
 
 export interface CampoModelo {
   nome: string
@@ -278,6 +283,89 @@ export const MODELOS: Record<ChaveModelo, DefinicaoModelo> = {
       '',
       'Qualquer dúvida, é só chamar.',
     ].join('\n'),
+  },
+
+  // Cobranca e relatorio: so o comeco e o fim. O meio (aluno a aluno, os
+  // pontinhos alinhados, itens iguais resumidos) e montado pelo sistema, porque
+  // texto livre quebraria o alinhamento dos valores no WhatsApp.
+  cobranca_abertura: {
+    grupo: 'Cobrança e pagamento',
+    titulo: 'Cobrança: começo do texto',
+    quando: 'Primeira linha da cobrança do mês, antes da lista de alunos e valores.',
+    campos: [
+      { nome: 'nome', descricao: 'Primeiro nome do responsável' },
+      { nome: 'mes', descricao: 'Mês da cobrança, como "agosto/2026"' },
+    ],
+    obrigatorios: [],
+    exemplo: { nome: 'Maria', mes: 'agosto/2026' },
+    padrao: 'Olá, {nome}! Segue a cobrança referente a {mes}:',
+  },
+
+  cobranca_abertura_complementar: {
+    grupo: 'Cobrança e pagamento',
+    titulo: 'Cobrança complementar: começo do texto',
+    quando:
+      'Primeira linha de uma cobrança adicional de um mês que já teve outra. Precisa dizer que é complementar, senão o responsável lê como a mesma cobrança de novo.',
+    campos: [
+      { nome: 'nome', descricao: 'Primeiro nome do responsável' },
+      { nome: 'mes', descricao: 'Mês da cobrança, como "agosto/2026"' },
+    ],
+    obrigatorios: [],
+    exemplo: { nome: 'Maria', mes: 'agosto/2026' },
+    padrao:
+      'Olá, {nome}! Segue uma cobrança complementar — {mes}, referente a aulas que não entraram na cobrança anterior:',
+  },
+
+  cobranca_rodape: {
+    grupo: 'Cobrança e pagamento',
+    titulo: 'Cobrança: final do texto',
+    quando: 'Depois da lista de alunos: o total, o Pix e o vencimento (e o que mais você quiser escrever).',
+    campos: [
+      { nome: 'total', descricao: 'Valor total já com descontos, como "R$ 905,00"' },
+      { nome: 'vencimento', descricao: 'Data de vencimento, como "05/08/2026"' },
+      {
+        nome: 'pix',
+        descricao:
+          'A chave Pix já com o rótulo e o traço ("Pix: chave — "); fica vazio se a conta não tiver chave',
+      },
+      { nome: 'chave_pix', descricao: 'Só a chave Pix, sem rótulo (vazio se a conta não tiver)' },
+    ],
+    obrigatorios: ['total', 'vencimento'],
+    exemplo: {
+      total: 'R$ 905,00',
+      vencimento: '05/08/2026',
+      pix: 'Pix: escola@email.com — ',
+      chave_pix: 'escola@email.com',
+    },
+    padrao: 'TOTAL: {total}\n\n{pix}Vencimento: {vencimento}',
+  },
+
+  relatorio_professor_abertura: {
+    grupo: 'Cobrança e pagamento',
+    titulo: 'Relatório do professor: começo do texto',
+    quando: 'Início do relatório de fechamento enviado ao professor, antes da lista de aulas.',
+    campos: [
+      { nome: 'professor', descricao: 'Nome do professor' },
+      { nome: 'ate', descricao: 'Data final do período, como "31/08/2026"' },
+    ],
+    obrigatorios: [],
+    exemplo: { professor: 'Carlos Souza', ate: '31/08/2026' },
+    padrao: 'Fechamento — {professor}\nPeríodo: até {ate}',
+  },
+
+  relatorio_professor_rodape: {
+    grupo: 'Cobrança e pagamento',
+    titulo: 'Relatório do professor: final do texto',
+    quando: 'Fim do relatório de fechamento, depois da lista de aulas.',
+    campos: [
+      { nome: 'total', descricao: 'Valor total a pagar ao professor, como "R$ 1.260,00"' },
+      { nome: 'quantidade', descricao: 'Quantas presenças entraram no fechamento' },
+      { nome: 'presencas', descricao: 'A palavra "presença" ou "presenças", conforme a quantidade' },
+      { nome: 'professor', descricao: 'Nome do professor' },
+    ],
+    obrigatorios: ['total'],
+    exemplo: { total: 'R$ 1.260,00', quantidade: '20', presencas: 'presenças', professor: 'Carlos Souza' },
+    padrao: 'TOTAL: {total} ({quantidade} {presencas})',
   },
 }
 

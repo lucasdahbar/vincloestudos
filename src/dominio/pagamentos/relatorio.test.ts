@@ -112,3 +112,34 @@ describe('gerarRelatorioFechamento (P6)', () => {
     expect(texto).toContain('TOTAL: R$ 0,00 (0 presenças)')
   })
 })
+
+describe('gerarRelatorioFechamento — texto editado pela gestora', () => {
+  const dados = {
+    professor_nome: 'Rafael Souza',
+    ate: '2026-08-31',
+    linhas: [linha(), linha({ aluno_nome: 'Maria' })],
+  }
+
+  it('abertura editada troca so o cabecalho', () => {
+    const original = gerarRelatorioFechamento(dados).split('\n')
+    const editado = gerarRelatorioFechamento(dados, {
+      relatorio_professor_abertura: 'Oi, {professor}! Seu fechamento até {ate}:',
+    }).split('\n')
+    expect(editado[0]).toBe('Oi, Rafael Souza! Seu fechamento até 31/08/2026:')
+    // O cabecalho original tinha 2 linhas + 1 em branco; o editado tem 1 + 1.
+    expect(editado.slice(2)).toEqual(original.slice(3))
+  })
+
+  it('rodape editado usa total, quantidade e a palavra no singular/plural', () => {
+    const t = gerarRelatorioFechamento(dados, {
+      relatorio_professor_rodape: 'Total: {total} por {quantidade} {presencas}. Obrigada!',
+    })
+    expect(t.endsWith('Total: R$ 126,00 por 2 presenças. Obrigada!')).toBe(true)
+
+    const uma = gerarRelatorioFechamento(
+      { ...dados, linhas: [linha()] },
+      { relatorio_professor_rodape: '{quantidade} {presencas}: {total}' },
+    )
+    expect(uma.endsWith('1 presença: R$ 63,00')).toBe(true)
+  })
+})

@@ -1,5 +1,7 @@
 import { formatarBRL, somar, type Centavos } from '@/dominio/dinheiro'
 import type { LinhaCobradaAntes } from './outro-mes'
+import { textoDoModelo, type ModelosEditados } from '@/dominio/mensagens-modelo/catalogo'
+import { preencher } from '@/dominio/mensagens-modelo/preencher'
 
 export interface ItemDoTexto {
   aluno_nome: string
@@ -58,15 +60,16 @@ const LARGURA = 38
  *
  * O valor exibido no total e sempre o valor_total, ja liquido de descontos.
  */
-export function gerarTextoCobranca(dados: DadosDoTexto): string {
+export function gerarTextoCobranca(dados: DadosDoTexto, modelos?: ModelosEditados): string {
   const primeiroNome = dados.responsavel_nome.trim().split(/\s+/)[0]
   const mes = mesPorExtenso(dados.mes_referencia)
-  const linhas: string[] = [
-    dados.complementar
-      ? `Olá, ${primeiroNome}! Segue uma cobrança complementar — ${mes}, referente a aulas que não entraram na cobrança anterior:`
-      : `Olá, ${primeiroNome}! Segue a cobrança referente a ${mes}:`,
-    '',
-  ]
+  // So o comeco e o fim sao editaveis (03/11/2026); a lista de alunos, com os
+  // valores alinhados, e sempre montada aqui.
+  const abertura = preencher(
+    textoDoModelo(dados.complementar ? 'cobranca_abertura_complementar' : 'cobranca_abertura', modelos),
+    { nome: primeiroNome, mes },
+  )
+  const linhas: string[] = [abertura, '']
 
   // Agrupa por aluno preservando a ordem de entrada.
   const porAluno = new Map<string, ItemDoTexto[]>()
@@ -107,13 +110,16 @@ export function gerarTextoCobranca(dados: DadosDoTexto): string {
     linhas.push('')
   }
 
-  linhas.push(`TOTAL: ${formatarBRL(dados.valor_total)}`)
-  linhas.push('')
-
-  const rodape = dados.chave_pix
-    ? `Pix: ${dados.chave_pix} — Vencimento: ${dataCompleta(dados.vencimento)}`
-    : `Vencimento: ${dataCompleta(dados.vencimento)}`
-  linhas.push(rodape)
+  linhas.push(
+    preencher(textoDoModelo('cobranca_rodape', modelos), {
+      total: formatarBRL(dados.valor_total),
+      vencimento: dataCompleta(dados.vencimento),
+      // Com o rotulo e o traco junto: sem chave o campo some inteiro, e o
+      // "Vencimento:" nao fica com um traco solto na frente.
+      pix: dados.chave_pix ? `Pix: ${dados.chave_pix} — ` : '',
+      chave_pix: dados.chave_pix ?? '',
+    }),
+  )
 
   return linhas.join('\n')
 }

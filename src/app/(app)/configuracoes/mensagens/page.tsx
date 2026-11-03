@@ -12,7 +12,7 @@ import { EditorDeMensagem } from './EditorDeMensagem'
 export const metadata = { title: titulo('Textos das mensagens') }
 export const dynamic = 'force-dynamic'
 
-const GRUPOS: GrupoModelo[] = ['Famílias e alunos', 'Professores', 'Cadastro']
+const GRUPOS: GrupoModelo[] = ['Famílias e alunos', 'Professores', 'Cadastro', 'Cobrança e pagamento']
 
 function dataCurta(iso: string): string {
   // Dia e mes no fuso da escola, nao no do servidor.
@@ -57,13 +57,17 @@ export default async function PaginaTextosDasMensagens() {
               />
             )
           })}
+          {grupo === 'Cobrança e pagamento' && (
+            <p className="text-sm text-tinta-suave">
+              Na cobrança e no relatório, só o começo e o fim são editáveis. A lista de alunos,
+              aulas e valores é montada pelo sistema, para os valores ficarem alinhados no
+              WhatsApp. O texto de uma cobrança é gravado quando ela é confirmada; as já
+              confirmadas não mudam.
+            </p>
+          )}
         </section>
       ))}
 
-      <p className="text-sm text-tinta-suave">
-        A cobrança do mês e o relatório de pagamento do professor têm um texto editável só no
-        começo e no fim; isso entra na próxima etapa.
-      </p>
     </div>
   )
 }

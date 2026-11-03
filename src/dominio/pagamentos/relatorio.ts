@@ -1,4 +1,6 @@
 import { formatarBRL, somar, type Centavos } from '@/dominio/dinheiro'
+import { textoDoModelo, type ModelosEditados } from '@/dominio/mensagens-modelo/catalogo'
+import { preencher } from '@/dominio/mensagens-modelo/preencher'
 
 /**
  * P6 (Rodada 2): texto do relatorio de fechamento.
@@ -29,10 +31,14 @@ export interface DadosRelatorio {
   linhas: LinhaRelatorio[]
 }
 
-export function gerarRelatorioFechamento(dados: DadosRelatorio): string {
+export function gerarRelatorioFechamento(dados: DadosRelatorio, modelos?: ModelosEditados): string {
+  // So o comeco e o fim sao editaveis (03/11/2026); o bloco de cada aula, com a
+  // conta de cada aluno, e sempre montado aqui.
   const texto: string[] = [
-    `Fechamento — ${dados.professor_nome}`,
-    `Período: até ${dataCompleta(dados.ate)}`,
+    ...preencher(textoDoModelo('relatorio_professor_abertura', modelos), {
+      professor: dados.professor_nome,
+      ate: dataCompleta(dados.ate),
+    }).split('\n'),
     '',
   ]
 
@@ -57,7 +63,14 @@ export function gerarRelatorioFechamento(dados: DadosRelatorio): string {
   }
 
   const total = somar(...dados.linhas.map((l) => l.valor_professor))
-  texto.push(`TOTAL: ${formatarBRL(total)} (${dados.linhas.length} ${presencas(dados.linhas.length)})`)
+  texto.push(
+    preencher(textoDoModelo('relatorio_professor_rodape', modelos), {
+      total: formatarBRL(total),
+      quantidade: String(dados.linhas.length),
+      presencas: presencas(dados.linhas.length),
+      professor: dados.professor_nome,
+    }),
+  )
 
   return texto.join('\n')
 }

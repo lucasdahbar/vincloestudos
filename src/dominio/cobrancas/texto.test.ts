@@ -138,3 +138,39 @@ describe('aulas já cobradas em outro mês (decisão 6)', () => {
     expect(gerarTextoCobranca({ ...dados, cobradasAntes: [] })).toBe(gerarTextoCobranca(dados))
   })
 })
+
+describe('gerarTextoCobranca — texto editado pela gestora', () => {
+  it('abertura editada troca so a primeira linha; a lista e o total seguem iguais', () => {
+    const editado = gerarTextoCobranca(dados, {
+      cobranca_abertura: 'Bom dia, {nome}! Aulas de {mes}:',
+    })
+    const original = gerarTextoCobranca(dados)
+    expect(editado.split('\n')[0]).toBe('Bom dia, Ana! Aulas de agosto/2026:')
+    expect(editado.split('\n').slice(1)).toEqual(original.split('\n').slice(1))
+  })
+
+  it('cobranca complementar usa a abertura propria', () => {
+    const t = gerarTextoCobranca(
+      { ...dados, complementar: true },
+      {
+        cobranca_abertura: 'NORMAL {nome}',
+        cobranca_abertura_complementar: 'EXTRA {nome} {mes}',
+      },
+    )
+    expect(t.split('\n')[0]).toBe('EXTRA Ana agosto/2026')
+  })
+
+  it('rodape editado entra depois da lista, com total, pix e vencimento', () => {
+    const t = gerarTextoCobranca(dados, {
+      cobranca_rodape: 'Total a pagar: {total}\nPague até {vencimento}.\nPix: {chave_pix}\nObrigado!',
+    })
+    expect(t.endsWith('Total a pagar: R$ 905,00\nPague até 05/08/2026.\nPix: mesinharedonda@email.com\nObrigado!')).toBe(true)
+    expect(t).not.toContain('TOTAL:')
+  })
+
+  it('sem chave pix, o campo {pix} some e o vencimento continua', () => {
+    const t = gerarTextoCobranca({ ...dados, chave_pix: null })
+    expect(t.endsWith('Vencimento: 05/08/2026')).toBe(true)
+    expect(t).not.toContain('Pix')
+  })
+})

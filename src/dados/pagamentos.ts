@@ -1,5 +1,6 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
+import { carregarModelos } from './mensagens-modelo'
 import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
 import { lerTudo } from './cobrancas'
 import { carregarVigencias } from './vigencias'
@@ -783,7 +784,7 @@ export async function textoDoFechamento(contaId: number): Promise<string | null>
     professor_nome: professor?.nome ?? 'Professor',
     ate: String(conta.periodo_fim).slice(0, 10),
     linhas: await relatorioFechamento(contaId),
-  })
+  }, await carregarModelos(supabase))
 }
 
 /** Uma conta a pagar com tudo que a tela dela precisa. */

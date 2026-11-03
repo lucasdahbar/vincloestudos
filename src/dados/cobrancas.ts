@@ -1,6 +1,7 @@
 import 'server-only'
 import type { OrigemAusencia, StatusAula } from '@/dominio/tipos'
 import { clienteServidor } from './cliente'
+import { carregarModelos } from './mensagens-modelo'
 import { deNumeric, formatarBRL, paraNumeric, somar, type Centavos } from '@/dominio/dinheiro'
 import { carregarVigencias } from './vigencias'
 import { creditosAoCancelarCobranca, podeCancelarCobranca, type StatusCobranca } from '@/dominio/cobrancas/cancelamento'
@@ -643,7 +644,7 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
     vencimento: `${ano}-${mes}-05`,
     itens: itensTexto,
     cobradasAntes: cobranca.cobradas_antes,
-  })
+  }, await carregarModelos(supabase))
 
   const { data: confirmadas, error } = await supabase
     .from('cobrancas')
