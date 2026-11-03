@@ -129,24 +129,52 @@ describe('não sobreposição de períodos', () => {
 })
 
 describe('comoDesmatricular', () => {
-  it('encerra hoje a matricula que ja comecou', () => {
-    expect(comoDesmatricular({ data_inicio: '2026-10-01' }, '2026-10-14')).toEqual({
-      acao: 'encerrar',
-      data_fim: '2026-10-14',
-    })
+  const hoje = '2026-11-03'
+  const aberta = { data_inicio: '2026-10-01', data_fim: null }
+  const sair = (saida: string, chamadas: string[] = [], m: { data_inicio: string; data_fim: string | null } = aberta) =>
+    comoDesmatricular(m, { saida, hoje, chamadasDoAluno: chamadas })
+
+  it('saindo hoje, a matricula termina ontem e ja fica encerrada', () => {
+    expect(sair(hoje)).toEqual({ acao: 'encerrar', data_fim: '2026-11-02', status: 'Encerrada' })
   })
 
-  it('encerra hoje a matricula que comeca hoje', () => {
-    expect(comoDesmatricular({ data_inicio: '2026-10-14' }, '2026-10-14')).toEqual({
-      acao: 'encerrar',
-      data_fim: '2026-10-14',
-    })
+  it('saindo numa data futura, continua ativa ate a vespera', () => {
+    expect(sair('2026-11-20')).toEqual({ acao: 'encerrar', data_fim: '2026-11-19', status: 'Ativa' })
   })
 
-  it('exclui a matricula que ainda nao comecou, em vez de gravar fim antes do inicio', () => {
-    expect(comoDesmatricular({ data_inicio: '2026-10-15' }, '2026-10-14')).toEqual({
-      acao: 'excluir',
-    })
+  it('saindo amanha, ainda faz a aula de hoje', () => {
+    expect(sair('2026-11-04')).toEqual({ acao: 'encerrar', data_fim: hoje, status: 'Ativa' })
+  })
+
+  it('aceita uma data no passado sem chamada dele depois', () => {
+    expect(sair('2026-10-20', ['2026-10-13'])).toEqual({ acao: 'encerrar', data_fim: '2026-10-19', status: 'Encerrada' })
+  })
+
+  it('recusa a data se ja houve chamada dele nela ou depois', () => {
+    const r = sair('2026-10-20', ['2026-10-13', '2026-10-20', '2026-10-27'])
+    expect(r.acao).toBe('recusar')
+    expect(r.acao === 'recusar' && r.motivo).toContain('27/10')
+    expect(r.acao === 'recusar' && r.motivo).toContain('28/10')
+  })
+
+  it('ignora chamada fora desta matricula', () => {
+    const m = { data_inicio: '2026-10-01', data_fim: '2026-10-31' }
+    expect(sair('2026-10-20', ['2026-11-10'], m)).toEqual({ acao: 'encerrar', data_fim: '2026-10-19', status: 'Encerrada' })
+  })
+
+  it('exclui a matricula que nao chega a ter nenhum dia antes da saida', () => {
+    expect(sair('2026-10-01')).toEqual({ acao: 'excluir' })
+    expect(sair(hoje, [], { data_inicio: '2026-11-10', data_fim: null })).toEqual({ acao: 'excluir' })
+  })
+
+  it('recusa a saida depois do fim que a matricula ja tem', () => {
+    const r = sair('2026-12-10', [], { data_inicio: '2026-10-01', data_fim: '2026-11-30' })
+    expect(r.acao).toBe('recusar')
+    expect(r.acao === 'recusar' && r.motivo).toContain('30/11')
+  })
+
+  it('recusa data vazia', () => {
+    expect(sair('').acao).toBe('recusar')
   })
 })
 

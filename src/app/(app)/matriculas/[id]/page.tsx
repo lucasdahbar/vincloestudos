@@ -40,6 +40,11 @@ export default async function PaginaMatricula({
             {matricula.status}
           </Selo>
           {matricula.flag_reposicao && <Selo tom="alerta">Reposição</Selo>}
+          {matricula.status === 'Ativa' && matricula.data_fim && !matricula.flag_reposicao && (
+            <Selo tom="alerta">
+              Até {matricula.data_fim.slice(8, 10)}/{matricula.data_fim.slice(5, 7)}
+            </Selo>
+          )}
         </div>
         <p className="text-tinta-suave">
           Matrícula nesta turma. Para ver os dados pessoais,{' '}
@@ -70,8 +75,8 @@ export default async function PaginaMatricula({
         <div className="max-w-2xl border-t border-borda pt-6">
           <h2 className="text-lg">Desmatricular</h2>
           <p className="mb-4 mt-1 text-sm text-tinta-suave">
-            Encerra a matrícula hoje. O aluno para de contar nas próximas aulas e nas próximas
-            cobranças; o histórico do que já aconteceu não muda.
+            Encerra a matrícula a partir da data que você escolher. O aluno para de contar nas
+            aulas e nas cobranças dali em diante; o histórico do que já aconteceu não muda.
           </p>
           <EncerrarMatricula id={matricula.id} nome={matricula.aluno_nome} />
         </div>

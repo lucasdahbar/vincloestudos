@@ -219,25 +219,48 @@ function traduzir(mensagem: string): string {
   return mensagem
 }
 
-export async function encerrarMatricula(id: number) {
+/** `saida`: o primeiro dia sem o aluno (pedido do Julio, 03/11/2026). */
+export async function encerrarMatricula(id: number, saida: string) {
   await exigirGestora()
   const supabase = await clienteServidor()
   const { data: atual, error: erroLeitura } = await supabase
     .from('matriculas')
-    .select('aluno_id, turma_id, data_inicio')
+    .select('aluno_id, turma_id, data_inicio, data_fim')
     .eq('id', id)
     .single()
   if (erroLeitura) return { ok: false as const, motivo: erroLeitura.message }
 
+  // Presenca ou falta do aluno nas aulas desta turma: com elas, a saida nao
+  // pode voltar para antes da aula que ele fez.
+  const { data: chamadas, error: erroChamadas } = await supabase
+    .from('presencas')
+    .select('aula:aulas!inner (turma_id, data_hora_referencia, data_hora_inicio)')
+    .eq('aluno_id', atual.aluno_id)
+    .eq('aula.turma_id', atual.turma_id)
+  if (erroChamadas) return { ok: false as const, motivo: erroChamadas.message }
+
+  const dia = (v: unknown) => String(v).slice(0, 10)
   // O servidor roda em UTC: depois das 21h, `toISOString` ja seria amanha.
   const hoje = agoraNaEscola(new Date()).slice(0, 10)
-  const como = comoDesmatricular(atual, hoje)
+  const como = comoDesmatricular(
+    { data_inicio: dia(atual.data_inicio), data_fim: atual.data_fim ? dia(atual.data_fim) : null },
+    {
+      saida,
+      hoje,
+      chamadasDoAluno: (chamadas ?? []).map((c) => {
+        const a = c.aula as unknown as { data_hora_referencia: string | null; data_hora_inicio: string }
+        return dia(a.data_hora_referencia ?? a.data_hora_inicio)
+      }),
+    },
+  )
+  if (como.acao === 'recusar') return { ok: false as const, motivo: como.motivo, recusada: true }
+
   const { error } =
     como.acao === 'excluir'
       ? await supabase.from('matriculas').delete().eq('id', id)
       : await supabase
           .from('matriculas')
-          .update({ status: 'Encerrada', data_fim: como.data_fim })
+          .update({ status: como.status, data_fim: como.data_fim })
           .eq('id', id)
   if (error) return { ok: false as const, motivo: error.message }
 
@@ -250,5 +273,6 @@ export async function encerrarMatricula(id: number) {
   revalidatePath(`/matriculas/${id}`)
   revalidatePath('/creditos')
   revalidatePath('/cobrancas', 'layout')
+  revalidatePath(`/turmas/${atual.turma_id}`)
   return { ok: true as const, excluida: como.acao === 'excluir', aviso }
 }

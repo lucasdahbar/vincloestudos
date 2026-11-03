@@ -1,3 +1,4 @@
+import { somarDias } from '@/dominio/agenda/recorrencia'
 import type { StatusTurma } from '@/dominio/tipos'
 
 export interface TurmaDaMatricula {
@@ -91,20 +92,69 @@ export function avisoDeReposicao(flagReposicao: boolean): string | null {
     : null
 }
 
-export type Desmatricula = { acao: 'encerrar'; data_fim: string } | { acao: 'excluir' }
+export type Desmatricula =
+  | { acao: 'encerrar'; data_fim: string; status: 'Ativa' | 'Encerrada' }
+  | { acao: 'excluir' }
+  | { acao: 'recusar'; motivo: string }
+
+const br = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`
 
 /**
- * Desmatricular grava o fim como hoje. Numa matricula que ainda nao comecou
- * (aluno matriculado para a semana que vem), isso daria fim antes do inicio, o
- * que o banco recusa (M2): foi o erro da tela em 14/10/2026. Como ela nao teve
- * aula nenhuma, nao ha historico a preservar, e o certo e exclui-la.
+ * Pedido do Julio (03/11/2026): desmatricular informando a data a partir da
+ * qual o aluno sai, porque ele pode ainda fazer algumas aulas. A data e o
+ * primeiro dia SEM ele, e a matricula grava o fim na vespera (data_fim inclui
+ * o dia). Sair hoje tira o aluno da aula de hoje, como ja era.
+ *
+ * Com a saida no futuro a matricula continua Ativa: a lista da aula, o evento
+ * do Google e a exclusao de aula so olham matricula Ativa, e o aluno sumiria
+ * antes da hora. A data_fim e que o tira das aulas depois dela.
+ *
+ * Data no passado vale, menos se a chamada ja o registrou (presenca ou falta)
+ * numa aula a partir dela: a aula aconteceu com ele. Mesmo espirito da
+ * Decisao 12, ao contrario.
+ *
+ * A matricula que nao chega a ter um dia antes da saida (ainda nao comecou)
+ * e excluida: fim antes do inicio o banco recusa (M2, erro de 14/10/2026), e
+ * sem aula nao ha historico a preservar.
  */
 export function comoDesmatricular(
-  matricula: { data_inicio: string },
-  /** Hoje no relogio da escola, AAAA-MM-DD. */
-  hoje: string,
+  matricula: { data_inicio: string; data_fim: string | null },
+  entrada: {
+    /** Primeiro dia sem o aluno, AAAA-MM-DD. */
+    saida: string
+    /** Hoje no relogio da escola, AAAA-MM-DD. */
+    hoje: string
+    /** Datas de referencia das aulas da turma em que a chamada tem o aluno. */
+    chamadasDoAluno: string[]
+  },
 ): Desmatricula {
-  return matricula.data_inicio > hoje ? { acao: 'excluir' } : { acao: 'encerrar', data_fim: hoje }
+  const { saida, hoje } = entrada
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saida)) return { acao: 'recusar', motivo: 'Informe a data de saída.' }
+
+  const data_fim = somarDias(saida, -1)
+  if (matricula.data_fim !== null && data_fim >= matricula.data_fim) {
+    return {
+      acao: 'recusar',
+      motivo: `A matrícula já termina em ${br(matricula.data_fim)}. Para sair depois disso, mude a data de fim acima.`,
+    }
+  }
+
+  const depois = entrada.chamadasDoAluno
+    .filter((d) => d >= saida && d >= matricula.data_inicio && (matricula.data_fim === null || d <= matricula.data_fim))
+    .sort()
+  if (depois.length > 0) {
+    const ultima = depois[depois.length - 1]
+    const dias = depois.map(br).join(', ')
+    return {
+      acao: 'recusar',
+      motivo:
+        `A chamada já registrou o aluno ${depois.length === 1 ? 'na aula de' : 'nas aulas de'} ${dias}. ` +
+        `Escolha uma saída a partir de ${br(somarDias(ultima, 1))}.`,
+    }
+  }
+
+  if (saida <= matricula.data_inicio) return { acao: 'excluir' }
+  return { acao: 'encerrar', data_fim, status: data_fim < hoje ? 'Encerrada' : 'Ativa' }
 }
 
 /**
