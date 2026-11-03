@@ -58,6 +58,28 @@ export interface ClassificacaoPelaCobranca {
   aguardando: AulaAguardando[]
 }
 
+/**
+ * Outubro de 2026 foi cobrado fora do sistema, e as cobranças dele foram
+ * apagadas (pedido do Julio, 03/11/2026).
+ */
+export const INICIO_DA_COBRANCA_NO_SISTEMA = '2026-11-01'
+
+/**
+ * A parte da aula ORIGINAL de uma reposição. Se a original é de antes de a
+ * cobrança começar no sistema e não tem cobrança confirmada, o professor que
+ * repõe recebe sobre o valor do serviço dela na data (Julio, 03/11/2026: "o
+ * professor deve receber sim"). Só para a reposição: aula comum e desistência
+ * paga desse período continuam fora do pagamento.
+ */
+export function parteDaAulaOriginal(
+  dataOriginal: string,
+  parte: ParteCobrada,
+  valorDoServico: Centavos,
+): ParteCobrada {
+  if (dataOriginal >= INICIO_DA_COBRANCA_NO_SISTEMA || parte.situacao === 'confirmada') return parte
+  return { situacao: 'confirmada', valor: valorDoServico }
+}
+
 /** O pior estado entre as partes: faltar cobrança pesa mais que estar em rascunho. */
 function situacaoDe(partes: ParteCobrada[]): SituacaoDaCobranca {
   if (partes.length === 0 || partes.some((p) => p.situacao === 'nenhuma')) return 'nenhuma'
@@ -81,6 +103,9 @@ export function classificarPelaCobranca(
     const situacao = situacaoDe(c.cobrancas)
 
     if (situacao !== 'confirmada') {
+      // Outubro foi cobrado fora: nunca vai ter cobrança aqui, e o lembrete
+      // ficaria para sempre na tela (03/11/2026). Continua fora do pagamento.
+      if (c.data_aula < INICIO_DA_COBRANCA_NO_SISTEMA) continue
       aguardando.push({
         aluno_nome: c.aluno_nome,
         turma_nome: c.turma_nome,

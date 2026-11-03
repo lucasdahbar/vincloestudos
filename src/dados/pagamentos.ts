@@ -6,6 +6,7 @@ import { carregarVigencias } from './vigencias'
 import { calcularFechamento } from '@/dominio/pagamentos/fechamento'
 import {
   classificarPelaCobranca,
+  parteDaAulaOriginal,
   type CandidataAoPagamento,
   type ParteCobrada,
 } from '@/dominio/pagamentos/base-cobrada'
@@ -91,19 +92,29 @@ export async function previaFechamento(professorId: number, ate: string) {
   // pendência, e não pela marca da matrícula: a reposição na própria turma do
   // aluno não tem matrícula de reposição.
   const aulasDasPresencas = [...new Set(presencas.map((p) => p.aula.id))]
-  const reposicoes = new Map<string, number>()
+  const reposicoes = new Map<string, { aula_id: number; dia: string; servico_id: number }>()
   for (const grupo of emGrupos(aulasDasPresencas)) {
-    const linhas = await lerTudo((a, b) =>
+    const linhas = (await lerTudo((a, b) =>
       supabase
         .from('pendencias_reposicao')
-        .select('id, aluno_id, aula_origem_id, aula_reposicao_id')
+        .select('id, aluno_id, aula_origem_id, aula_reposicao_id, aula_origem:aulas!aula_origem_id (data_hora_referencia, servico_id)')
         .in('aula_reposicao_id', grupo)
         .neq('status', 'Desistida')
         .order('id')
         .range(a, b),
-    )
+    )) as unknown as {
+      aluno_id: number
+      aula_origem_id: number
+      aula_reposicao_id: number
+      aula_origem: { data_hora_referencia: string; servico_id: number } | null
+    }[]
     for (const r of linhas) {
-      reposicoes.set(`${r.aula_reposicao_id}:${r.aluno_id}`, r.aula_origem_id as number)
+      reposicoes.set(`${r.aula_reposicao_id}:${r.aluno_id}`, {
+        aula_id: r.aula_origem_id,
+        // O mes de cobranca e o da data de referencia (aula remarcada).
+        dia: String(r.aula_origem?.data_hora_referencia ?? '').slice(0, 10),
+        servico_id: r.aula_origem?.servico_id ?? 0,
+      })
     }
   }
 
@@ -111,7 +122,7 @@ export async function previaFechamento(professorId: number, ate: string) {
   // da reposição e a da desistência.
   const aulasDosItens = new Set<number>([
     ...aulasDasPresencas,
-    ...reposicoes.values(),
+    ...[...reposicoes.values()].map((r) => r.aula_id),
     ...desistencias.map((d) => d.aula_origem_id),
   ])
   const itens = new Map<string, { status: string; valor: Centavos }>()
@@ -156,8 +167,16 @@ export async function previaFechamento(professorId: number, ate: string) {
         percentual: vigencias.percentualProfessor(professorId, dia),
         // Reposição: o cobrado na aula original mais o da reposição. Reposição
         // marcada na matrícula, sem pendência, não tem como saber a original.
+        // Original de outubro (cobrado fora do sistema) vale o serviço.
         cobrancas: origem
-          ? [parteDaCobranca(itens, origem, p.aluno_id), parteDaCobranca(itens, p.aula.id, p.aluno_id)]
+          ? [
+              parteDaAulaOriginal(
+                origem.dia,
+                parteDaCobranca(itens, origem.aula_id, p.aluno_id),
+                vigencias.valorServico(origem.servico_id, origem.dia),
+              ),
+              parteDaCobranca(itens, p.aula.id, p.aluno_id),
+            ]
           : p.flag_reposicao
             ? []
             : [parteDaCobranca(itens, p.aula.id, p.aluno_id)],

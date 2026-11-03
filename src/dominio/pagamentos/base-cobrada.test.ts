@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   classificarPelaCobranca,
+  parteDaAulaOriginal,
   type CandidataAoPagamento,
   type ParteCobrada,
 } from './base-cobrada'
@@ -17,7 +18,7 @@ const candidata = (over: Partial<CandidataAoPagamento> = {}): CandidataAoPagamen
   aluno_nome: 'João',
   turma_id: 5,
   turma_nome: 'Matemática 9º ano',
-  data_aula: '2026-10-05',
+  data_aula: '2026-11-05',
   flag_reposicao: false,
   percentual: 60,
   cobrancas: [confirmada(9000)],
@@ -45,7 +46,7 @@ describe('classificarPelaCobranca', () => {
       {
         aluno_nome: 'João',
         turma_nome: 'Matemática 9º ano',
-        data_aula: '2026-10-05',
+        data_aula: '2026-11-05',
         desistencia: false,
         motivo: 'A cobrança desta aula ainda está em rascunho.',
       },
@@ -109,9 +110,45 @@ describe('classificarPelaCobranca', () => {
 
   it('o alerta sai em ordem de data', () => {
     const r = classificarPelaCobranca([
-      candidata({ presenca_id: 2, data_aula: '2026-10-12', cobrancas: [nenhuma] }),
-      candidata({ presenca_id: 3, data_aula: '2026-10-05', cobrancas: [nenhuma] }),
+      candidata({ presenca_id: 2, data_aula: '2026-11-12', cobrancas: [nenhuma] }),
+      candidata({ presenca_id: 3, data_aula: '2026-11-05', cobrancas: [nenhuma] }),
     ])
-    expect(r.aguardando.map((a) => a.data_aula)).toEqual(['2026-10-05', '2026-10-12'])
+    expect(r.aguardando.map((a) => a.data_aula)).toEqual(['2026-11-05', '2026-11-12'])
+  })
+})
+
+describe('parteDaAulaOriginal', () => {
+  // Outubro de 2026 foi cobrado fora do sistema (03/11/2026).
+  it('aula original de outubro sem cobrança vale o valor do serviço', () => {
+    expect(parteDaAulaOriginal('2026-10-20', nenhuma, 9000)).toEqual(confirmada(9000))
+  })
+
+  it('aula original de outubro com rascunho esquecido também vale o serviço', () => {
+    expect(parteDaAulaOriginal('2026-10-31', rascunho(7000), 9000)).toEqual(confirmada(9000))
+  })
+
+  it('aula original de outubro com cobrança confirmada vale o cobrado', () => {
+    expect(parteDaAulaOriginal('2026-10-20', confirmada(7000), 9000)).toEqual(confirmada(7000))
+  })
+
+  it('a partir de novembro a regra é a de sempre', () => {
+    expect(parteDaAulaOriginal('2026-11-01', nenhuma, 9000)).toEqual(nenhuma)
+    expect(parteDaAulaOriginal('2026-11-03', rascunho(9000), 9000)).toEqual(rascunho(9000))
+  })
+
+  it('aula de outubro sem cobrança não entra nem fica no lembrete', () => {
+    const r = classificarPelaCobranca([
+      candidata({ data_aula: '2026-10-20', cobrancas: [nenhuma] }),
+      candidata({ presenca_id: null, pendencia_id: 7, desistencia: true, data_aula: '2026-10-21', cobrancas: [nenhuma] }),
+    ])
+    expect(r).toEqual({ pagaveis: [], desistencias: [], aguardando: [] })
+  })
+
+  it('reposição em novembro de aula de outubro entra no pagamento', () => {
+    const original = parteDaAulaOriginal('2026-10-20', nenhuma, 9000)
+    const r = classificarPelaCobranca([
+      candidata({ data_aula: '2026-11-10', flag_reposicao: true, cobrancas: [original, confirmada(0)] }),
+    ])
+    expect(r.pagaveis[0].valor_servico).toBe(9000)
   })
 })
