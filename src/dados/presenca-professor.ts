@@ -6,6 +6,7 @@ import { gravarChamada } from './gravar-chamada'
 import { montarListaDaAula, type AlunoDaAula } from './lista-da-aula'
 import {
   DIAS_A_FRENTE,
+  INICIO_DAS_CHAMADAS,
   modoDaAula,
   telaDoLink,
   ultimoDiaVisivel,
@@ -67,7 +68,7 @@ export async function aulasDoLink(token: string, agora = new Date()): Promise<Le
     ja_registrada: l.status === 'Realizada',
   }))
 
-  return { ok: true, professor, tela: telaDoLink(aulas, relogio) }
+  return { ok: true, professor, tela: telaDoLink(aulas, relogio, INICIO_DAS_CHAMADAS) }
 }
 
 export interface ChamadaDoProfessor {

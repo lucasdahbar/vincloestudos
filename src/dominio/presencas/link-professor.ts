@@ -19,6 +19,14 @@
 /** Quanto antes do inicio a chamada ja abre: o professor abre o link antes de comecar. */
 export const ABRE_ANTES_MIN = 60
 
+/**
+ * A chamada pelo link so vale a partir daqui (pedido do Lucas, 03/11/2026).
+ * Em outubro a escola ainda controlava pela planilha e ninguem marcou presenca
+ * pelo link: as aulas de outubro sem chamada encheriam a lista "para marcar"
+ * de pendencias que nao existem. Elas continuam na agenda da gestora.
+ */
+export const INICIO_DAS_CHAMADAS = '2026-11-01'
+
 /** Quantos dias para frente o link mostra, para o professor saber quem vem. */
 export const DIAS_A_FRENTE = 7
 
@@ -58,9 +66,14 @@ export interface TelaDoLink {
   proximas: AulaDoProfessor[]
 }
 
-export function telaDoLink(aulas: AulaDoProfessor[], agora: string): TelaDoLink {
+/** `aPartirDe`: chamada esquecida de antes desse dia (AAAA-MM-DD) nao aparece. */
+export function telaDoLink(
+  aulas: AulaDoProfessor[],
+  agora: string,
+  aPartirDe?: string,
+): TelaDoLink {
   const hoje = agora.slice(0, 10)
-  const emOrdem = [...aulas].sort(
+  const emOrdem = [...aulas].filter((a) => !aPartirDe || a.data >= aPartirDe).sort(
     (a, b) =>
       `${a.data}T${a.horario_inicio}`.localeCompare(`${b.data}T${b.horario_inicio}`) ||
       a.turma_nome.localeCompare(b.turma_nome, 'pt-BR'),

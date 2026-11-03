@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DIAS_A_FRENTE,
+  INICIO_DAS_CHAMADAS,
   modoDaAula,
   telaDoLink,
   ultimoDiaVisivel,
@@ -81,6 +82,23 @@ describe('telaDoLink', () => {
 
   it('mostra os próximos dias em ordem, sem ir longe demais', () => {
     expect(tela.proximas.map((a) => a.id)).toEqual([7, 6])
+  })
+
+  it('a chamada esquecida de antes do início do uso real não aparece para marcar', () => {
+    const t = telaDoLink(
+      [
+        aula({ id: 1, data: '2026-10-31' }),
+        aula({ id: 2, data: '2026-11-01' }),
+        aula({ id: 3, data: '2026-11-02' }),
+      ],
+      as('18:30', '2026-11-03'),
+      '2026-11-01',
+    )
+    expect(t.pendentes.map((a) => a.id)).toEqual([3, 2])
+  })
+
+  it('o link começa a valer em 01/11/2026', () => {
+    expect(INICIO_DAS_CHAMADAS).toBe('2026-11-01')
   })
 
   it('a aula que começa em menos de uma hora já entra para marcar', () => {
