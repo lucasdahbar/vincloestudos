@@ -8,12 +8,13 @@ import { Cartao } from '@/ui/Cartao'
 import { aplicarMascara } from '@/dominio/documentos/formato'
 import { DIAS_DE_VALIDADE } from '@/dominio/cadastro-publico/convite'
 import { MARCA } from '@/marca'
+import { preencher } from '@/dominio/mensagens-modelo/preencher'
 
 /**
  * Gera o link de cadastro de uma familia. O link so aparece aqui, na hora: o
  * banco guarda o hash do token, entao a tela avisa para enviar antes de sair.
  */
-export function NovoConvite() {
+export function NovoConvite({ modelo }: { modelo: string }) {
   const [identificacao, setIdentificacao] = useState('')
   const [telefone, setTelefone] = useState('')
   const [link, setLink] = useState<string | null>(null)
@@ -22,7 +23,7 @@ export function NovoConvite() {
   const [pendente, iniciar] = useTransition()
 
   const mensagem = link
-    ? `Olá! Para fazer o cadastro na ${MARCA}, é só preencher seus dados e os do aluno neste link:\n\n${link}\n\nO link vale por ${DIAS_DE_VALIDADE} dias e pode ser usado uma vez.`
+    ? preencher(modelo, { marca: MARCA, link, dias: String(DIAS_DE_VALIDADE) })
     : ''
 
   // Só dígitos, com o 55 do Brasil na frente — formato que o wa.me espera.

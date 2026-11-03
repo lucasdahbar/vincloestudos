@@ -95,3 +95,20 @@ describe('montarAvisoDeTurma (G4)', () => {
     expect(corpo).toContain('Ano escolar: 9º ano')
   })
 })
+
+describe('montarAvisoDeTurma — texto editado pela gestora', () => {
+  it('usa o texto editado e some a linha do link que a turma nao tem', () => {
+    const { corpo } = montarAvisoDeTurma(
+      { ...base, link_videochamada: null },
+      { aviso_turma_professor: 'Oi {nome}, turma {turma}.\n{videochamada}\n{presenca}' },
+    )
+    expect(corpo).toContain('Oi Rafael, turma')
+    expect(corpo).not.toContain('Link da videochamada')
+    expect(corpo).toContain('Seu link de presença:')
+  })
+
+  it('o assunto continua fixo', () => {
+    const { assunto } = montarAvisoDeTurma(base, { aviso_turma_professor: 'x {nome}' })
+    expect(assunto).toBe(montarAvisoDeTurma(base).assunto)
+  })
+})

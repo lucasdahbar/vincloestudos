@@ -6,6 +6,8 @@ import { PainelRelacionados, paineisDe } from '@/cadastros/motor/Relacionados'
 import { BotaoExcluir } from '@/cadastros/motor/BotaoExcluir'
 import { paraCliente } from '@/cadastros/tipos'
 import { LinkDoProfessor } from './LinkDoProfessor'
+import { carregarModelosDaSessao } from '@/dados/mensagens-modelo'
+import { textoDoModelo } from '@/dominio/mensagens-modelo/catalogo'
 import { headers } from 'next/headers'
 import { obter } from '@/dados/crud'
 import { tokenDoProfessor } from '@/dados/professores'
@@ -65,6 +67,7 @@ export default async function PaginaEdicao({
             nome={String(registro.nome ?? 'Professor')}
             telefone={(registro.telefone as string | null) ?? null}
             linkInicial={await linkDoProfessor(Number(id))}
+            modelo={textoDoModelo('presenca_professor', await carregarModelosDaSessao())}
           />
         </div>
       )}

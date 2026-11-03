@@ -6,6 +6,7 @@ import { gerarLinkDoProfessor } from '../acoes-professor'
 import { Botao } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { MARCA } from '@/marca'
+import { preencher } from '@/dominio/mensagens-modelo/preencher'
 
 /**
  * R1 e R4 (Rodada 2): o link pessoal e permanente de presenca do professor.
@@ -19,11 +20,14 @@ export function LinkDoProfessor({
   nome,
   telefone,
   linkInicial,
+  modelo,
 }: {
   professorId: number
   nome: string
   telefone: string | null
   linkInicial: string | null
+  /** Texto da mensagem (editavel em Configuracoes > Textos das mensagens). */
+  modelo: string
 }) {
   const [link, setLink] = useState(linkInicial)
   const [pendente, iniciar] = useTransition()
@@ -33,7 +37,7 @@ export function LinkDoProfessor({
 
   const primeiroNome = nome.trim().split(/\s+/)[0]
   const mensagem = link
-    ? `Olá, ${primeiroNome}! Este é o seu link de presença do ${MARCA}:\n\n${link}\n\nEle é sempre o mesmo, para todas as suas turmas — salve no celular. Na hora da aula, é só abrir que ele mostra a turma do momento.`
+    ? preencher(modelo, { nome: primeiroNome, marca: MARCA, link })
     : ''
 
   function pedirLink(trocar: boolean) {

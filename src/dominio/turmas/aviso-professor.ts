@@ -1,5 +1,7 @@
 import type { Frequencia } from '@/dominio/tipos'
 import { textoDaRegra } from '@/dominio/agenda/recorrencia'
+import { textoDoModelo, type ModelosEditados } from '@/dominio/mensagens-modelo/catalogo'
+import { preencher } from '@/dominio/mensagens-modelo/preencher'
 
 /**
  * G4 (Rodada 2): o texto do aviso que o professor recebe quando uma turma nova
@@ -37,7 +39,11 @@ export interface AvisoDeTurma {
   corpo: string
 }
 
-export function montarAvisoDeTurma(d: DadosDoAviso): AvisoDeTurma {
+/**
+ * `modelos` traz o texto que a gestora reescreveu; sem ele vale o original.
+ * O assunto continua fixo: so o corpo e editavel.
+ */
+export function montarAvisoDeTurma(d: DadosDoAviso, modelos?: ModelosEditados): AvisoDeTurma {
   const primeiroNome = d.professor_nome.trim().split(/\s+/)[0]
 
   const quando =
@@ -57,26 +63,19 @@ export function montarAvisoDeTurma(d: DadosDoAviso): AvisoDeTurma {
     d.modalidade && `Modalidade: ${d.modalidade}`,
   ].filter(Boolean) as string[]
 
-  const corpo = [
-    `Olá, ${primeiroNome}!`,
-    '',
-    `Você foi designado para a turma ${d.turma_nome}.`,
-    '',
-    ...detalhes,
+  const corpo = preencher(textoDoModelo('aviso_turma_professor', modelos), {
+    nome: primeiroNome,
+    turma: d.turma_nome,
+    detalhes: detalhes.join('\n'),
     quando,
-    '',
-    d.link_videochamada ? `Link da videochamada: ${d.link_videochamada}` : null,
-    d.link_presenca ? `Seu link de presença: ${d.link_presenca}` : null,
+    videochamada: d.link_videochamada ? `Link da videochamada: ${d.link_videochamada}` : '',
+    presenca: d.link_presenca ? `Seu link de presença: ${d.link_presenca}` : '',
     // O link de presenca e permanente, e o professor precisa saber disso —
     // senao ele fica esperando um link novo a cada aula, que nao vem mais.
-    d.link_presenca
+    aviso_presenca: d.link_presenca
       ? 'Esse link de presença é sempre o mesmo, para todas as suas turmas: guarde no celular. Ao abrir, ele mostra a aula do momento.'
-      : null,
-    '',
-    'Qualquer dúvida, é só chamar.',
-  ]
-    .filter((l) => l !== null)
-    .join('\n')
+      : '',
+  })
 
   return { assunto: `Nova turma: ${d.turma_nome}`, corpo }
 }

@@ -6,6 +6,7 @@ import { motion } from 'motion/react'
 import { criarLinkDeChamada, reabrirChamadaDaAula } from '../../acoes'
 import { Botao } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
+import { preencher } from '@/dominio/mensagens-modelo/preencher'
 
 interface Props {
   aulaId: number
@@ -17,6 +18,8 @@ interface Props {
   /** Caminho do link ja existente, se houver. */
   caminhoExistente: string | null
   jaConfirmada: boolean
+  /** Texto da mensagem ao professor (editavel em Configuracoes > Textos das mensagens). */
+  modelo: string
 }
 
 /**
@@ -34,6 +37,7 @@ export function LinkDeChamada({
   quando,
   caminhoExistente,
   jaConfirmada,
+  modelo,
 }: Props) {
   const router = useRouter()
   const [caminho, setCaminho] = useState(caminhoExistente)
@@ -44,11 +48,12 @@ export function LinkDeChamada({
   // Montado no cliente: o servidor nao sabe o dominio publico.
   const urlCompleta = caminho ? `${typeof window !== 'undefined' ? window.location.origin : ''}${caminho}` : ''
 
-  const mensagem =
-    `Olá${professorNome ? `, ${professorNome.split(' ')[0]}` : ''}! ` +
-    `Segue o link para registrar a presença da aula de ${turmaNome}, ${quando}:\n\n` +
-    `${urlCompleta}\n\n` +
-    `É só marcar quem veio e tocar em "Confirmar presenças". O link vale por 48 horas.`
+  const mensagem = preencher(modelo, {
+    nome: professorNome ? professorNome.split(' ')[0] : 'professor',
+    turma: turmaNome,
+    quando,
+    link: urlCompleta,
+  })
 
   // R4: abrir direto a conversa, no mesmo padrao da tela de Mensagens. Copiar
   // e colar exige trocar de aplicativo e achar o contato a mao.

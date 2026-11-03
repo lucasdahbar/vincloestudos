@@ -1,5 +1,6 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
+import { carregarModelosDaSessao } from './mensagens-modelo'
 import { quandoDaTurma } from '@/dominio/turmas/quando'
 import {
   identificarDestinatario,
@@ -140,6 +141,7 @@ export async function enfileirarBoasVindas(matriculaId: number): Promise<number>
       modalidade: m.turma.modalidade,
     },
     referencia: { tipo: 'matriculas', id: m.id },
+    modelos: await carregarModelosDaSessao(),
   }
 
   return enfileirar(planejarNotificacoes(ctx))

@@ -237,3 +237,40 @@ describe('planejarNotificacoes — turma presencial', () => {
     expect(n[0].texto_gerado).toContain('Matemática')
   })
 })
+
+describe('planejarNotificacoes — texto editado pela gestora', () => {
+  it('boas-vindas usa o texto editado, com os campos preenchidos', () => {
+    const [n] = planejarNotificacoes({
+      ...base,
+      modelos: { boas_vindas_responsavel: 'Olá {nome}! {aluno} entrou na turma {turma}.' },
+    })
+    expect(n.texto_gerado).toBe(
+      'Olá Ana! João entrou na turma Matemática · 9º ano · Aula particular · Online.',
+    )
+  })
+
+  it('o aviso da sala some da turma presencial, mesmo no texto editado', () => {
+    const [n] = planejarNotificacoes({
+      ...base,
+      turma: { ...base.turma, modalidade: 'Presencial' },
+      modelos: { boas_vindas_responsavel: 'Oi {nome}!\n{sala}\nAbraço' },
+    })
+    expect(n.texto_gerado).toBe('Oi Ana!\nAbraço')
+  })
+
+  it('link da aula usa o texto editado, e a edicao de um nao muda o outro', () => {
+    const ctx: ContextoNotificacao = {
+      ...base,
+      tipo: 'LinkAula',
+      destinatario: 'Ambos',
+      referencia: { tipo: 'aulas', id: 77 },
+      aula: { data_hora_inicio: '2026-08-04T15:00:00', link: 'https://meet.exemplo.com/aula-77' },
+      modelos: { link_aula_aluno: 'Entre aqui, {nome}: {link} ({quando})' },
+    }
+    const textos = planejarNotificacoes(ctx).map((n) => n.texto_gerado)
+    expect(textos).toContain(
+      'Entre aqui, João: https://meet.exemplo.com/aula-77 (Terça-feira, 4 de agosto, às 15:00)',
+    )
+    expect(textos.find((t) => t.startsWith('Oi, Ana!'))).toContain('Link da sala:')
+  })
+})

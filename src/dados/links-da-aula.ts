@@ -3,6 +3,7 @@ import { clienteServidor } from './cliente'
 import { montarListaDaAula } from './lista-da-aula'
 import { quandoDaTurma, type TurmaComHorario } from '@/dominio/turmas/quando'
 import { destinosDoLink, type DestinoDoLink, type RegistroDeEnvio } from '@/dominio/notificacoes/link-da-aula'
+import { carregarModelos } from './mensagens-modelo'
 import type { CanalEnvio, ContextoNotificacao, Pessoa } from '@/dominio/notificacoes/mensagens'
 
 /**
@@ -70,6 +71,7 @@ export async function linksDaAula(aulaId: number): Promise<Map<number, DestinoDo
   ])
 
   const inicio = String(aula.data_hora_inicio)
+  const modelos = await carregarModelos(supabase)
 
   return new Map(
     ((alunos ?? []) as unknown as AlunoComPreferencia[]).map((a) => {
@@ -89,6 +91,7 @@ export async function linksDaAula(aulaId: number): Promise<Map<number, DestinoDo
         },
         referencia: { tipo: 'aulas', id: aula.id },
         aula: { data_hora_inicio: inicio, link },
+        modelos,
       }
       return [a.id, destinosDoLink(ctx, (registrados ?? []) as RegistroDeEnvio[])]
     }),

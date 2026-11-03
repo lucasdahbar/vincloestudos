@@ -1,6 +1,8 @@
 import { carregarFila, escolasDoCadastro } from '@/dados/cadastro-publico'
 import { QUEM_RECEBE_LINKS, type QuemRecebeLinks } from '@/dominio/cadastro-publico/envio'
 import { exigirGestora } from '@/dados/sessao'
+import { carregarModelosDaSessao } from '@/dados/mensagens-modelo'
+import { textoDoModelo } from '@/dominio/mensagens-modelo/catalogo'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { Selo } from '@/ui/Selo'
@@ -47,7 +49,7 @@ export default async function PaginaNovosCadastros() {
         </p>
       </header>
 
-      <NovoConvite />
+      <NovoConvite modelo={textoDoModelo('convite_cadastro', await carregarModelosDaSessao())} />
 
       {pendentes.length === 0 ? (
         <EstadoVazio

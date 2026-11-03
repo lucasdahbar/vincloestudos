@@ -1,6 +1,7 @@
 import 'server-only'
 import { clienteAdmin } from './admin'
 import { garantirTokenDoProfessor } from './professores'
+import { carregarModelos } from './mensagens-modelo'
 import { montarAvisoDeTurma } from '@/dominio/turmas/aviso-professor'
 
 /**
@@ -59,7 +60,7 @@ export async function avisarProfessorDaTurma(
     horario_fim: String(turma.horario_fim).slice(0, 5),
     link_videochamada: turma.link_videochamada ?? null,
     link_presenca: token ? `${urlBase}/p/professor/${token}` : null,
-  })
+  }, await carregarModelos(supabase))
 
   const enviou = await enviarEmail(professor.email, assunto, corpo)
 

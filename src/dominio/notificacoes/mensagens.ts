@@ -1,3 +1,6 @@
+import { textoDoModelo, type ModelosEditados } from '@/dominio/mensagens-modelo/catalogo'
+import { preencher } from '@/dominio/mensagens-modelo/preencher'
+
 export type TipoNotificacao = 'BoasVindas' | 'LinkAula' | 'Cobranca'
 export type CanalEnvio = 'WhatsApp' | 'E-mail'
 
@@ -25,6 +28,8 @@ export interface ContextoNotificacao {
   referencia: { tipo: string; id: number }
   /** Presente apenas no lembrete de aula. */
   aula?: { data_hora_inicio: string; link: string | null }
+  /** Textos que a gestora reescreveu (tabela `mensagens_modelo`); ausente = os originais. */
+  modelos?: ModelosEditados
 }
 
 export interface NotificacaoAEnfileirar {
@@ -66,29 +71,16 @@ function temContato(p: Pessoa, canal: CanalEnvio): boolean {
  * aula, e a mensagem parecia repetida.
  */
 function textoBoasVindas(ctx: ContextoNotificacao, paraAluno: boolean): string {
-  const link =
-    ctx.turma.modalidade === 'Online' ? ['O link da sala chega antes de cada aula.'] : []
-
-  if (paraAluno) {
-    return [
-      `Oi, ${primeiroNome(ctx.aluno.nome)}! Tudo bem? Boas-vindas à turma de ${ctx.turma.nome}.`,
-      '',
-      `${ctx.turma.quando}.`,
-      ...link,
-      '',
-      'Boas aulas para você! Um abraço!',
-    ].join('\n')
-  }
-
-  return [
-    `Oi, ${primeiroNome(ctx.responsavel.nome)}! Tudo bem? A matrícula de ${primeiroNome(ctx.aluno.nome)} na turma abaixo está confirmada.`,
-    '',
-    ctx.turma.nome,
-    `${ctx.turma.quando}.`,
-    ...link,
-    '',
-    'Qualquer dúvida, só chamar! Um abraço!',
-  ].join('\n')
+  return preencher(
+    textoDoModelo(paraAluno ? 'boas_vindas_aluno' : 'boas_vindas_responsavel', ctx.modelos),
+    {
+      nome: primeiroNome(paraAluno ? ctx.aluno.nome : ctx.responsavel.nome),
+      aluno: primeiroNome(ctx.aluno.nome),
+      turma: ctx.turma.nome,
+      quando: ctx.turma.quando,
+      sala: ctx.turma.modalidade === 'Online' ? 'O link da sala chega antes de cada aula.' : '',
+    },
+  )
 }
 
 const DIAS_DA_SEMANA = [
@@ -107,7 +99,7 @@ const MESES = [
 ]
 
 /**
- * "Terça-feira, 4 de agosto, às 15:00."
+ * "Terça-feira, 4 de agosto, às 15:00" (o ponto final fica no texto da mensagem).
  *
  * Lido direto do texto, sem `Date` no fuso de Brasília: a aula é gravada com o
  * horário de parede como se fosse UTC (ver `agoraNaEscola`). Converter fuso
@@ -116,33 +108,20 @@ const MESES = [
 function quandoDaAula(dataHoraInicio: string): string {
   const [ano, mes, dia] = dataHoraInicio.slice(0, 10).split('-').map(Number)
   const semana = new Date(Date.UTC(ano, mes - 1, dia)).getUTCDay()
-  return `${DIAS_DA_SEMANA[semana]}, ${dia} de ${MESES[mes - 1]}, às ${dataHoraInicio.slice(11, 16)}.`
+  return `${DIAS_DA_SEMANA[semana]}, ${dia} de ${MESES[mes - 1]}, às ${dataHoraInicio.slice(11, 16)}`
 }
 
 function textoLinkAula(ctx: ContextoNotificacao, paraAluno: boolean): string {
-  const quando = quandoDaAula(ctx.aula!.data_hora_inicio)
-  const link = `Link da sala: ${ctx.aula!.link}`
-
-  if (paraAluno) {
-    return [
-      `Oi, ${primeiroNome(ctx.aluno.nome)}! Tudo bem? Segue o link para a aula de ${ctx.turma.nome}.`,
-      '',
-      quando,
-      link,
-      '',
-      'Boa aula para você! Um abraço!',
-    ].join('\n')
-  }
-
-  return [
-    `Oi, ${primeiroNome(ctx.responsavel.nome)}! Tudo bem? Segue o link para a aula de ${primeiroNome(ctx.aluno.nome)}.`,
-    '',
-    ctx.turma.nome,
-    quando,
-    link,
-    '',
-    'Qualquer dúvida, só chamar! Um abraço!',
-  ].join('\n')
+  return preencher(
+    textoDoModelo(paraAluno ? 'link_aula_aluno' : 'link_aula_responsavel', ctx.modelos),
+    {
+      nome: primeiroNome(paraAluno ? ctx.aluno.nome : ctx.responsavel.nome),
+      aluno: primeiroNome(ctx.aluno.nome),
+      turma: ctx.turma.nome,
+      quando: quandoDaAula(ctx.aula!.data_hora_inicio),
+      link: ctx.aula!.link ?? '',
+    },
+  )
 }
 
 /**

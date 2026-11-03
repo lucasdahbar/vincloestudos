@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation'
 import { listaDaAula, obterAula } from '@/dados/aulas'
 import { linksDaAula } from '@/dados/links-da-aula'
 import { tokenDaAula } from '@/dados/presencas'
+import { carregarModelosDaSessao } from '@/dados/mensagens-modelo'
+import { textoDoModelo } from '@/dominio/mensagens-modelo/catalogo'
 import { LinkDeChamada } from './LinkDeChamada'
 import { AvisarFalta } from './AvisarFalta'
 import { EnviarLink } from './EnviarLink'
@@ -78,6 +80,7 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
     | { nome: string; telefone: string | null }
     | null
   const professorNome = professor?.nome ?? null
+  const modeloDaChamada = textoDoModelo('chamada_professor', await carregarModelosDaSessao())
 
   const registradas = (presencas ?? []) as unknown as {
     aluno_id: number
@@ -278,6 +281,7 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
           quando={quando}
           caminhoExistente={token && !token.usado_em ? `/p/presenca/${token.token}` : null}
           jaConfirmada={Boolean(token?.usado_em)}
+          modelo={modeloDaChamada}
         />
       )}
 

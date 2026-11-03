@@ -52,6 +52,12 @@ export const SECOES: SecaoNav[] = [
       { rotulo: 'Integrações', href: '/cadastros/integracoes', papeis: ['gestora'] },
     ],
   },
+  {
+    titulo: 'Configurações',
+    itens: [
+      { rotulo: 'Textos das mensagens', href: '/configuracoes/mensagens', papeis: ['gestora'] },
+    ],
+  },
 ]
 
 export function visiveisPara(papel: Papel): SecaoNav[] {
