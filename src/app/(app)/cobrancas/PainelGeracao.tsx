@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { motion } from 'motion/react'
 import { gerar } from './acoes'
@@ -9,11 +9,23 @@ import { Botao } from '@/ui/Botao'
 import { Campo, entradaClasse } from '@/ui/Campo'
 import { Cartao } from '@/ui/Cartao'
 
-export function PainelGeracao({ mesInicial }: { mesInicial: string }) {
+export function PainelGeracao({ mes }: { mes: string }) {
   const router = useRouter()
-  const [mes, setMes] = useState(mesInicial)
+  const caminho = usePathname()
+  const parametros = useSearchParams()
   const [pendente, iniciar] = useTransition()
   const [resultado, setResultado] = useState<string | null>(null)
+
+  // O mes mora na URL, como os filtros (T2): o mesmo seletor escolhe o que
+  // gerar e o que a lista mostra. A busca continua, para seguir a mesma
+  // familia de um mes para outro.
+  function trocarMes(novo: string) {
+    if (!/^\d{4}-\d{2}$/.test(novo)) return
+    const novos = new URLSearchParams(parametros.toString())
+    novos.set('mes', novo)
+    setResultado(null)
+    router.replace(`${caminho}?${novos}`, { scroll: false })
+  }
 
   return (
     <Cartao className="flex flex-col gap-4">
@@ -33,7 +45,7 @@ export function PainelGeracao({ mesInicial }: { mesInicial: string }) {
           <input
             type="month"
             value={mes}
-            onChange={(e) => setMes(e.target.value)}
+            onChange={(e) => trocarMes(e.target.value)}
             className={`${entradaClasse} max-w-[12rem]`}
           />
         </Campo>

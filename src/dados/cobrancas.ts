@@ -448,6 +448,36 @@ export async function listarCobrancas(filtros: { mes?: string; status?: string }
   })) as CobrancaResumo[]
 }
 
+/**
+ * Nomes dos alunos de cada cobrança do mês, tirados dos itens — e não dos
+ * filhos do responsável, porque a cobrança só fala de quem teve aula. Um item
+ * por aula: o mês passa fácil de mil itens, daí `lerTudo`.
+ */
+export async function alunosDasCobrancasDoMes(mes: string): Promise<Map<number, string[]>> {
+  const supabase = await clienteServidor()
+  const itens = await lerTudo<{ cobranca_id: number; aluno: { nome: string } | null }>((de, ate) =>
+    supabase
+      .from('itens_cobranca')
+      .select('cobranca_id, aluno:alunos!aluno_id (nome), cobranca:cobrancas!inner (mes_referencia)')
+      .eq('cobranca.mes_referencia', `${mes}-01`)
+      .order('id')
+      .range(de, ate) as unknown as PromiseLike<{
+      data: { cobranca_id: number; aluno: { nome: string } | null }[] | null
+      error: { message: string } | null
+    }>,
+  )
+
+  const nomes = new Map<number, Set<string>>()
+  for (const i of itens) {
+    if (!i.aluno) continue
+    const conjunto = nomes.get(i.cobranca_id) ?? new Set<string>()
+    conjunto.add(i.aluno.nome)
+    nomes.set(i.cobranca_id, conjunto)
+  }
+  const porNome = new Intl.Collator('pt-BR', { sensitivity: 'base' })
+  return new Map([...nomes].map(([id, conjunto]) => [id, [...conjunto].sort(porNome.compare)]))
+}
+
 export async function obterCobranca(id: number) {
   const supabase = await clienteServidor()
   const { data: cobranca } = await supabase
