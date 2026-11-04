@@ -9,6 +9,7 @@ import { BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { Selo } from '@/ui/Selo'
+import { AvisoGoogle } from './AvisoGoogle'
 import { EncerrarTurma } from './EncerrarTurma'
 import { ExcluirTurma } from './ExcluirTurma'
 
@@ -90,6 +91,10 @@ export default async function PaginaTurma({ params }: { params: Promise<{ id: st
           </div>
         )}
       </header>
+
+      {ehGestora && turma.google_sync_erro && (
+        <AvisoGoogle id={turma.id} motivo={turma.google_sync_erro} />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Cartao>

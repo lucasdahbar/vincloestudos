@@ -13,7 +13,7 @@ import { mudaQuandoDaTurma, validarTurma, type EntradaTurma } from '@/dominio/tu
 import { avaliarExclusaoTurma } from '@/dominio/turmas/exclusao'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
 import { avisarProfessorDaTurma } from '@/dados/avisos-turma'
-import { apagarEventoDaTurma, sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
+import { apagarEventoDaTurma, atualizarAlunosNoEvento, sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
 import {
   executarEncerramento,
   previaEncerramento,
@@ -220,6 +220,26 @@ export async function encerrarTurma(
   revalidatePath('/matriculas')
   revalidatePath('/cobrancas', 'layout')
   return { ok: true }
+}
+
+/**
+ * "Refazer no Google": a gestora refaz a agenda de uma turma quando o selo
+ * "Google desatualizado" aparece. É a mesma sincronização de quando se salva a
+ * turma; repetir é seguro, porque ela só reescreve o que está diferente.
+ * A espera é a própria ação (sem `after()`), para a tela mostrar o resultado.
+ */
+export async function refazerNoGoogle(id: number): Promise<{ ok: boolean; motivo?: string }> {
+  await exigirGestora()
+  let r: { ok: boolean; motivo?: string }
+  try {
+    r = await atualizarAlunosNoEvento(id)
+  } catch (e) {
+    console.error(`falha ao refazer o evento da turma ${id} no Google:`, e)
+    r = { ok: false, motivo: 'Erro inesperado ao falar com o Google. Tente de novo em instantes.' }
+  }
+  revalidatePath('/turmas', 'layout')
+  revalidatePath('/agenda', 'layout')
+  return r
 }
 
 export interface PreviaExclusaoTurma {

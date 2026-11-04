@@ -146,7 +146,12 @@ export default async function PaginaTurmas({
                       {quandoDaTurma(turma)}–{turma.horario_fim.slice(0, 5)}
                     </p>
                   </div>
-                  <Selo tom={turma.status === 'Ativa' ? 'ativo' : 'encerrado'}>{turma.status}</Selo>
+                  <div className="flex flex-col items-end gap-1.5">
+                    <Selo tom={turma.status === 'Ativa' ? 'ativo' : 'encerrado'}>{turma.status}</Selo>
+                    {/* Falha ao atualizar o Google (04/11/2026): o botão para refazer
+                        fica dentro da turma, para não competir com o clique no cartão. */}
+                    {ehGestora && turma.google_sync_erro && <Selo tom="alerta">Google desatualizado</Selo>}
+                  </div>
                 </div>
                 <dl className="mt-3 flex flex-col gap-1 text-sm text-tinta-suave">
                   <div>{turma.professor?.nome}</div>
