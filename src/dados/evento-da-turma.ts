@@ -445,6 +445,56 @@ async function ajustarHorariosPassados(
 export async function sincronizarEventoDaTurma(
   turmaId: number,
 ): Promise<{ ok: boolean; motivo?: string }> {
+  return comRegistro(turmaId, () => sincronizar(turmaId))
+}
+
+/**
+ * Grava na turma o resultado da atualização do Google: a falha fica à vista da
+ * gestora (selo + "Refazer no Google") e o sucesso apaga o aviso. Antes (bug de
+ * 04/11/2026) a falha só ia para o log e a turma ficava com a lista errada.
+ *
+ * Gravar o registro nunca pode derrubar quem chamou: o aviso é um extra.
+ */
+async function comRegistro(
+  turmaId: number,
+  executar: () => Promise<{ ok: boolean; motivo?: string }>,
+): Promise<{ ok: boolean; motivo?: string }> {
+  // Integração desligada não é falha da turma: não há o que refazer.
+  if (process.env.GOOGLE_CALENDAR_ATIVO !== 'true') return executar()
+
+  let resultado: { ok: boolean; motivo?: string }
+  try {
+    resultado = await executar()
+  } catch (e) {
+    await registrarResultado(turmaId, { ok: false, motivo: 'Erro inesperado ao falar com o Google.' })
+    throw e
+  }
+  await registrarResultado(turmaId, resultado)
+  return resultado
+}
+
+async function registrarResultado(
+  turmaId: number,
+  r: { ok: boolean; motivo?: string },
+): Promise<void> {
+  try {
+    await clienteAdmin()
+      .from('turmas')
+      .update(
+        r.ok
+          ? { google_sync_erro: null, google_sync_erro_em: null }
+          : {
+              google_sync_erro: r.motivo ?? 'O Google não aceitou a atualização.',
+              google_sync_erro_em: new Date().toISOString(),
+            },
+      )
+      .eq('id', turmaId)
+  } catch (e) {
+    console.error(`nao foi possivel registrar o resultado do Google da turma ${turmaId}:`, e)
+  }
+}
+
+async function sincronizar(turmaId: number): Promise<{ ok: boolean; motivo?: string }> {
   if (process.env.GOOGLE_CALENDAR_ATIVO !== 'true') {
     return { ok: false, motivo: 'A integração com o Google Agenda está desligada.' }
   }
@@ -557,6 +607,10 @@ export async function sincronizarEventoDaTurma(
 export async function atualizarAlunosNoEvento(
   turmaId: number,
 ): Promise<{ ok: boolean; motivo?: string }> {
+  return comRegistro(turmaId, () => atualizarAlunos(turmaId))
+}
+
+async function atualizarAlunos(turmaId: number): Promise<{ ok: boolean; motivo?: string }> {
   if (process.env.GOOGLE_CALENDAR_ATIVO !== 'true') {
     return { ok: false, motivo: 'A integração com o Google Agenda está desligada.' }
   }
@@ -586,7 +640,7 @@ export async function atualizarAlunosNoEvento(
       professor.google_calendar_id,
     )
   ) {
-    return sincronizarEventoDaTurma(turmaId)
+    return sincronizar(turmaId)
   }
 
   const evento = await comAulaUnicaRemarcada(
@@ -603,7 +657,7 @@ export async function atualizarAlunosNoEvento(
     turma.google_calendar_event_id,
     descricaoDoEvento({ ...evento, alunos: alunosDaDescricaoGeral(turma, matriculas) }),
   )
-  if (!r.ok && r.naoExiste) return sincronizarEventoDaTurma(turmaId)
+  if (!r.ok && r.naoExiste) return sincronizar(turmaId)
   if (!r.ok) return r
 
   const ajuste = await ajustarOcorrencias(

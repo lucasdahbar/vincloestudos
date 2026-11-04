@@ -13,7 +13,7 @@ const SELECT_TURMA = `
   id, nome, modalidade, tipo_recorrencia, data_unica,
   frequencia, intervalo, data_inicio, data_fim, fim_automatico,
   dias_semana, horario_inicio, horario_fim, status,
-  google_calendar_event_id, link_videochamada, continua_de,
+  google_calendar_event_id, google_sync_erro, link_videochamada, continua_de,
   servico_id, materia_id, escola_id, ano_escolar_id, professor_id,
   servico:servicos!servico_id (id, nome, permite_materia, permite_escola, valor_padrao),
   materia:materias!materia_id (id, nome),
@@ -38,6 +38,8 @@ export interface TurmaComRelacoes {
   horario_fim: string
   status: 'Ativa' | 'Encerrada'
   google_calendar_event_id: string | null
+  /** Motivo da última falha ao atualizar o Google; null quando está em dia. */
+  google_sync_erro: string | null
   link_videochamada: string | null
   /** Etapa 6d: a turma de que esta e a continuacao. */
   continua_de: number | null
