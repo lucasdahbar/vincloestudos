@@ -65,7 +65,9 @@ export async function sincronizarEvento(
         Authorization: `Bearer ${token.token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(corpo),
+      // Apagado a mao no Google (turma 274, 04/11/2026), o evento nao some: fica
+      // `cancelled` e aceita a escrita. O `confirmed` o traz de volta.
+      body: JSON.stringify(dados.evento_id ? { ...corpo, status: 'confirmed' } : corpo),
       signal: AbortSignal.timeout(10_000),
     })
 
@@ -134,9 +136,12 @@ export async function atualizarDescricao(
         },
       )
 
-      if (resposta.ok) return { ok: true }
-      // Apagado à mão no Google: quem chamou decide recriar.
-      if (resposta.status === 404 || resposta.status === 410) {
+      // Apagado à mão no Google: quem chamou decide recriar. O evento apagado
+      // não dá 404: responde 200 com status `cancelled` (turma 274, 04/11/2026).
+      const cancelado =
+        resposta.ok && (await resposta.json().catch(() => null))?.status === 'cancelled'
+      if (resposta.ok && !cancelado) return { ok: true }
+      if (cancelado || resposta.status === 404 || resposta.status === 410) {
         return { ok: false, motivo: 'O evento não existe mais no Google.', naoExiste: true }
       }
       motivo = `O Google recusou a atualização (HTTP ${resposta.status}).`
