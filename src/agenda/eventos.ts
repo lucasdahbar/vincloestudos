@@ -105,33 +105,48 @@ export async function atualizarDescricao(
   eventoId: string,
   descricao: string,
   buscar: typeof fetch = fetch,
+  /** Espera base entre tentativas, em ms (os testes passam 0). */
+  espera = 400,
 ): Promise<{ ok: true } | { ok: false; motivo: string; naoExiste?: boolean }> {
   const token = await accessToken(buscar)
   if (!token.ok) return { ok: false, motivo: token.motivo }
 
-  try {
-    const resposta = await buscar(
-      `${API}/${encodeURIComponent(googleCalendarId)}/events/${encodeURIComponent(eventoId)}?sendUpdates=none`,
-      {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ description: descricao }),
-        signal: AbortSignal.timeout(10_000),
-      },
-    )
+  // Turma 182, 04/11/2026: a escrita de uma ocorrência foi recusada de forma
+  // passageira (limite de taxa ou erro do Google) e ninguém tentou de novo, então
+  // o professor viu "Nenhum aluno matriculado" num dia com aluno. Recusa
+  // passageira (403/409/429/5xx) ganha mais tentativas, com espera crescente.
+  const TENTATIVAS = 4
+  let motivo = 'Não foi possível falar com o Google Agenda agora.'
 
-    if (resposta.ok) return { ok: true }
-    // Apagado à mão no Google: quem chamou decide recriar.
-    if (resposta.status === 404 || resposta.status === 410) {
-      return { ok: false, motivo: 'O evento não existe mais no Google.', naoExiste: true }
+  for (let i = 0; i < TENTATIVAS; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, espera * i))
+    try {
+      const resposta = await buscar(
+        `${API}/${encodeURIComponent(googleCalendarId)}/events/${encodeURIComponent(eventoId)}?sendUpdates=none`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ description: descricao }),
+          signal: AbortSignal.timeout(10_000),
+        },
+      )
+
+      if (resposta.ok) return { ok: true }
+      // Apagado à mão no Google: quem chamou decide recriar.
+      if (resposta.status === 404 || resposta.status === 410) {
+        return { ok: false, motivo: 'O evento não existe mais no Google.', naoExiste: true }
+      }
+      motivo = `O Google recusou a atualização (HTTP ${resposta.status}).`
+      const passageira = [403, 409, 412, 429].includes(resposta.status) || resposta.status >= 500
+      if (!passageira) return { ok: false, motivo }
+    } catch {
+      motivo = 'Não foi possível falar com o Google Agenda agora.'
     }
-    return { ok: false, motivo: `O Google recusou a atualização (HTTP ${resposta.status}).` }
-  } catch {
-    return { ok: false, motivo: 'Não foi possível falar com o Google Agenda agora.' }
   }
+  return { ok: false, motivo }
 }
 
 /**

@@ -369,15 +369,12 @@ async function ajustarOcorrencias(
     descricaoDoEvento({ ...evento, alunos }),
   )
 
-  // Poucas por vez: o Google limita a taxa de escrita por usuário.
+  // Uma por vez (bug de 04/11/2026): em paralelo, o Google recusava algumas
+  // escritas na mesma série e a ocorrência ficava com a lista errada.
   const falhas: string[] = []
-  for (let i = 0; i < ajustes.length; i += 5) {
-    const lote = await Promise.all(
-      ajustes
-        .slice(i, i + 5)
-        .map((a) => atualizarDescricao(googleCalendarId, a.id, a.descricao)),
-    )
-    for (const r of lote) if (!r.ok) falhas.push(r.motivo)
+  for (const a of ajustes) {
+    const r = await atualizarDescricao(googleCalendarId, a.id, a.descricao)
+    if (!r.ok) falhas.push(r.motivo)
   }
 
   return falhas.length === 0
