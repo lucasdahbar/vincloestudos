@@ -32,8 +32,13 @@ describe('temAulaPelaFrente', () => {
     expect(temAulaPelaFrente({ ...serie, status: 'Encerrada' }, HOJE)).toBe(false)
   })
 
-  it('aula única nunca entra na lista de séries: ela fica na agenda', () => {
-    expect(temAulaPelaFrente({ ...unica, data_unica: '2026-11-05' }, HOJE)).toBe(false)
+  // Pedido do Julio de 04/11/2026: "com aula pela frente" tem de trazer também
+  // as aulas únicas que ainda vão acontecer.
+  it('aula única ativa de hoje em diante entra; a que passou ou foi encerrada, não', () => {
+    expect(temAulaPelaFrente({ ...unica, data_unica: '2026-11-05' }, HOJE)).toBe(true)
+    expect(temAulaPelaFrente({ ...unica, data_unica: HOJE }, HOJE)).toBe(true)
+    expect(temAulaPelaFrente({ ...unica, data_unica: '2026-10-28' }, HOJE)).toBe(false)
+    expect(temAulaPelaFrente({ ...unica, data_unica: '2026-11-05', status: 'Encerrada' }, HOJE)).toBe(false)
   })
 })
 

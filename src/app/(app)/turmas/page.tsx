@@ -19,7 +19,7 @@ import { RenovarTurmas } from './RenovarTurmas'
 // vez. O limite vale para as Server Actions da página.
 export const maxDuration = 300
 
-/** Etapa 4: o que a lista mostra. Sem nada, so as series com aula pela frente. */
+/** Etapa 4: o que a lista mostra. Sem nada, so as turmas com aula pela frente. */
 const MOSTRAR = ['encerradas', 'unicas', 'todas'] as const
 const ROTULO_MOSTRAR: Record<(typeof MOSTRAR)[number], string> = {
   encerradas: 'Encerradas',

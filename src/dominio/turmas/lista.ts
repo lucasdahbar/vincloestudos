@@ -2,8 +2,7 @@ import type { TipoRecorrencia } from '@/dominio/tipos'
 
 /**
  * Etapa 4 de "turmas como agenda" (28/10/2026): a tela de Turmas mostra as
- * series com aula pela frente. A aula unica vive na agenda, e a turma que
- * terminou sai sozinha.
+ * turmas com aula pela frente, e a turma que terminou sai sozinha.
  */
 export interface TurmaDaLista {
   tipo_recorrencia: TipoRecorrencia
@@ -34,9 +33,17 @@ export function turmaVencida(t: TurmaDaLista, hoje: string): boolean {
   return !t.fim_automatico && fim !== null && fim < hoje
 }
 
-/** Entra na lista padrao de Turmas: serie ativa que ainda tem aula. */
+/**
+ * Entra na lista padrao de Turmas: turma ativa que ainda tem aula. A aula unica
+ * de hoje em diante entra tambem (pedido do Julio de 04/11/2026: o filtro "Com
+ * aula pela frente" nao trazia as que ainda vao acontecer).
+ */
 export function temAulaPelaFrente(t: TurmaDaLista, hoje: string): boolean {
-  if (t.tipo_recorrencia === 'Único' || t.status !== 'Ativa') return false
+  if (t.status !== 'Ativa') return false
+  if (t.tipo_recorrencia === 'Único') {
+    const d = dia(t.data_unica)
+    return d !== null && d >= hoje
+  }
   const fim = dia(t.data_fim)
   return fim === null || fim >= hoje
 }
