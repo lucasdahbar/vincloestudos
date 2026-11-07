@@ -31,7 +31,7 @@ const ESCOPOS: Record<Escopo, string> = {
 }
 
 const EXPLICACAO: Record<Escopo, string> = {
-  esta: 'Muda só esta aula: data, horário, professor e modalidade. A turma e as outras aulas ficam como estão.',
+  esta: 'Muda só esta aula: data, horário, professor, serviço e modalidade. A turma e as outras aulas ficam como estão.',
   'a-partir':
     'Muda a turma a partir da data escolhida: dias, horário, professor, serviço e modalidade. As aulas antes dela ficam como estão.',
   serie: 'Muda todas as aulas que ainda vão acontecer: dias, horário, professor, serviço e modalidade. As que já passaram ficam como estão.',
@@ -76,6 +76,15 @@ export default async function PaginaMudarTurma({
         fim: String(aula.data_hora_fim).slice(0, 16),
         professorId: aula.professor_id,
         professores,
+        // Pedido de 06/11/2026: o servico desta aula (aula de 1h30 pedida em
+        // cima da hora). Servico inativo que a aula ainda usa fica na lista.
+        servicoId: aula.servico_id,
+        servicos: opcoes.servicos.some((s) => s.id === aula.servico_id)
+          ? opcoes.servicos.map((s) => ({ id: s.id, nome: s.nome }))
+          : [
+              { id: aula.servico_id, nome: 'Serviço atual (inativo)' },
+              ...opcoes.servicos.map((s) => ({ id: s.id, nome: s.nome })),
+            ],
         // Extensao de 30/10/2026: a modalidade da propria aula, que pode
         // diferir da modalidade atual da turma.
         modalidade: aula.modalidade,

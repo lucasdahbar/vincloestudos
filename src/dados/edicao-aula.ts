@@ -10,6 +10,11 @@ export interface EdicaoDaAula {
   nova: NovoHorario | null
   /** Professor novo; nulo = nao muda. */
   professorId: number | null
+  /**
+   * Servico novo; nulo = nao muda. Pedido do Julio (06/11/2026): o pai pede em
+   * cima da hora uma aula de 1h30, que e outro servico e outro preco.
+   */
+  servicoId?: number | null
   /** Modalidade nova; nulo = nao muda. */
   modalidade: 'Presencial' | 'Online' | null
   /** Decisao 5: resposta a "a aula aconteceu?", quando ela passou sem chamada. */
@@ -24,7 +29,8 @@ export type ResultadoEdicao =
   | { ok: false; alerta: string }
 
 /**
- * Etapa 6b (29/10/2026): editar "so esta aula" — dia, horario e professor.
+ * Etapa 6b (29/10/2026): editar "so esta aula" — dia, horario, professor,
+ * modalidade e (06/11/2026) servico.
  *
  * A varredura roda de novo aqui, com o que esta no banco agora: a previa do
  * navegador pode estar velha. Dia e horario seguem a remarcacao de sempre
@@ -34,16 +40,22 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
   const supabase = await clienteServidor()
   const { data: aula, error } = await supabase
     .from('aulas')
-    .select('id, turma_id, professor_id, modalidade')
+    .select('id, turma_id, professor_id, servico_id, modalidade')
     .eq('id', aulaId)
     .maybeSingle()
   if (error) return { ok: false, erros: ['Não foi possível conferir a aula agora. Tente de novo.'] }
   if (!aula) return { ok: false, erros: ['Esta aula não existe mais.'] }
 
   const trocaProfessor = e.professorId !== null && e.professorId !== aula.professor_id
+  const trocaServico = e.servicoId != null && e.servicoId !== aula.servico_id
   const trocaModalidade = e.modalidade !== null && e.modalidade !== aula.modalidade
-  const pedido = { quando: e.nova !== null, professor: trocaProfessor, modalidade: trocaModalidade }
-  if (!pedido.quando && !pedido.professor && !pedido.modalidade) {
+  const pedido = {
+    quando: e.nova !== null,
+    professor: trocaProfessor,
+    servico: trocaServico,
+    modalidade: trocaModalidade,
+  }
+  if (!pedido.quando && !pedido.professor && !pedido.servico && !pedido.modalidade) {
     return { ok: false, erros: ['Nada mudou nesta aula.'] }
   }
 
@@ -54,6 +66,15 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
       .eq('id', e.professorId!)
       .maybeSingle()
     if (!professor?.ativo) return { ok: false, erros: ['Escolha um professor ativo.'] }
+  }
+
+  if (trocaServico) {
+    const { data: servico } = await supabase
+      .from('servicos')
+      .select('id, ativo')
+      .eq('id', e.servicoId!)
+      .maybeSingle()
+    if (!servico?.ativo) return { ok: false, erros: ['Escolha um serviço ativo.'] }
   }
 
   const fatos = await aulasParaVarredura(aula.turma_id, 'esta', { aulaId })
@@ -90,6 +111,26 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
     }
     // O link da chamada que ainda nao foi usado era do professor anterior.
     await supabase.from('presenca_tokens').delete().eq('aula_id', aulaId).is('usado_em', null)
+  }
+
+  if (trocaServico) {
+    // Decisao 8 (a varredura ja barrou aula cobrada ou paga): o preco sai do
+    // servico da aula na geracao da cobranca, e o rascunho e refeito nela.
+    // O gatilho da turma nao desfaz isto: so leva aula que segue a turma.
+    const { error: erroServico } = await supabase
+      .from('aulas')
+      .update({ servico_id: e.servicoId })
+      .eq('id', aulaId)
+    if (erroServico) {
+      return {
+        ok: false,
+        erros: [
+          pedido.quando || pedido.professor
+            ? `O resto mudou, mas o serviço não: ${erroServico.message}`
+            : `Não foi possível trocar o serviço: ${erroServico.message}`,
+        ],
+      }
+    }
   }
 
   if (trocaModalidade) {

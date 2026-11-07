@@ -29,6 +29,9 @@ export interface DadosDaEdicao {
   fim: string
   professorId: number
   professores: { id: number; nome: string }[]
+  /** Pedido de 06/11/2026: o servico (e o preco) desta aula. */
+  servicoId: number
+  servicos: { id: number; nome: string }[]
   /** Extensao de 30/10/2026: a modalidade propria da aula. */
   modalidade: 'Presencial' | 'Online'
 }
@@ -211,6 +214,7 @@ export function PreviaDaMudanca({
           aula={v.aulas[0]}
           dados={edicao}
           aconteceu={respostas.aconteceu?.[edicao.aulaId]}
+          emRascunho={aulas.some((a) => a.alunos.some((x) => x.cobranca === 'Rascunho'))}
         />
       ) : saida ? (
         <AplicarSaida turmaId={turmaId} pedido={saida} aulas={aulas} varredura={v} respostas={respostas} />
@@ -233,35 +237,46 @@ function EditarEstaAula({
   aula,
   dados,
   aconteceu,
+  emRascunho,
 }: {
   aula: AulaVarrida | undefined
   dados: DadosDaEdicao
   aconteceu: boolean | undefined
+  /** Algum aluno tem esta aula num rascunho de cobranca. */
+  emRascunho: boolean
 }) {
   const router = useRouter()
   const [data, setData] = useState(dados.inicio.slice(0, 10))
   const [horaInicio, setHoraInicio] = useState(dados.inicio.slice(11, 16))
   const [horaFim, setHoraFim] = useState(dados.fim.slice(11, 16))
   const [professorId, setProfessorId] = useState(dados.professorId)
+  const [servicoId, setServicoId] = useState(dados.servicoId)
   const [modalidade, setModalidade] = useState(dados.modalidade)
   const [alerta, setAlerta] = useState<string | null>(null)
   const [erros, setErros] = useState<string[]>([])
-  const [feito, setFeito] = useState<{ nome: string; data: string }[] | null>(null)
+  const [feito, setFeito] = useState<{ avisar: { nome: string; data: string }[]; servico: boolean } | null>(null)
   const [pendente, iniciar] = useTransition()
 
   // Extensao de 30/10/2026: nao ha mais escolha de "o que mudar" — a previa
   // (`aula.campos`, da varredura) e que diz, aula por aula, o que se libera:
-  // quando, professor e modalidade.
+  // quando, professor, servico (06/11/2026) e modalidade.
   const podeQuando = aula?.campos?.quando ?? false
   const podeProfessor = aula?.campos?.professor ?? false
+  const podeServico = aula?.campos?.servico ?? false
   const podeModalidade = aula?.campos?.modalidade ?? false
 
   const mudouHorario =
     podeQuando && (data !== dados.inicio.slice(0, 10) || horaInicio !== dados.inicio.slice(11, 16) || horaFim !== dados.fim.slice(11, 16))
   const mudouProfessor = podeProfessor && professorId !== dados.professorId
+  const mudouServico = podeServico && servicoId !== dados.servicoId
   const mudouModalidade = podeModalidade && modalidade !== dados.modalidade
-  const bloqueio = errosDaEdicao(aula, { quando: mudouHorario, professor: mudouProfessor, modalidade: mudouModalidade })
-  const nadaMudou = !mudouHorario && !mudouProfessor && !mudouModalidade
+  const bloqueio = errosDaEdicao(aula, {
+    quando: mudouHorario,
+    professor: mudouProfessor,
+    servico: mudouServico,
+    modalidade: mudouModalidade,
+  })
+  const nadaMudou = !mudouHorario && !mudouProfessor && !mudouServico && !mudouModalidade
 
   // Mexer no horario depois do aviso de feriado pede outra conferencia.
   const mudou = (f: () => void) => {
@@ -276,12 +291,13 @@ function EditarEstaAula({
         const r = await editarEstaAula(dados.aulaId, {
           nova: mudouHorario ? { data, inicio: horaInicio, fim: horaFim } : null,
           professorId: mudouProfessor ? professorId : null,
+          servicoId: mudouServico ? servicoId : null,
           modalidade: mudouModalidade ? modalidade : null,
           aconteceu,
           confirmouAlerta: alerta !== null,
         })
         if (r.ok) {
-          setFeito(r.avisar)
+          setFeito({ avisar: r.avisar, servico: mudouServico })
           router.refresh()
         } else if (r.alerta) setAlerta(r.alerta)
         else setErros(r.erros ?? ['Não foi possível mudar a aula.'])
@@ -296,9 +312,14 @@ function EditarEstaAula({
       <Cartao>
         <p className="font-medium">Aula alterada.</p>
         <p className="mt-1 text-sm text-tinta-suave">A agenda do professor no Google acompanha em instantes.</p>
-        {feito.length > 0 && (
+        {feito.servico && emRascunho && (
           <p className="mt-2 text-sm">
-            Avise quem vem repor: {feito.map((x) => x.nome).join(', ')}.
+            A cobrança deste mês está em rascunho: gere a cobrança de novo para o preço novo entrar.
+          </p>
+        )}
+        {feito.avisar.length > 0 && (
+          <p className="mt-2 text-sm">
+            Avise quem vem repor: {feito.avisar.map((x) => x.nome).join(', ')}.
           </p>
         )}
         <div className="mt-4">
@@ -342,6 +363,18 @@ function EditarEstaAula({
             </select>
           </label>
         )}
+        {podeServico && (
+          <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+            <span className="font-medium">Serviço desta aula</span>
+            <select value={servicoId} onChange={(e) => setServicoId(Number(e.target.value))} className={entradaClasse}>
+              {dados.servicos.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {podeModalidade && (
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium">Modalidade desta aula</span>
@@ -359,9 +392,13 @@ function EditarEstaAula({
 
       {!podeQuando && (
         <p className="mt-3 text-sm text-tinta-suave">
-          {podeProfessor
-            ? 'Esta aula já aconteceu: só o professor se corrige.'
-            : 'Esta aula já aconteceu e está no pagamento do professor: nada mais muda nela.'}
+          {podeProfessor && podeServico
+            ? 'Esta aula já aconteceu: só o professor e o serviço se corrigem.'
+            : podeProfessor
+              ? 'Esta aula já aconteceu: só o professor se corrige.'
+              : podeServico
+                ? 'Esta aula já aconteceu: só o serviço se corrige.'
+                : 'Esta aula já aconteceu e já foi cobrada ou está no pagamento do professor: nada mais muda nela.'}
         </p>
       )}
       {!nadaMudou && bloqueio.length > 0 && (
