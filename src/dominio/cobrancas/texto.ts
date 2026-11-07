@@ -50,13 +50,26 @@ function dataCompleta(iso: string): string {
   return `${dia}/${mes}/${ano}`
 }
 
+/**
+ * Pedido do Julio (06/11/2026): o responsavel quer ver os dias em que teve
+ * aula, nao o periodo. "06, 13 e 20/11"; com meses diferentes, cada dia leva
+ * o seu mes ("28/10, 04/11 e 11/11"). Duas aulas no mesmo dia contam no "2x",
+ * mas o dia aparece uma vez.
+ */
+export function diasDasAulas(isos: string[]): string {
+  const dias = [...new Set(isos)].sort()
+  const mesmoMes = new Set(dias.map((d) => d.slice(0, 7))).size === 1
+  const partes = dias.map((d, i) => (mesmoMes && i < dias.length - 1 ? d.slice(8, 10) : dataCurta(d)))
+  return partes.length === 1 ? partes[0] : `${partes.slice(0, -1).join(', ')} e ${partes[partes.length - 1]}`
+}
+
 /** Largura da coluna de pontinhos, para os valores alinharem no WhatsApp. */
 const LARGURA = 38
 
 /**
  * Modulos Operacionais 6.4. Monta o texto pronto para a gestora copiar e enviar,
  * agrupando por aluno e, dentro de cada aluno, resumindo itens iguais com a
- * quantidade e o intervalo de datas.
+ * quantidade e os dias das aulas.
  *
  * O valor exibido no total e sempre o valor_total, ja liquido de descontos.
  */
@@ -89,10 +102,7 @@ export function gerarTextoCobranca(dados: DadosDoTexto, modelos?: ModelosEditado
     }
 
     for (const [descricao, grupo] of porDescricao) {
-      const datas = grupo.map((g) => g.data).sort()
-      const periodo =
-        grupo.length > 1 ? ` (${dataCurta(datas[0])} a ${dataCurta(datas[datas.length - 1])})` : ''
-      const rotulo = `${grupo.length}x ${descricao}${periodo}`
+      const rotulo = `${grupo.length}x ${descricao} (${diasDasAulas(grupo.map((g) => g.data))})`
       const valor = formatarBRL(somar(...grupo.map((g) => g.valor_final)))
       const pontos = '.'.repeat(Math.max(1, LARGURA - rotulo.length))
       linhas.push(`${rotulo} ${pontos} ${valor}`)

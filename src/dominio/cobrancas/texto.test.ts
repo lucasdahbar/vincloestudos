@@ -46,13 +46,42 @@ describe('gerarTextoCobranca', () => {
     expect(texto).toContain('8x Aula regular')
   })
 
-  it('mostra o intervalo de datas quando ha mais de uma aula', () => {
-    expect(texto).toContain('(05/08 a 26/08)')
+  // Pedido do Julio (06/11/2026): os dias das aulas, e nao o periodo.
+  it('lista os dias das aulas, com o mes uma vez so no fim', () => {
+    expect(texto).toContain('8x Aula regular (05, 08, 11, 14, 17, 20, 23 e 26/08)')
+    expect(texto).not.toContain(' a 26/08')
   })
 
-  it('nao mostra intervalo quando ha uma aula so', () => {
-    const linha = texto.split('\n').find((l) => l.includes('Aulão de revisão'))!
-    expect(linha).not.toContain(' a ')
+  it('com uma aula so, mostra o dia dela', () => {
+    expect(texto).toContain('1x Aulão de revisão (10/08)')
+  })
+
+  it('aulas de meses diferentes levam o mes em cada dia', () => {
+    const t = gerarTextoCobranca({
+      ...dados,
+      itens: ['2026-08-28', '2026-09-04', '2026-09-11'].map((data) => ({
+        aluno_nome: 'Maria',
+        contexto: '7º ano — Português',
+        descricao: 'Aula regular',
+        data,
+        valor_final: 10000,
+      })),
+    })
+    expect(t).toContain('3x Aula regular (28/08, 04/09 e 11/09)')
+  })
+
+  it('duas aulas no mesmo dia nao repetem o dia', () => {
+    const t = gerarTextoCobranca({
+      ...dados,
+      itens: ['2026-08-06', '2026-08-06', '2026-08-13'].map((data) => ({
+        aluno_nome: 'Maria',
+        contexto: '7º ano — Português',
+        descricao: 'Aula regular',
+        data,
+        valor_final: 10000,
+      })),
+    })
+    expect(t).toContain('3x Aula regular (06 e 13/08)')
   })
 
   it('soma o valor de cada grupo', () => {
