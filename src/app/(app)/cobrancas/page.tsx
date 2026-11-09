@@ -2,9 +2,9 @@ import Link from 'next/link'
 import { alunosDasCobrancasDoMes, listarCobrancas } from '@/dados/cobrancas'
 import { exigirGestora } from '@/dados/sessao'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
-import { listaDeCobrancas } from '@/dominio/cobrancas/lista'
+import { OPCOES_DE_STATUS, listaDeCobrancas } from '@/dominio/cobrancas/lista'
 import { formatarBRL } from '@/dominio/dinheiro'
-import { comoTexto } from '@/dominio/filtros'
+import { comoOpcao, comoTexto, deValores } from '@/dominio/filtros'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { Filtros } from '@/ui/Filtros'
 import { Selo } from '@/ui/Selo'
@@ -16,6 +16,7 @@ const TOM: Record<string, 'ativo' | 'encerrado' | 'alerta' | 'neutro'> = {
   Enviada: 'neutro',
   Parcial: 'alerta',
   Quitada: 'ativo',
+  Cancelada: 'encerrado',
 }
 
 export default async function PaginaCobrancas({
@@ -30,6 +31,7 @@ export default async function PaginaCobrancas({
   const mesDaUrl = comoTexto(params.mes)
   const mes = mesDaUrl && /^\d{4}-\d{2}$/.test(mesDaUrl) ? mesDaUrl : agoraNaEscola(new Date()).slice(0, 7)
   const busca = comoTexto(params.busca)
+  const status = comoOpcao(params.status, OPCOES_DE_STATUS)
 
   const [doMes, alunos] = await Promise.all([listarCobrancas({ mes }), alunosDasCobrancasDoMes(mes)])
   const total = doMes.reduce((s, c) => s + c.valor_total, 0)
@@ -37,6 +39,7 @@ export default async function PaginaCobrancas({
   const cobrancas = listaDeCobrancas(
     doMes.map((c) => ({ ...c, alunos: alunos.get(c.id) ?? [] })),
     busca,
+    status,
   )
 
   return (
@@ -60,12 +63,12 @@ export default async function PaginaCobrancas({
         <>
           <Filtros
             busca={{ campo: 'busca', rotulo: 'Responsável ou aluno', placeholder: 'Digite um nome' }}
-            seletores={[]}
+            seletores={[{ campo: 'status', rotulo: 'Status', opcoes: deValores(OPCOES_DE_STATUS) }]}
             total={cobrancas.length}
             contagem={{
               um: 'cobrança encontrada',
               varios: 'cobranças encontradas',
-              nenhum: 'Nenhuma cobrança deste mês com esse nome.',
+              nenhum: 'Nenhuma cobrança deste mês com esses filtros.',
             }}
           />
 

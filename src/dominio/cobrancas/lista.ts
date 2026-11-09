@@ -8,7 +8,26 @@ export interface CobrancaDaLista {
   responsavel: { nome: string } | null
   /** Nomes dos alunos que a cobranca inclui. */
   alunos: string[]
+  status?: string
 }
+
+/**
+ * Filtro por status (pedido do Julio, 09/11/2026). Alem de cada status, uma
+ * opcao que junta o que ainda falta receber: e a pergunta do dia a dia ("quem
+ * ainda nao pagou?"), e com um status por vez a gestora teria de olhar tres listas.
+ */
+export const STATUS_EM_ABERTO = 'Em aberto'
+const EM_ABERTO = ['Confirmada', 'Enviada', 'Parcial']
+
+export const OPCOES_DE_STATUS = [
+  STATUS_EM_ABERTO,
+  'Rascunho',
+  'Confirmada',
+  'Enviada',
+  'Parcial',
+  'Quitada',
+  'Cancelada',
+] as const
 
 /** Minusculas e sem acento: "João" e "joao" sao a mesma busca. */
 function semAcento(texto: string): string {
@@ -23,10 +42,21 @@ const porNome = new Intl.Collator('pt-BR', { sensitivity: 'base' })
  * aparecer em algum nome — do responsavel ou de um aluno —, para "maria joao"
  * achar a Maria mae do Joao e nao toda Maria.
  */
-export function listaDeCobrancas<T extends CobrancaDaLista>(lista: T[], busca?: string): T[] {
+export function listaDeCobrancas<T extends CobrancaDaLista>(
+  lista: T[],
+  busca?: string,
+  status?: string,
+): T[] {
   const palavras = semAcento(busca ?? '').split(/\s+/).filter(Boolean)
 
+  const passaNoStatus = (c: T) => {
+    if (!status) return true
+    if (status === STATUS_EM_ABERTO) return EM_ABERTO.includes(c.status ?? '')
+    return c.status === status
+  }
+
   const passa = (c: T) => {
+    if (!passaNoStatus(c)) return false
     if (palavras.length === 0) return true
     const nomes = [c.responsavel?.nome ?? '', ...c.alunos].map(semAcento)
     return palavras.every((p) => nomes.some((n) => n.includes(p)))

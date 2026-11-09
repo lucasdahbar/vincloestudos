@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { listaDeCobrancas } from './lista'
+import { STATUS_EM_ABERTO, listaDeCobrancas } from './lista'
 
 const c = (id: number, responsavel: string | null, alunos: string[] = []) => ({
   id,
@@ -46,5 +46,35 @@ describe('listaDeCobrancas', () => {
     const lista = [c(1, 'B'), c(2, 'A')]
     listaDeCobrancas(lista)
     expect(lista.map((x) => x.id)).toEqual([1, 2])
+  })
+})
+
+describe('filtro por status (pedido do Julio, 09/11/2026)', () => {
+  const s = (id: number, status: string) => ({ ...c(id, `R${id}`), status })
+  const lista = [
+    s(1, 'Rascunho'),
+    s(2, 'Confirmada'),
+    s(3, 'Enviada'),
+    s(4, 'Parcial'),
+    s(5, 'Quitada'),
+    s(6, 'Cancelada'),
+  ]
+
+  it('um status traz só as cobranças dele', () => {
+    expect(listaDeCobrancas(lista, undefined, 'Parcial').map((x) => x.id)).toEqual([4])
+    expect(listaDeCobrancas(lista, undefined, 'Rascunho').map((x) => x.id)).toEqual([1])
+  })
+
+  it('"Em aberto" junta o que ainda falta receber: Confirmada, Enviada e Parcial', () => {
+    expect(listaDeCobrancas(lista, undefined, STATUS_EM_ABERTO).map((x) => x.id)).toEqual([2, 3, 4])
+  })
+
+  it('sem status, traz todas', () => {
+    expect(listaDeCobrancas(lista, undefined, undefined)).toHaveLength(6)
+  })
+
+  it('status e busca valem juntos', () => {
+    expect(listaDeCobrancas(lista, 'R2', STATUS_EM_ABERTO).map((x) => x.id)).toEqual([2])
+    expect(listaDeCobrancas(lista, 'R2', 'Quitada')).toEqual([])
   })
 })
