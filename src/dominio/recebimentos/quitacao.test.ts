@@ -63,12 +63,14 @@ describe('validarRecebimento', () => {
 })
 
 describe('cancelar um recebimento (pedido do Julio, 09/11/2026)', () => {
-  it('sem recebimento restante, a cobrança quitada volta a Confirmada com o saldo cheio', () => {
-    expect(statusAposCancelarRecebimento(90500, [], 'Quitada')).toEqual({ saldo: 90500, status: 'Confirmada' })
+  // Decisao de 09/11/2026: a familia que pagou ja tinha a cobranca. Ela volta
+  // a Enviada (Em aberto), e nao a Confirmada, que sai de Recebimentos.
+  it('sem recebimento restante, a cobrança quitada volta a Enviada com o saldo cheio', () => {
+    expect(statusAposCancelarRecebimento(90500, [], 'Quitada')).toEqual({ saldo: 90500, status: 'Enviada' })
   })
 
-  it('sem recebimento restante, a parcial também volta a Confirmada', () => {
-    expect(statusAposCancelarRecebimento(90500, [], 'Parcial')).toEqual({ saldo: 90500, status: 'Confirmada' })
+  it('sem recebimento restante, a parcial também volta a Enviada', () => {
+    expect(statusAposCancelarRecebimento(90500, [], 'Parcial')).toEqual({ saldo: 90500, status: 'Enviada' })
   })
 
   it('rascunho que tinha um crédito abatido continua rascunho', () => {

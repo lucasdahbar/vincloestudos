@@ -2,7 +2,11 @@ import Link from 'next/link'
 import { alunosDasCobrancasDoMes, listarCobrancas } from '@/dados/cobrancas'
 import { exigirGestora } from '@/dados/sessao'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
-import { OPCOES_DE_STATUS, listaDeCobrancas } from '@/dominio/cobrancas/lista'
+import {
+  OPCOES_DE_COBRANCAS,
+  listaDeCobrancas,
+  statusDaTelaDeCobrancas,
+} from '@/dominio/cobrancas/lista'
 import { formatarBRL } from '@/dominio/dinheiro'
 import { comoOpcao, comoTexto, deValores } from '@/dominio/filtros'
 import { EstadoVazio } from '@/ui/EstadoVazio'
@@ -31,15 +35,17 @@ export default async function PaginaCobrancas({
   const mesDaUrl = comoTexto(params.mes)
   const mes = mesDaUrl && /^\d{4}-\d{2}$/.test(mesDaUrl) ? mesDaUrl : agoraNaEscola(new Date()).slice(0, 7)
   const busca = comoTexto(params.busca)
-  const status = comoOpcao(params.status, OPCOES_DE_STATUS)
+  const status = comoOpcao(params.status, OPCOES_DE_COBRANCAS)
 
   const [doMes, alunos] = await Promise.all([listarCobrancas({ mes }), alunosDasCobrancasDoMes(mes)])
-  const total = doMes.reduce((s, c) => s + c.valor_total, 0)
-  const recebido = doMes.reduce((s, c) => s + c.recebido, 0)
+  // Separacao das telas (09/11/2026): daqui so o que ainda nao foi mandado.
+  const rascunhos = doMes.filter((c) => c.status === 'Rascunho')
+  const confirmadas = doMes.filter((c) => c.status === 'Confirmada')
+  const enviadas = doMes.filter((c) => !['Rascunho', 'Confirmada', 'Cancelada'].includes(c.status))
   const cobrancas = listaDeCobrancas(
     doMes.map((c) => ({ ...c, alunos: alunos.get(c.id) ?? [] })),
     busca,
-    status,
+    statusDaTelaDeCobrancas(status),
   )
 
   return (
@@ -47,9 +53,19 @@ export default async function PaginaCobrancas({
       <header>
         <h1 className="text-3xl">Cobranças</h1>
         <p className="mt-1 text-tinta-suave">
-          {mes.split('-').reverse().join('/')}: {doMes.length} cobrança(s) · {formatarBRL(total)} no
-          total · {formatarBRL(recebido)} recebido
+          {mes.split('-').reverse().join('/')}: {rascunhos.length} rascunho(s) ·{' '}
+          {confirmadas.length} confirmada(s) aguardando envio ·{' '}
+          {formatarBRL([...rascunhos, ...confirmadas].reduce((s, c) => s + c.valor_total, 0))}
         </p>
+        {enviadas.length > 0 && (
+          <p className="mt-1 text-sm text-tinta-suave">
+            As {enviadas.length} já enviadas deste mês estão em{' '}
+            <Link href="/recebimentos" className="font-medium text-destaque hover:underline">
+              Recebimentos
+            </Link>
+            .
+          </p>
+        )}
       </header>
 
       <PainelGeracao mes={mes} />
@@ -63,7 +79,14 @@ export default async function PaginaCobrancas({
         <>
           <Filtros
             busca={{ campo: 'busca', rotulo: 'Responsável ou aluno', placeholder: 'Digite um nome' }}
-            seletores={[{ campo: 'status', rotulo: 'Status', opcoes: deValores(OPCOES_DE_STATUS) }]}
+            seletores={[
+              {
+                campo: 'status',
+                rotulo: 'Status',
+                opcoes: deValores(OPCOES_DE_COBRANCAS),
+                todos: 'Rascunho e confirmada',
+              },
+            ]}
             total={cobrancas.length}
             contagem={{
               um: 'cobrança encontrada',

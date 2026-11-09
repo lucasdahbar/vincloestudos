@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { contasDeRecebimento, obterCobranca } from '@/dados/cobrancas'
 import { recebimentosDaCobranca } from '@/dados/recebimentos'
 import { exigirGestora } from '@/dados/sessao'
+import { rotuloDoStatus } from '@/dominio/cobrancas/lista'
 import { formatarBRL } from '@/dominio/dinheiro'
 import { BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
@@ -36,7 +37,7 @@ export default async function PaginaCobranca({ params }: { params: Promise<{ id:
           </p>
         </div>
         <Selo tom={cobranca.status === 'Cancelada' ? 'encerrado' : 'neutro'}>
-          {cobranca.status}
+          {rotuloDoStatus(cobranca.status)}
         </Selo>
       </header>
 

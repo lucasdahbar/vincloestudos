@@ -455,20 +455,21 @@ export async function listarCobrancas(filtros: { mes?: string; status?: string }
  * Nomes dos alunos de cada cobrança do mês, tirados dos itens — e não dos
  * filhos do responsável, porque a cobrança só fala de quem teve aula. Um item
  * por aula: o mês passa fácil de mil itens, daí `lerTudo`.
+ *
+ * Sem mês, de todas (Recebimentos mostra vários meses de uma vez).
  */
-export async function alunosDasCobrancasDoMes(mes: string): Promise<Map<number, string[]>> {
+export async function alunosDasCobrancasDoMes(mes?: string): Promise<Map<number, string[]>> {
   const supabase = await clienteServidor()
-  const itens = await lerTudo<{ cobranca_id: number; aluno: { nome: string } | null }>((de, ate) =>
-    supabase
+  const itens = await lerTudo<{ cobranca_id: number; aluno: { nome: string } | null }>((de, ate) => {
+    let consulta = supabase
       .from('itens_cobranca')
       .select('cobranca_id, aluno:alunos!aluno_id (nome), cobranca:cobrancas!inner (mes_referencia)')
-      .eq('cobranca.mes_referencia', `${mes}-01`)
-      .order('id')
-      .range(de, ate) as unknown as PromiseLike<{
+    if (mes) consulta = consulta.eq('cobranca.mes_referencia', `${mes}-01`)
+    return consulta.order('id').range(de, ate) as unknown as PromiseLike<{
       data: { cobranca_id: number; aluno: { nome: string } | null }[] | null
       error: { message: string } | null
-    }>,
-  )
+    }>
+  })
 
   const nomes = new Map<number, Set<string>>()
   for (const i of itens) {
@@ -736,7 +737,14 @@ export async function reabrirCobranca(
 
 export async function marcarComoEnviada(id: number): Promise<void> {
   const supabase = await clienteServidor()
-  await supabase.from('cobrancas').update({ status: 'Enviada' }).eq('id', id)
+  // So a Confirmada: enviar e o que a leva para Recebimentos (09/11/2026), e
+  // um segundo clique numa ja paga nao pode desfazer a Parcial/Quitada.
+  const { error } = await supabase
+    .from('cobrancas')
+    .update({ status: 'Enviada' })
+    .eq('id', id)
+    .eq('status', 'Confirmada')
+  if (error) throw new Error(error.message)
 }
 
 /**

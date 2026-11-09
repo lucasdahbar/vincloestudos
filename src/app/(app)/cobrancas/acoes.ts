@@ -53,6 +53,8 @@ export async function marcarEnviada(cobrancaId: number) {
   await exigirGestora()
   await marcarComoEnviada(cobrancaId)
   revalidatePath(`/cobrancas/${cobrancaId}`)
+  revalidatePath('/cobrancas')
+  revalidatePath('/recebimentos')
 }
 
 /** C3: mesmo desconto para todas as aulas de um grupo (aluno + serviço). */

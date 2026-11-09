@@ -37,10 +37,10 @@ export function validarRecebimento(
  * Cancelar um recebimento lancado errado (pedido do Julio, 09/11/2026).
  *
  * Com outros recebimentos sobrando, vale a mesma regra da baixa. Sem nenhum,
- * a cobranca nao pode ficar Quitada ou Parcial: volta a Confirmada. O banco nao
- * guarda se ela tinha sido Enviada antes, e as duas se comportam igual em
- * todo o sistema; o rascunho (que pode ter tido um credito abatido) continua
- * rascunho.
+ * a cobranca nao pode ficar Quitada ou Parcial: volta a Enviada. Quem pagou
+ * ja tinha a cobranca em maos, e dar baixa numa Confirmada conta como envio
+ * (decisao de 09/11/2026); voltar a Confirmada a tiraria de Recebimentos. O
+ * rascunho (que pode ter tido um credito abatido) continua rascunho.
  */
 export function statusAposCancelarRecebimento(
   valorTotal: Centavos,
@@ -49,7 +49,7 @@ export function statusAposCancelarRecebimento(
 ): { saldo: Centavos; status: StatusCobranca } {
   const r = saldoEStatus(valorTotal, restantes, statusAtual)
   if (somar(...restantes) <= 0 && (statusAtual === 'Quitada' || statusAtual === 'Parcial')) {
-    return { saldo: valorTotal, status: 'Confirmada' }
+    return { saldo: valorTotal, status: 'Enviada' }
   }
   return r
 }

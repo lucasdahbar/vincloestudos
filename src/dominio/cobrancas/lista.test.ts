@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { STATUS_EM_ABERTO, listaDeCobrancas } from './lista'
+import {
+  OPCOES_DE_RECEBIMENTOS,
+  STATUS_EM_ABERTO,
+  TODAS,
+  listaDeCobrancas,
+  rotuloDoStatus,
+  statusDaTelaDeCobrancas,
+  statusDaTelaDeRecebimentos,
+} from './lista'
 
 const c = (id: number, responsavel: string | null, alunos: string[] = []) => ({
   id,
@@ -60,21 +68,60 @@ describe('filtro por status (pedido do Julio, 09/11/2026)', () => {
     s(6, 'Cancelada'),
   ]
 
-  it('um status traz só as cobranças dele', () => {
-    expect(listaDeCobrancas(lista, undefined, 'Parcial').map((x) => x.id)).toEqual([4])
-    expect(listaDeCobrancas(lista, undefined, 'Rascunho').map((x) => x.id)).toEqual([1])
-  })
+  const ids = (status: readonly string[], busca?: string) =>
+    listaDeCobrancas(lista, busca, status).map((x) => x.id)
 
-  it('"Em aberto" junta o que ainda falta receber: Confirmada, Enviada e Parcial', () => {
-    expect(listaDeCobrancas(lista, undefined, STATUS_EM_ABERTO).map((x) => x.id)).toEqual([2, 3, 4])
-  })
-
-  it('sem status, traz todas', () => {
+  it('sem lista de status, traz todas', () => {
     expect(listaDeCobrancas(lista, undefined, undefined)).toHaveLength(6)
   })
 
   it('status e busca valem juntos', () => {
-    expect(listaDeCobrancas(lista, 'R2', STATUS_EM_ABERTO).map((x) => x.id)).toEqual([2])
-    expect(listaDeCobrancas(lista, 'R2', 'Quitada')).toEqual([])
+    expect(ids(['Confirmada', 'Parcial'], 'R2')).toEqual([2])
+    expect(ids(['Quitada'], 'R2')).toEqual([])
+  })
+
+  // Separacao das telas (decisao do Julio, 09/11/2026): Cobrancas e o que
+  // ainda nao foi mandado; Recebimentos, do envio em diante.
+  describe('tela de Cobranças', () => {
+    it('sem filtro: rascunhos e confirmadas ainda não enviadas', () => {
+      expect(ids(statusDaTelaDeCobrancas(undefined))).toEqual([1, 2])
+    })
+
+    it('canceladas só aparecem no filtro', () => {
+      expect(ids(statusDaTelaDeCobrancas('Cancelada'))).toEqual([6])
+    })
+
+    it('cada opção traz o seu status', () => {
+      expect(ids(statusDaTelaDeCobrancas('Rascunho'))).toEqual([1])
+      expect(ids(statusDaTelaDeCobrancas('Confirmada'))).toEqual([2])
+    })
+  })
+
+  describe('tela de Recebimentos', () => {
+    it('sem filtro: o que falta receber (em aberto e parcial)', () => {
+      expect(ids(statusDaTelaDeRecebimentos(undefined))).toEqual([3, 4])
+    })
+
+    it('"Em aberto" é a enviada sem nada recebido', () => {
+      expect(ids(statusDaTelaDeRecebimentos(STATUS_EM_ABERTO))).toEqual([3])
+    })
+
+    it('quitadas e "todas"', () => {
+      expect(ids(statusDaTelaDeRecebimentos('Quitada'))).toEqual([5])
+      expect(ids(statusDaTelaDeRecebimentos(TODAS))).toEqual([3, 4, 5])
+    })
+
+    it('rascunho, confirmada e cancelada nunca aparecem', () => {
+      for (const o of OPCOES_DE_RECEBIMENTOS) {
+        expect(ids(statusDaTelaDeRecebimentos(o))).not.toContain(1)
+        expect(ids(statusDaTelaDeRecebimentos(o))).not.toContain(2)
+        expect(ids(statusDaTelaDeRecebimentos(o))).not.toContain(6)
+      }
+    })
+  })
+
+  it('na tela, Enviada se chama "Em aberto"', () => {
+    expect(rotuloDoStatus('Enviada')).toBe('Em aberto')
+    expect(rotuloDoStatus('Parcial')).toBe('Parcial')
   })
 })
