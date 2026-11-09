@@ -8,6 +8,7 @@ import {
   descontoEmLote,
   escolherContaDeRecebimento,
   marcarEnviada,
+  reabrir,
   removerItem,
   salvarDesconto,
 } from '../acoes'
@@ -64,6 +65,8 @@ export function EditorItens({
   // C7: só faz sentido oferecer a ação quando ela pode dar certo.
   const podeCancelar =
     (status === 'Confirmada' || status === 'Enviada') && !temRecebimento
+  // As outras travas (professor pago, crédito) o servidor explica ao recusar.
+  const podeReabrir = status === 'Confirmada' && !temRecebimento
 
   // R4: mesmo padrão das outras telas — abrir a conversa já com o texto.
   const numero = (telefone ?? '').replace(/\D/g, '')
@@ -322,6 +325,27 @@ export function EditorItens({
                 Já enviei pelo WhatsApp
               </Botao>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Reabrir rascunho (09/11/2026): o caminho para corrigir uma aula antes
+          de mandar. Antes só havia o cancelar, que parecia apagar a cobrança. */}
+      {podeReabrir && (
+        <div className="flex flex-col gap-2 border-t border-borda pt-6">
+          <p className="text-sm text-tinta-suave">
+            Viu algo errado antes de mandar? A cobrança volta para rascunho, com as mesmas
+            aulas e descontos, e você confirma de novo depois de corrigir.
+          </p>
+          <div>
+            <Botao
+              type="button"
+              aparencia="secundario"
+              disabled={pendente}
+              onClick={() => acao(() => reabrir(cobrancaId))}
+            >
+              {pendente ? 'Reabrindo…' : 'Reabrir rascunho'}
+            </Botao>
           </div>
         </div>
       )}

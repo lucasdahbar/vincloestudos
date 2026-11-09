@@ -10,6 +10,7 @@ import { planejarRascunho, type ItemDoRascunho } from '@/dominio/cobrancas/rascu
 import { gerarTextoCobranca, type ItemDoTexto } from '@/dominio/cobrancas/texto'
 import { cobradasEmOutroMes } from '@/dominio/cobrancas/outro-mes'
 import { ehComplementar } from '@/dominio/cobrancas/complementar'
+import { podeReabrirCobranca } from '@/dominio/cobrancas/reabertura'
 
 export interface CobrancaResumo {
   id: number
@@ -678,6 +679,59 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
     usuario,
     detalhe: { valor_total: cobranca.valor_total, itens: cobranca.itens.length },
   })
+}
+
+/**
+ * Reabrir rascunho (09/11/2026): a confirmada ainda nao enviada volta para
+ * rascunho. Regras em dominio/cobrancas/reabertura.ts; a troca e feita por
+ * `reabrir_cobranca`, que junta outro rascunho do mesmo mes, se houver.
+ */
+export async function reabrirCobranca(
+  cobrancaId: number,
+  usuario: string,
+): Promise<{ ok: boolean; motivo?: string }> {
+  const supabase = await clienteServidor()
+
+  const { data: itens, error: erroItens } = await supabase
+    .from('itens_cobranca')
+    .select('id')
+    .eq('cobranca_id', cobrancaId)
+  if (erroItens) return { ok: false, motivo: erroItens.message }
+  const idsItens = (itens ?? []).map((i) => i.id as number)
+
+  const [{ data: cobranca }, { count: recebimentos }, creditos] = await Promise.all([
+    supabase.from('cobrancas').select('status').eq('id', cobrancaId).maybeSingle(),
+    supabase
+      .from('recebimentos')
+      .select('*', { count: 'exact', head: true })
+      .eq('cobranca_id', cobrancaId),
+    idsItens.length > 0
+      ? supabase
+          .from('creditos')
+          .select('*', { count: 'exact', head: true })
+          .in('item_cobranca_id', idsItens)
+      : Promise.resolve({ count: 0 }),
+  ])
+  if (!cobranca) return { ok: false, motivo: 'Cobrança não encontrada.' }
+
+  const permissao = podeReabrirCobranca(cobranca.status as StatusCobranca, {
+    recebimentos: recebimentos ?? 0,
+    aulasPagasAoProfessor: await aulasJaPagasAoProfessor(cobrancaId),
+    creditos: creditos.count ?? 0,
+  })
+  if (!permissao.pode) return { ok: false, motivo: permissao.motivo }
+
+  const { data: r, error } = await supabase.rpc('reabrir_cobranca', { p_cobranca_id: cobrancaId })
+  if (error) return { ok: false, motivo: error.message }
+
+  await supabase.from('logs_operacionais').insert({
+    acao: 'reabrir_cobranca',
+    entidade: 'cobrancas',
+    entidade_id: cobrancaId,
+    usuario,
+    detalhe: r,
+  })
+  return { ok: true }
 }
 
 export async function marcarComoEnviada(id: number): Promise<void> {

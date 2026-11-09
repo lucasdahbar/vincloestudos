@@ -10,6 +10,7 @@ import {
   excluirItem,
   gerarCobrancasDoMes,
   marcarComoEnviada,
+  reabrirCobranca,
 } from '@/dados/cobrancas'
 import { exigirGestora } from '@/dados/sessao'
 import { deReal } from '@/dominio/dinheiro'
@@ -79,6 +80,18 @@ export async function escolherContaDeRecebimento(cobrancaId: number, contaId: nu
   await exigirGestora()
   const r = await definirContaDeRecebimento(cobrancaId, contaId)
   if (r.ok) revalidatePath(`/cobrancas/${cobrancaId}`)
+  return r
+}
+
+/** Reabrir rascunho (09/11/2026): a confirmada não enviada volta a ser editável. */
+export async function reabrir(cobrancaId: number) {
+  const sessao = await exigirGestora()
+  const r = await reabrirCobranca(cobrancaId, sessao.nome)
+  if (r.ok) {
+    revalidatePath(`/cobrancas/${cobrancaId}`)
+    revalidatePath('/cobrancas')
+    revalidatePath('/recebimentos')
+  }
   return r
 }
 
