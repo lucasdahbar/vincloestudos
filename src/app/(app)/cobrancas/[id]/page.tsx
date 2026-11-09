@@ -7,6 +7,7 @@ import { formatarBRL } from '@/dominio/dinheiro'
 import { BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { Selo } from '@/ui/Selo'
+import { CancelarRecebimento } from './CancelarRecebimento'
 import { EditorItens } from './EditorItens'
 
 export default async function PaginaCobranca({ params }: { params: Promise<{ id: string }> }) {
@@ -102,14 +103,22 @@ export default async function PaginaCobranca({ params }: { params: Promise<{ id:
           <h2 className="mb-3 text-lg">Recebimentos</h2>
           <ul className="divide-y divide-borda/60">
             {recebimentos.map((r) => (
-              <li key={r.id} className="flex items-center justify-between gap-3 py-3">
-                <span>
+              <li key={r.id} className="flex flex-wrap items-center gap-x-3 py-3">
+                <span className="flex-1">
                   {r.data_recebimento.split('-').reverse().join('/')}
                   <span className="ml-2 text-sm text-tinta-suave">
                     {r.forma_pagamento ?? ''} {r.conta?.nome ? `· ${r.conta.nome}` : ''}
                   </span>
                 </span>
                 <span className="font-medium">{formatarBRL(r.valor_recebido)}</span>
+                {/* Pedido do Julio (09/11/2026): desfazer a baixa lançada errada. */}
+                {cobranca.status !== 'Cancelada' && (
+                  <CancelarRecebimento
+                    recebimentoId={r.id}
+                    valor={r.valor_recebido}
+                    credito={r.forma_pagamento === 'Crédito'}
+                  />
+                )}
               </li>
             ))}
           </ul>

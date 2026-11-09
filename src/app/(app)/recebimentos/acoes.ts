@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { registrarRecebimento } from '@/dados/recebimentos'
+import { cancelarRecebimento, registrarRecebimento } from '@/dados/recebimentos'
 import { exigirGestora } from '@/dados/sessao'
 import { deReal } from '@/dominio/dinheiro'
 
@@ -36,4 +36,16 @@ export async function darBaixa(entrada: {
   revalidatePath('/cobrancas')
   revalidatePath(`/cobrancas/${entrada.cobrancaId}`)
   return r
+}
+
+export async function desfazerRecebimento(entrada: { recebimentoId: number; motivo: string }) {
+  const sessao = await exigirGestora()
+  const r = await cancelarRecebimento({ ...entrada, usuario: sessao.nome })
+  if (r.ok) {
+    revalidatePath('/recebimentos')
+    revalidatePath('/cobrancas')
+    revalidatePath('/creditos')
+    revalidatePath(`/cobrancas/${r.cobrancaId}`)
+  }
+  return { ok: r.ok, erros: r.erros }
 }

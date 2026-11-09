@@ -32,3 +32,39 @@ export function validarRecebimento(
 
   return erros
 }
+
+/**
+ * Cancelar um recebimento lancado errado (pedido do Julio, 09/11/2026).
+ *
+ * Com outros recebimentos sobrando, vale a mesma regra da baixa. Sem nenhum,
+ * a cobranca nao pode ficar Quitada ou Parcial: volta a Confirmada. O banco nao
+ * guarda se ela tinha sido Enviada antes, e as duas se comportam igual em
+ * todo o sistema; o rascunho (que pode ter tido um credito abatido) continua
+ * rascunho.
+ */
+export function statusAposCancelarRecebimento(
+  valorTotal: Centavos,
+  restantes: Centavos[],
+  statusAtual: StatusCobranca,
+): { saldo: Centavos; status: StatusCobranca } {
+  const r = saldoEStatus(valorTotal, restantes, statusAtual)
+  if (somar(...restantes) <= 0 && (statusAtual === 'Quitada' || statusAtual === 'Parcial')) {
+    return { saldo: valorTotal, status: 'Confirmada' }
+  }
+  return r
+}
+
+/**
+ * O motivo e obrigatorio porque o registro e apagado: o log e o unico rastro
+ * de que houve o pagamento, e "por que sumiu?" e a primeira pergunta depois.
+ */
+export function validarCancelamentoRecebimento(
+  motivo: string,
+  statusCobranca: StatusCobranca | 'Cancelada',
+): string[] {
+  if (statusCobranca === 'Cancelada') {
+    return ['A cobrança está cancelada: o recebimento não pode ser mexido.']
+  }
+  if (!motivo.trim()) return ['Diga o motivo do cancelamento.']
+  return []
+}

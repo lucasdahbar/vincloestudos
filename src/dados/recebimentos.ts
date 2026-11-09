@@ -1,7 +1,13 @@
 import 'server-only'
 import { clienteServidor } from './cliente'
 import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
-import { saldoEStatus, validarRecebimento, type StatusCobranca } from '@/dominio/recebimentos/quitacao'
+import {
+  saldoEStatus,
+  statusAposCancelarRecebimento,
+  validarCancelamentoRecebimento,
+  validarRecebimento,
+  type StatusCobranca,
+} from '@/dominio/recebimentos/quitacao'
 
 export async function registrarRecebimento(entrada: {
   cobrancaId: number
@@ -137,4 +143,77 @@ export async function recebimentosDaCobranca(cobrancaId: number) {
     observacao: string | null
     conta: { nome: string } | null
   }[]).map((r) => ({ ...r, valor_recebido: deNumeric(r.valor_recebido) }))
+}
+
+/**
+ * Cancela um recebimento lancado errado (pedido do Julio, 09/11/2026).
+ *
+ * O registro e apagado, e nao marcado como cancelado: um recebimento marcado
+ * teria de ser ignorado em cada soma (lista, saldo, credito, travas do rascunho
+ * nas funcoes do banco), e bastaria esquecer uma para o saldo mentir. O log
+ * guarda a linha inteira, quem cancelou e o motivo.
+ *
+ * Se era abatimento de credito, o uso cai junto (on delete cascade) e o saldo
+ * do credito, que e calculado dos usos, volta sozinho.
+ */
+export async function cancelarRecebimento(entrada: {
+  recebimentoId: number
+  motivo: string
+  usuario: string
+}): Promise<{ ok: boolean; erros?: string[]; cobrancaId?: number }> {
+  const supabase = await clienteServidor()
+
+  const { data: recebimento } = await supabase
+    .from('recebimentos')
+    .select('*, cobranca:cobrancas!cobranca_id (id, valor_total, status)')
+    .eq('id', entrada.recebimentoId)
+    .maybeSingle()
+  if (!recebimento) return { ok: false, erros: ['Recebimento não encontrado. Ele pode já ter sido cancelado.'] }
+
+  const cobranca = recebimento.cobranca as unknown as {
+    id: number
+    valor_total: string
+    status: StatusCobranca | 'Cancelada'
+  }
+  const erros = validarCancelamentoRecebimento(entrada.motivo, cobranca.status)
+  if (erros.length > 0) return { ok: false, erros }
+
+  const { data: uso } = await supabase
+    .from('usos_credito')
+    .select('id, credito_id, valor')
+    .eq('recebimento_id', entrada.recebimentoId)
+    .maybeSingle()
+
+  const { error } = await supabase.from('recebimentos').delete().eq('id', entrada.recebimentoId)
+  if (error) return { ok: false, erros: [error.message] }
+
+  // Le o que sobrou depois de apagar: outro recebimento lancado no meio entra na conta.
+  const { data: restantes } = await supabase
+    .from('recebimentos')
+    .select('valor_recebido')
+    .eq('cobranca_id', cobranca.id)
+  const novo = statusAposCancelarRecebimento(
+    deNumeric(cobranca.valor_total),
+    (restantes ?? []).map((r) => deNumeric(r.valor_recebido)),
+    cobranca.status as StatusCobranca,
+  )
+  await supabase.from('cobrancas').update({ status: novo.status }).eq('id', cobranca.id)
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { cobranca: _cobranca, ...linha } = recebimento
+  await supabase.from('logs_operacionais').insert({
+    acao: 'cancelar_recebimento',
+    entidade: 'cobrancas',
+    entidade_id: cobranca.id,
+    usuario: entrada.usuario,
+    detalhe: {
+      motivo: entrada.motivo.trim(),
+      recebimento: linha,
+      credito_devolvido: uso ?? null,
+      saldo_restante: novo.saldo,
+      status: novo.status,
+    },
+  })
+
+  return { ok: true, cobrancaId: cobranca.id }
 }

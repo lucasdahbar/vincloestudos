@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { saldoEStatus, validarRecebimento } from './quitacao'
+import {
+  saldoEStatus,
+  statusAposCancelarRecebimento,
+  validarCancelamentoRecebimento,
+  validarRecebimento,
+} from './quitacao'
 
 describe('saldoEStatus', () => {
   it('sem recebimento, mantem o status atual e o saldo cheio', () => {
@@ -54,5 +59,39 @@ describe('validarRecebimento', () => {
 
   it('rejeita baixa em cobranca ja quitada', () => {
     expect(validarRecebimento(1000, 0, 1)).toContain('Esta cobrança já está quitada.')
+  })
+})
+
+describe('cancelar um recebimento (pedido do Julio, 09/11/2026)', () => {
+  it('sem recebimento restante, a cobrança quitada volta a Confirmada com o saldo cheio', () => {
+    expect(statusAposCancelarRecebimento(90500, [], 'Quitada')).toEqual({ saldo: 90500, status: 'Confirmada' })
+  })
+
+  it('sem recebimento restante, a parcial também volta a Confirmada', () => {
+    expect(statusAposCancelarRecebimento(90500, [], 'Parcial')).toEqual({ saldo: 90500, status: 'Confirmada' })
+  })
+
+  it('rascunho que tinha um crédito abatido continua rascunho', () => {
+    expect(statusAposCancelarRecebimento(90500, [], 'Rascunho')).toEqual({ saldo: 90500, status: 'Rascunho' })
+  })
+
+  it('sobrando outro recebimento, a quitada vira Parcial', () => {
+    expect(statusAposCancelarRecebimento(90500, [40000], 'Quitada')).toEqual({ saldo: 50500, status: 'Parcial' })
+  })
+
+  it('sobrando o bastante, continua Quitada', () => {
+    expect(statusAposCancelarRecebimento(90500, [90500], 'Quitada')).toEqual({ saldo: 0, status: 'Quitada' })
+  })
+
+  it('exige o motivo', () => {
+    expect(validarCancelamentoRecebimento('', 'Quitada')).toEqual(['Diga o motivo do cancelamento.'])
+    expect(validarCancelamentoRecebimento('   ', 'Parcial')).toEqual(['Diga o motivo do cancelamento.'])
+    expect(validarCancelamentoRecebimento('valor errado', 'Parcial')).toEqual([])
+  })
+
+  it('cobrança cancelada não tem recebimento para cancelar', () => {
+    expect(validarCancelamentoRecebimento('engano', 'Cancelada')).toEqual([
+      'A cobrança está cancelada: o recebimento não pode ser mexido.',
+    ])
   })
 })
