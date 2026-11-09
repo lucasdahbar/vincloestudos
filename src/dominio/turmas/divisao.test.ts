@@ -306,6 +306,23 @@ describe('planoDeDivisao: o que impede', () => {
     ).toEqual(['A aula de 31/03 iria para 03/04, depois do fim da turma (31/03).'])
   })
 
+  it('dia e horário iguais aos de hoje não movem as aulas (turma 61, 09/11/2026)', () => {
+    // A tela manda dia e horario mesmo sem mudanca. Com uma aula ja criada
+    // depois do fim da turma, "mover para o mesmo dia" dava erro e o servico
+    // novo nao era gravado.
+    const lista = [...aulas, aula(6, '2031-05-05')]
+    const mesmoQuando = { quando: { dias_semana: [1], horario_inicio: '10:00', horario_fim: '11:00' }, servico_id: 4 }
+    const plano = planoDeDivisao(turma, lista, varredura({ quando: true, servico: true }, lista), mesmoQuando, opcoes)
+    expect(plano.erros).toEqual([])
+    expect(plano.aulas.map((a) => [a.id, a.inicio, a.servico_id])).toEqual([
+      [2, '2031-03-10T10:00', 4],
+      [3, '2031-03-17T10:00', 4],
+      [4, '2031-03-24T10:00', 4],
+      [5, '2031-03-31T10:00', 4],
+      [6, '2031-05-05T10:00', 4],
+    ])
+  })
+
   it('duas aulas no mesmo dia', () => {
     const lista = [...aulas, aula(6, '2031-03-13', { status: 'Feriado' })]
     expect(erros(turma, lista, varredura({ quando: true }, lista.filter((a) => a.id !== 6)), paraQuinta, opcoes)).toEqual([

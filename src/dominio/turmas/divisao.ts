@@ -137,6 +137,17 @@ export function planoDeDivisao(
 
   const basicos = errosDaMudanca(turma, mudanca)
   if (basicos.length > 0) return vazio(basicos)
+  // A tela manda dia e horario junto com o servico mesmo sem mexer neles.
+  // Igual a regra de hoje nao e mudanca: nenhuma aula se move (turma 61,
+  // 09/11/2026, que tinha aula criada depois do fim e travava a troca).
+  if (
+    mudanca.quando &&
+    mesmos(mudanca.quando.dias_semana, turma.dias_semana) &&
+    mudanca.quando.horario_inicio === turma.horario_inicio &&
+    mudanca.quando.horario_fim === turma.horario_fim
+  ) {
+    mudanca = { ...mudanca, quando: undefined }
+  }
   if (v.acao !== 'editar') return vazio(['Esta mudança não edita a série.'])
   if (v.escolhas > 0) {
     return vazio([`Falta responder em ${v.escolhas === 1 ? '1 aula' : `${v.escolhas} aulas`}: responda antes de aplicar.`])
