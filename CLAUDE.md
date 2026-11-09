@@ -162,6 +162,18 @@ Reposição e ausência (`dominio/reposicoes/desfecho.ts`, `dados/reposicoes.ts`
 - Turmas recorrentes só têm aula a partir do dia do cadastro (fuso de São Paulo).
   A aula única não segue essa regra.
 
+## Status de cobrança e telas (09/11/2026)
+
+`dominio/cobrancas/lista.ts`, `reabertura.ts`, `complementar.ts`:
+- Cobranças mostra só o que não foi mandado (Rascunho e Confirmada; Cancelada pelo
+  filtro). Recebimentos mostra do envio em diante: Enviada (na tela "Em aberto"),
+  Parcial e Quitada.
+- Só conta como envio o "Já enviei pelo WhatsApp" ou dar baixa. Abrir o WhatsApp
+  **não** conta (decisão do tio). Cancelar o último recebimento volta para Enviada.
+- "Reabrir rascunho": só Confirmada, sem recebimento, sem aula paga ao professor e
+  sem crédito ligado a item. Junta outro rascunho do mesmo mês (`reabrir_cobranca`).
+- "Complementar" é recalculado na confirmação; cancelada e rascunho não contam.
+
 ## Cadastro pelo próprio responsável (18/10/2026)
 
 `dominio/cadastro-publico/`, `dados/cadastro-publico.ts`, `/p/cadastro/[token]`, `/novos-cadastros`:
