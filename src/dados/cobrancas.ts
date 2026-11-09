@@ -9,6 +9,7 @@ import { montarCobrancas, type AulaFaturavel } from '@/dominio/cobrancas/geracao
 import { planejarRascunho, type ItemDoRascunho } from '@/dominio/cobrancas/rascunho'
 import { gerarTextoCobranca, type ItemDoTexto } from '@/dominio/cobrancas/texto'
 import { cobradasEmOutroMes } from '@/dominio/cobrancas/outro-mes'
+import { ehComplementar } from '@/dominio/cobrancas/complementar'
 
 export interface CobrancaResumo {
   id: number
@@ -626,6 +627,18 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
         .limit(1)
         .maybeSingle()
 
+  // C1 (bug de 09/11/2026): "complementar" se decide agora, olhando as outras
+  // cobrancas do mes, e nao na criacao do rascunho. A anterior pode ter sido
+  // cancelada depois, ou este rascunho pode ter sido reaberto.
+  const { data: outras, error: erroOutras } = await supabase
+    .from('cobrancas')
+    .select('status')
+    .eq('responsavel_id', cobranca.responsavel_id)
+    .eq('mes_referencia', cobranca.mes_referencia)
+    .neq('id', id)
+  if (erroOutras) throw new Error(erroOutras.message)
+  const complementar = ehComplementar((outras ?? []).map((o) => o.status as StatusCobranca))
+
   const [ano, mes] = cobranca.mes_referencia.split('-')
   const itensTexto: ItemDoTexto[] = cobranca.itens.map((i) => ({
     aluno_nome: i.aluno?.nome ?? 'Aluno',
@@ -638,7 +651,7 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
   const texto = gerarTextoCobranca({
     responsavel_nome: cobranca.responsavel?.nome ?? '',
     mes_referencia: cobranca.mes_referencia,
-    complementar: cobranca.complementar,
+    complementar,
     valor_total: cobranca.valor_total,
     chave_pix: conta?.chave_pix ?? null,
     vencimento: `${ano}-${mes}-05`,
@@ -648,7 +661,7 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
 
   const { data: confirmadas, error } = await supabase
     .from('cobrancas')
-    .update({ status: 'Confirmada', texto_whatsapp: texto })
+    .update({ status: 'Confirmada', texto_whatsapp: texto, complementar })
     .eq('id', id)
     .eq('status', 'Rascunho')
     .eq('updated_at', lida.updated_at)
