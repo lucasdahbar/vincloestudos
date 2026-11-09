@@ -33,6 +33,7 @@ export async function darBaixa(entrada: {
   })
 
   revalidatePath('/recebimentos')
+  revalidatePath('/cobrancas')
   revalidatePath(`/cobrancas/${entrada.cobrancaId}`)
   return r
 }

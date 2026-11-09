@@ -1,8 +1,10 @@
 import Link from 'next/link'
 import { listarCobrancas } from '@/dados/cobrancas'
 import { clienteServidor } from '@/dados/cliente'
+import { obterRecebimento } from '@/dados/recebimentos'
 import { exigirGestora } from '@/dados/sessao'
 import { formatarBRL } from '@/dominio/dinheiro'
+import { BotaoLink } from '@/ui/Botao'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
 import { Selo } from '@/ui/Selo'
@@ -11,15 +13,16 @@ import { FormularioBaixa } from './FormularioBaixa'
 export default async function PaginaRecebimentos({
   searchParams,
 }: {
-  searchParams: Promise<{ cobranca?: string }>
+  searchParams: Promise<{ cobranca?: string; registrado?: string }>
 }) {
   await exigirGestora()
-  const { cobranca } = await searchParams
+  const { cobranca, registrado } = await searchParams
 
   const supabase = await clienteServidor()
-  const [todas, { data: contas }] = await Promise.all([
+  const [todas, { data: contas }, confirmado] = await Promise.all([
     listarCobrancas(),
     supabase.from('contas').select('id, nome').eq('ativo', true).order('nome'),
+    registrado && /^\d+$/.test(registrado) ? obterRecebimento(Number(registrado)) : null,
   ])
 
   const emAberto = todas.filter(
@@ -36,6 +39,35 @@ export default async function PaginaRecebimentos({
           {formatarBRL(emAberto.reduce((s, c) => s + (c.valor_total - c.recebido), 0))} a receber
         </p>
       </header>
+
+      {confirmado && (
+        <div
+          role="status"
+          className="flex flex-col gap-4 rounded-cartao border border-apoio-borda bg-apoio-suave p-6"
+        >
+          <div>
+            <h2 className="text-lg text-apoio">Recebimento registrado</h2>
+            <p className="mt-1">
+              <strong>{formatarBRL(confirmado.valor)}</strong> de {confirmado.responsavel}, em{' '}
+              {confirmado.data.split('-').reverse().join('/')}
+              {confirmado.forma ? ` · ${confirmado.forma}` : ''}
+              {confirmado.conta ? ` · ${confirmado.conta}` : ''}
+            </p>
+            <p className="mt-1 text-sm text-tinta-suave">
+              Cobrança de {confirmado.mes.slice(0, 7).split('-').reverse().join('/')}:{' '}
+              {confirmado.saldo > 0
+                ? `ainda faltam ${formatarBRL(confirmado.saldo)} (${confirmado.status}).`
+                : 'quitada.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <BotaoLink href={`/cobrancas/${confirmado.cobrancaId}`}>Ver a cobrança</BotaoLink>
+            <BotaoLink href="/recebimentos" aparencia="secundario">
+              Dar baixa em outra
+            </BotaoLink>
+          </div>
+        </div>
+      )}
 
       {selecionada && (
         <Cartao>

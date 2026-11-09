@@ -43,7 +43,10 @@ export function FormularioBaixa({
             formaPagamento: forma,
             observacao: null,
           })
-          if (r.ok) router.refresh()
+          // A confirmacao vai pela URL: so com refresh, a cobranca quitada sai
+          // da lista e o formulario some sem aviso nenhum.
+          if (r.ok && r.recebimentoId) router.push(`/recebimentos?registrado=${r.recebimentoId}`)
+          else if (r.ok) router.refresh()
           else setErros(r.erros ?? ['Não foi possível registrar.'])
         })
       }}
