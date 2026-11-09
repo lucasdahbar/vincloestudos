@@ -9,6 +9,7 @@ import {
   sincronizarEvento,
 } from '@/agenda/eventos'
 import { ajustarCoorganizador, criarSala } from '@/agenda/meet'
+import { linkDaAula } from '@/dominio/agenda/meet'
 import { datasPuladas } from '@/dominio/agenda/datas-puladas'
 import {
   descricaoDoEvento,
@@ -133,7 +134,7 @@ async function exdatesDaTurma(turmaId: number, turma: TurmaLida): Promise<string
     calendarioEscolar(admin, regra.data_inicio, regra.data_fim),
     admin
       .from('aulas')
-      .select('data_hora_referencia, data_hora_original, status, professor_id')
+      .select('data_hora_referencia, data_hora_original, status, professor_id, modalidade')
       .eq('turma_id', turmaId)
       // Pelo dia da regra: a aula remarcada sai do dia de sempre (13/10/2026).
       .gte('data_hora_referencia', `${regra.data_inicio}T00:00:00`)
@@ -155,8 +156,8 @@ async function exdatesDaTurma(turmaId: number, turma: TurmaLida): Promise<string
     (aulas ?? []).map((a) => ({
       data: String(a.data_hora_referencia).slice(0, 10),
       status: a.status,
-      // Remarcada ou com outro professor: tem evento proprio (etapa 6b).
-      remarcada: temEventoProprio(a, turma.professor_id),
+      // Remarcada, com outro professor ou outra modalidade: tem evento proprio (etapa 6b).
+      remarcada: temEventoProprio(a, turma.professor_id, turma.modalidade),
     })),
   )
 }
@@ -188,11 +189,11 @@ async function sincronizarAvulsos(
   const { data: aulas, error } = await admin
     .from('aulas')
     .select(
-      'id, data_hora_inicio, data_hora_fim, data_hora_original, status, professor_id, google_evento_avulso_id, google_evento_avulso_agenda, professor:professores!professor_id (email, google_calendar_id)',
+      'id, data_hora_inicio, data_hora_fim, data_hora_original, status, professor_id, modalidade, link_online, google_evento_avulso_id, google_evento_avulso_agenda, professor:professores!professor_id (email, google_calendar_id)',
     )
     .eq('turma_id', turmaId)
     .or(
-      `data_hora_original.not.is.null,google_evento_avulso_id.not.is.null,professor_id.neq.${turma.professor_id}`,
+      `data_hora_original.not.is.null,google_evento_avulso_id.not.is.null,professor_id.neq.${turma.professor_id},modalidade.neq.${turma.modalidade}`,
     )
   if (error) return [error.message]
   if (!aulas || aulas.length === 0) return []
@@ -213,7 +214,7 @@ async function sincronizarAvulsos(
   for (const a of aulas) {
     const professor = a.professor as unknown as { email: string | null; google_calendar_id: string | null } | null
     const agenda = professor?.google_calendar_id ?? null
-    const fica = !apagarTodos && temEventoProprio(a, turma.professor_id)
+    const fica = !apagarTodos && temEventoProprio(a, turma.professor_id, turma.modalidade)
 
     if (fica && !agenda) {
       // Sem agenda, o evento ficaria na de outro professor: melhor nenhum.
@@ -236,6 +237,10 @@ async function sincronizarAvulsos(
       const original = a.data_hora_original ? String(a.data_hora_original).slice(0, 16) : null
       const r = await sincronizarEvento({
         ...eventoSemAlunos(turma, professor?.email ?? null, link),
+        // A modalidade e o link desta aula, que podem diferir dos da turma
+        // (bug de 09/11/2026: presencial que virou online saia sem link).
+        modalidade: a.modalidade,
+        link_videochamada: linkDaAula(a, { modalidade: turma.modalidade, link_videochamada: link }),
         tipo_recorrencia: 'Único',
         data_unica: inicio.slice(0, 10),
         frequencia: null,

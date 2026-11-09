@@ -12,6 +12,7 @@ import { executarExclusaoAula, previaExclusaoAula, type PreviaExclusaoAula } fro
 import { atualizarAlunosNosEventos, sincronizarEventoDaTurma } from '@/dados/evento-da-turma'
 import type { EscolhaRegular, EscolhaReposicao } from '@/dominio/agenda/exclusao-aula'
 import { registrarEnvioDeLink } from '@/dados/links-da-aula'
+import { garantirSalaDaAula } from '@/dados/sala-da-aula'
 import type { CanalEnvio } from '@/dominio/notificacoes/mensagens'
 
 export async function sincronizar(de: string, ate: string) {
@@ -19,6 +20,32 @@ export async function sincronizar(de: string, ate: string) {
   const r = await sincronizarAulas(de, ate)
   revalidatePath('/agenda')
   return r
+}
+
+/**
+ * Bug de 09/11/2026: cria a sala do Meet da aula que virou online numa turma
+ * presencial, quando a edicao nao conseguiu (falha do Google). O evento da
+ * aula no Google e refeito depois, com o link novo.
+ */
+export async function criarSalaDaAula(aulaId: number): Promise<{ ok: true } | { ok: false; motivo: string }> {
+  await exigirGestora()
+  const r = await garantirSalaDaAula(aulaId)
+  if (!r.ok) return r
+
+  const { data: aula } = await (await clienteServidor()).from('aulas').select('turma_id').eq('id', aulaId).maybeSingle()
+  if (r.criada && aula) {
+    after(async () => {
+      try {
+        const s = await sincronizarEventoDaTurma(aula.turma_id)
+        if (!s.ok) console.warn('evento nao atualizado apos criar a sala da aula:', s.motivo)
+      } catch (e) {
+        console.error('falha ao atualizar o evento apos criar a sala da aula:', e)
+      }
+    })
+  }
+  revalidatePath(`/agenda/aulas/${aulaId}`)
+  revalidatePath('/agenda', 'layout')
+  return { ok: true }
 }
 
 /**

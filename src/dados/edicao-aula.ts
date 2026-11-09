@@ -2,6 +2,7 @@ import 'server-only'
 import { clienteServidor } from './cliente'
 import { aulasParaVarredura } from './varredura'
 import { remarcarAulaNoBanco } from './remarcacao'
+import { garantirSalaDaAula } from './sala-da-aula'
 import { errosDaEdicao, varrer } from '@/dominio/agenda/varredura'
 import type { NovoHorario } from '@/dominio/agenda/remarcacao'
 
@@ -24,7 +25,7 @@ export interface EdicaoDaAula {
 }
 
 export type ResultadoEdicao =
-  | { ok: true; turmaId: number; avisar: { nome: string; data: string }[] }
+  | { ok: true; turmaId: number; avisar: { nome: string; data: string }[]; aviso?: string }
   | { ok: false; erros: string[] }
   | { ok: false; alerta: string }
 
@@ -133,9 +134,8 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
     }
   }
 
+  let aviso: string | undefined
   if (trocaModalidade) {
-    // So a modalidade no banco: sala do Meet e link_online ficam para a
-    // integracao com o Google, tratada em separado (nao faz parte daqui).
     const { error: erroModalidade } = await supabase
       .from('aulas')
       .update({ modalidade: e.modalidade })
@@ -143,7 +143,15 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
     if (erroModalidade) {
       return { ok: false, erros: [`A modalidade não mudou: ${erroModalidade.message}`] }
     }
+    // Bug de 09/11/2026: a aula que virou online numa turma presencial ficava
+    // sem link. A sala sai antes de responder, para a tela da aula ja abrir
+    // com ela; o evento do Google, sincronizado depois, leva o mesmo link.
+    const sala = await garantirSalaDaAula(aulaId)
+    if (!sala.ok) {
+      console.warn('sala do Meet da aula nao criada:', sala.motivo)
+      aviso = `A aula mudou, mas a sala do Meet não foi criada (${sala.motivo}). Tente de novo pela tela da aula.`
+    }
   }
 
-  return { ok: true, turmaId: aula.turma_id, avisar: pedido.quando ? v.avisar : [] }
+  return { ok: true, turmaId: aula.turma_id, avisar: pedido.quando ? v.avisar : [], aviso }
 }

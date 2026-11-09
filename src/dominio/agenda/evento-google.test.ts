@@ -364,6 +364,11 @@ describe('temEventoProprio', () => {
   it('aula excluída não tem evento', () => {
     expect(temEventoProprio({ ...aula, professor_id: 9, status: 'Excluída' }, 3)).toBe(false)
   })
+
+  it('aula com modalidade diferente da turma tem evento próprio, com o link dela (09/11/2026)', () => {
+    expect(temEventoProprio({ ...aula, modalidade: 'Online' }, 3, 'Presencial')).toBe(true)
+    expect(temEventoProprio({ ...aula, modalidade: 'Presencial' }, 3, 'Presencial')).toBe(false)
+  })
 })
 
 describe('serieEmOutraAgenda (etapa 6d)', () => {

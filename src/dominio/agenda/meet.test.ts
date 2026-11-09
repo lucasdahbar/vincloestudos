@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   ajustesDeCoorganizador,
+  aulaPrecisaDeSala,
   CONFIGURACAO_DA_SALA,
+  linkDaAula,
   oQueFazerComASala,
   type TurmaDaSala,
 } from './meet'
@@ -47,6 +49,61 @@ describe('oQueFazerComASala', () => {
         link_videochamada: 'https://meet.google.com/abc-defg-hij',
       }),
     ).toBe('ajustar')
+  })
+})
+
+describe('linkDaAula', () => {
+  const salaDaTurma = { modalidade: 'Online' as const, link_videochamada: 'https://meet.google.com/tur-ma' }
+  const presencial = { modalidade: 'Presencial' as const, link_videochamada: null }
+
+  it('aula online de turma online usa a sala da turma', () => {
+    expect(linkDaAula({ modalidade: 'Online', link_online: null }, salaDaTurma)).toBe(salaDaTurma.link_videochamada)
+  })
+
+  it('o link proprio da aula vale mais que o da turma', () => {
+    expect(linkDaAula({ modalidade: 'Online', link_online: 'https://meet.google.com/au-la' }, salaDaTurma)).toBe(
+      'https://meet.google.com/au-la',
+    )
+  })
+
+  it('aula que virou online numa turma presencial usa o link proprio (bug de 09/11/2026)', () => {
+    expect(linkDaAula({ modalidade: 'Online', link_online: 'https://meet.google.com/au-la' }, presencial)).toBe(
+      'https://meet.google.com/au-la',
+    )
+  })
+
+  it('aula que virou presencial numa turma online nao tem link', () => {
+    expect(linkDaAula({ modalidade: 'Presencial', link_online: null }, salaDaTurma)).toBeNull()
+  })
+})
+
+describe('aulaPrecisaDeSala', () => {
+  const presencial = { modalidade: 'Presencial' as const, link_videochamada: null }
+
+  it('aula agendada que virou online numa turma presencial ganha sala propria', () => {
+    expect(aulaPrecisaDeSala({ modalidade: 'Online', link_online: null, status: 'Agendada' }, presencial)).toBe(true)
+  })
+
+  it('nao cria outra sala se a aula ja tem link', () => {
+    expect(
+      aulaPrecisaDeSala({ modalidade: 'Online', link_online: 'https://meet.google.com/x', status: 'Agendada' }, presencial),
+    ).toBe(false)
+  })
+
+  it('turma online: a sala e a da turma, e quem cuida dela e a turma', () => {
+    // Se a sala da turma falhou, a proxima sincronizacao da turma tenta de
+    // novo; uma sala so da aula deixaria dois links para o mesmo aluno.
+    expect(
+      aulaPrecisaDeSala(
+        { modalidade: 'Online', link_online: null, status: 'Agendada' },
+        { modalidade: 'Online', link_videochamada: null },
+      ),
+    ).toBe(false)
+  })
+
+  it('aula presencial ou fora de Agendada nao precisa de sala', () => {
+    expect(aulaPrecisaDeSala({ modalidade: 'Presencial', link_online: null, status: 'Agendada' }, presencial)).toBe(false)
+    expect(aulaPrecisaDeSala({ modalidade: 'Online', link_online: null, status: 'Realizada' }, presencial)).toBe(false)
   })
 })
 

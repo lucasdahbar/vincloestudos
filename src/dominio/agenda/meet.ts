@@ -34,6 +34,40 @@ export function oQueFazerComASala(turma: TurmaDaSala): 'criar' | 'ajustar' | 'na
   return 'criar'
 }
 
+type Modalidade = 'Presencial' | 'Online'
+
+/**
+ * O link de uma aula. Desde 30/10/2026 a aula guarda a propria modalidade, e
+ * "so esta aula" pode virar online numa turma presencial (ou o contrario).
+ * Vale a modalidade da aula, nao a da turma: `link_online` e o link so desta
+ * aula, e a sala da turma so serve se a turma tambem for online.
+ */
+export function linkDaAula(
+  aula: { modalidade: Modalidade; link_online: string | null },
+  turma: { modalidade: Modalidade; link_videochamada: string | null },
+): string | null {
+  if (aula.modalidade !== 'Online') return null
+  return aula.link_online ?? (turma.modalidade === 'Online' ? turma.link_videochamada : null)
+}
+
+/**
+ * Bug de 09/11/2026: a aula de turma presencial que virou online ficava sem
+ * link. Ela ganha uma sala so dela, com a mesma configuracao da sala de turma.
+ * Na turma online quem cuida da sala e a propria turma (`oQueFazerComASala`):
+ * criar outra aqui deixaria dois links para os mesmos alunos.
+ */
+export function aulaPrecisaDeSala(
+  aula: { modalidade: Modalidade; link_online: string | null; status: string },
+  turma: { modalidade: Modalidade; link_videochamada: string | null },
+): boolean {
+  return (
+    aula.status === 'Agendada' &&
+    aula.modalidade === 'Online' &&
+    !aula.link_online &&
+    turma.modalidade !== 'Online'
+  )
+}
+
 /**
  * Confiável: quem é da empresa ou foi convidado entra direto; o resto pede
  * para entrar. Moderação ligada: é o que habilita o coorganizador — e é o

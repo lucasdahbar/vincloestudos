@@ -149,13 +149,24 @@ export function exdatesDoEvento(
  * A aula sai da serie e ganha um evento so dela: a remarcada (13/10/2026),
  * no dia novo, e a com outro professor (etapa 6b, 29/10/2026), na agenda
  * desse professor. O dia de sempre vira EXDATE da serie.
+ *
+ * 09/11/2026: tambem a aula com outra modalidade. A presencial que virou
+ * online precisa do link da sala dela no evento, e a serie leva o da turma.
  */
 export function temEventoProprio(
-  aula: { data_hora_original: string | null; professor_id: number; status: StatusAula },
+  aula: {
+    data_hora_original: string | null
+    professor_id: number
+    status: StatusAula
+    modalidade?: 'Presencial' | 'Online'
+  },
   professorDaTurma: number,
+  modalidadeDaTurma?: 'Presencial' | 'Online',
 ): boolean {
   if (aula.status === 'Excluída') return false
-  return aula.data_hora_original !== null || aula.professor_id !== professorDaTurma
+  const outraModalidade =
+    aula.modalidade !== undefined && modalidadeDaTurma !== undefined && aula.modalidade !== modalidadeDaTurma
+  return aula.data_hora_original !== null || aula.professor_id !== professorDaTurma || outraModalidade
 }
 
 /**

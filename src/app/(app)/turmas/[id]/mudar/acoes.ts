@@ -36,7 +36,8 @@ export async function editarEstaAula(
   aulaId: number,
   edicao: EdicaoDaAula,
 ): Promise<
-  { ok: true; avisar: { nome: string; data: string }[] } | { ok: false; erros?: string[]; alerta?: string }
+  | { ok: true; avisar: { nome: string; data: string }[]; aviso?: string }
+  | { ok: false; erros?: string[]; alerta?: string }
 > {
   await exigirGestora()
   const r = await semEstourar(() => editarAula(aulaId, edicao))
@@ -54,7 +55,7 @@ export async function editarEstaAula(
   revalidatePath('/agenda', 'layout')
   revalidatePath(`/turmas/${r.turmaId}`, 'layout')
   revalidatePath('/pagamentos', 'layout')
-  return { ok: true, avisar: r.avisar }
+  return { ok: true, avisar: r.avisar, aviso: r.aviso }
 }
 
 /**

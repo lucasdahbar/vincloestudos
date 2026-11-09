@@ -254,7 +254,11 @@ function EditarEstaAula({
   const [modalidade, setModalidade] = useState(dados.modalidade)
   const [alerta, setAlerta] = useState<string | null>(null)
   const [erros, setErros] = useState<string[]>([])
-  const [feito, setFeito] = useState<{ avisar: { nome: string; data: string }[]; servico: boolean } | null>(null)
+  const [feito, setFeito] = useState<{
+    avisar: { nome: string; data: string }[]
+    servico: boolean
+    aviso?: string
+  } | null>(null)
   const [pendente, iniciar] = useTransition()
 
   // Extensao de 30/10/2026: nao ha mais escolha de "o que mudar" — a previa
@@ -297,7 +301,7 @@ function EditarEstaAula({
           confirmouAlerta: alerta !== null,
         })
         if (r.ok) {
-          setFeito({ avisar: r.avisar, servico: mudouServico })
+          setFeito({ avisar: r.avisar, servico: mudouServico, aviso: r.aviso })
           router.refresh()
         } else if (r.alerta) setAlerta(r.alerta)
         else setErros(r.erros ?? ['Não foi possível mudar a aula.'])
@@ -312,6 +316,7 @@ function EditarEstaAula({
       <Cartao>
         <p className="font-medium">Aula alterada.</p>
         <p className="mt-1 text-sm text-tinta-suave">A agenda do professor no Google acompanha em instantes.</p>
+        {feito.aviso && <p className="mt-2 rounded-lg bg-alerta-suave px-3 py-2 text-sm">{feito.aviso}</p>}
         {feito.servico && emRascunho && (
           <p className="mt-2 text-sm">
             A cobrança deste mês está em rascunho: gere a cobrança de novo para o preço novo entrar.

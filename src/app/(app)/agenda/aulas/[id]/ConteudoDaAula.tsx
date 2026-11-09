@@ -9,6 +9,8 @@ import { LinkDeChamada } from './LinkDeChamada'
 import { AvisarFalta } from './AvisarFalta'
 import { EnviarLink } from './EnviarLink'
 import { MensagemDoLink } from './MensagemDoLink'
+import { CriarSalaDaAula } from './CriarSalaDaAula'
+import { aulaPrecisaDeSala } from '@/dominio/agenda/meet'
 import { ExcluirAula } from './ExcluirAula'
 import { CorrigirChamada } from './CorrigirChamada'
 import { CancelarAviso } from '../../../reposicoes/CancelarAviso'
@@ -137,6 +139,13 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
           )}
         </div>
       </header>
+
+      {ehGestora &&
+        aula.turma &&
+        aulaPrecisaDeSala(aula, {
+          modalidade: aula.turma.modalidade === 'Online' ? 'Online' : 'Presencial',
+          link_videochamada: null,
+        }) && <CriarSalaDaAula aulaId={aula.id} />}
 
       {exemploDoLink && <MensagemDoLink texto={exemploDoLink.texto} aluno={exemploDoLink.aluno} />}
 

@@ -4,6 +4,7 @@ import { montarListaDaAula } from './lista-da-aula'
 import { quandoDaTurma, type TurmaComHorario } from '@/dominio/turmas/quando'
 import { destinosDoLink, type DestinoDoLink, type RegistroDeEnvio } from '@/dominio/notificacoes/link-da-aula'
 import { carregarModelos } from './mensagens-modelo'
+import { linkDaAula } from '@/dominio/agenda/meet'
 import type { CanalEnvio, ContextoNotificacao, Pessoa } from '@/dominio/notificacoes/mensagens'
 
 /**
@@ -34,7 +35,7 @@ export async function linksDaAula(aulaId: number): Promise<Map<number, DestinoDo
   const { data: aula } = await supabase
     .from('aulas')
     .select(`
-      id, turma_id, status, data_hora_inicio, data_hora_fim, data_hora_referencia, link_online,
+      id, turma_id, status, data_hora_inicio, data_hora_fim, data_hora_referencia, link_online, modalidade,
       turma:turmas!turma_id (nome, modalidade, link_videochamada, tipo_recorrencia, data_unica, dias_semana, frequencia, intervalo, data_inicio, horario_inicio)
     `)
     .eq('id', aulaId)
@@ -44,10 +45,10 @@ export async function linksDaAula(aulaId: number): Promise<Map<number, DestinoDo
     | (TurmaComHorario & { modalidade: 'Presencial' | 'Online'; link_videochamada: string | null })
     | null
 
-  if (!aula || !turma || aula.status !== 'Agendada' || turma.modalidade !== 'Online') return null
-  // A sala do Meet e da turma; `link_online` so existe quando alguem trocou o
-  // link desta aula em particular.
-  const link = aula.link_online ?? turma.link_videochamada
+  if (!aula || !turma || aula.status !== 'Agendada') return null
+  // Vale a modalidade da aula, nao a da turma (bug de 09/11/2026): a aula de
+  // turma presencial que virou online tem sala propria em `link_online`.
+  const link = linkDaAula(aula, turma)
   if (!link) return null
 
   const lista = await montarListaDaAula(supabase, aula)
