@@ -5,6 +5,8 @@ import { remarcarAulaNoBanco } from './remarcacao'
 import { garantirSalaDaAula } from './sala-da-aula'
 import { errosDaEdicao, varrer } from '@/dominio/agenda/varredura'
 import type { NovoHorario } from '@/dominio/agenda/remarcacao'
+import { trocasDaAulaUnica } from '@/dominio/turmas/aula-unica'
+import { gerarNomeTurma } from '@/dominio/turmas/nome'
 
 export interface EdicaoDaAula {
   /** Dia e horario novos; nulo = nao muda. */
@@ -47,20 +49,34 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
   if (error) return { ok: false, erros: ['Não foi possível conferir a aula agora. Tente de novo.'] }
   if (!aula) return { ok: false, erros: ['Esta aula não existe mais.'] }
 
-  const trocaProfessor = e.professorId !== null && e.professorId !== aula.professor_id
-  const trocaServico = e.servicoId != null && e.servicoId !== aula.servico_id
-  const trocaModalidade = e.modalidade !== null && e.modalidade !== aula.modalidade
+  const { data: turma, error: erroTurma } = await supabase
+    .from('turmas')
+    .select('id, tipo_recorrencia, professor_id, servico_id, modalidade, nome, materia:materias(nome), ano_escolar:anos_escolares(nome), escola:escolas(nome)')
+    .eq('id', aula.turma_id)
+    .maybeSingle()
+  if (erroTurma || !turma) return { ok: false, erros: ['Não foi possível conferir a turma agora. Tente de novo.'] }
+
+  // Na aula unica, a turma acompanha a aula (bug de 11/11/2026, turma 321).
+  const trocas = trocasDaAulaUnica(turma, aula, {
+    professorId: e.professorId,
+    servicoId: e.servicoId ?? null,
+    modalidade: e.modalidade,
+  })
+  const trocaProfessor = trocas.aula.professor_id !== undefined
+  const trocaServico = trocas.aula.servico_id !== undefined
+  const trocaModalidade = trocas.aula.modalidade !== undefined
+  const trocaTurma = Object.keys(trocas.turma).length > 0
   const pedido = {
     quando: e.nova !== null,
     professor: trocaProfessor,
     servico: trocaServico,
     modalidade: trocaModalidade,
   }
-  if (!pedido.quando && !pedido.professor && !pedido.servico && !pedido.modalidade) {
+  if (!pedido.quando && !pedido.professor && !pedido.servico && !pedido.modalidade && !trocaTurma) {
     return { ok: false, erros: ['Nada mudou nesta aula.'] }
   }
 
-  if (trocaProfessor) {
+  if (trocas.turma.professor_id !== undefined) {
     const { data: professor } = await supabase
       .from('professores')
       .select('id, ativo')
@@ -69,7 +85,7 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
     if (!professor?.ativo) return { ok: false, erros: ['Escolha um professor ativo.'] }
   }
 
-  if (trocaServico) {
+  if (trocaServico || trocas.turma.servico_id !== undefined) {
     const { data: servico } = await supabase
       .from('servicos')
       .select('id, ativo')
@@ -150,6 +166,34 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
     if (!sala.ok) {
       console.warn('sala do Meet da aula nao criada:', sala.motivo)
       aviso = `A aula mudou, mas a sala do Meet não foi criada (${sala.motivo}). Tente de novo pela tela da aula.`
+    }
+  }
+
+  if (trocaTurma) {
+    // O nome leva o servico e a modalidade. O evento do Google segue a turma
+    // (agenda do professor dela) e e sincronizado por quem chama.
+    let nome = turma.nome
+    if (trocas.turma.servico_id !== undefined || trocas.turma.modalidade !== undefined) {
+      const { data: servico } = await supabase
+        .from('servicos')
+        .select('nome')
+        .eq('id', trocas.turma.servico_id ?? turma.servico_id!)
+        .maybeSingle()
+      const um = <T,>(x: T | T[] | null) => (Array.isArray(x) ? x[0] : x) as { nome: string } | null
+      nome = gerarNomeTurma({
+        materia: um(turma.materia)?.nome ?? null,
+        anoEscolar: um(turma.ano_escolar)?.nome ?? null,
+        escola: um(turma.escola)?.nome ?? null,
+        servico: servico?.nome ?? null,
+        modalidade: trocas.turma.modalidade ?? turma.modalidade,
+      })
+    }
+    const { error: erroDaTurma } = await supabase
+      .from('turmas')
+      .update({ ...trocas.turma, nome })
+      .eq('id', turma.id)
+    if (erroDaTurma) {
+      return { ok: false, erros: [`A aula mudou, mas a turma não: ${erroDaTurma.message}`] }
     }
   }
 

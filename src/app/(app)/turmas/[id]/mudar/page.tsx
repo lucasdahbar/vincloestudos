@@ -67,6 +67,14 @@ export default async function PaginaMudarTurma({
   if (escopo === 'esta' && aulaId) {
     const [aula, opcoes] = await Promise.all([obterAula(aulaId), opcoesDeTurma()])
     if (aula && aula.turma_id === turma.id) {
+      // Bug de 11/11/2026 (turma 321): na aula unica, o formulario parte da
+      // turma, que e o que as telas e o Google mostram. Se so a aula tinha
+      // sido trocada, a gestora consegue escolher de novo e consertar.
+      if (turma.tipo_recorrencia === 'Único') {
+        aula.professor_id = turma.professor_id ?? aula.professor_id
+        aula.servico_id = turma.servico_id ?? aula.servico_id
+        aula.modalidade = turma.modalidade ?? aula.modalidade
+      }
       const professores = opcoes.professores.some((p) => p.id === aula.professor_id)
         ? opcoes.professores
         : [{ id: aula.professor_id, nome: 'Professor atual (inativo)' }, ...opcoes.professores]
