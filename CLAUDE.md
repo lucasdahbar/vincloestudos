@@ -91,7 +91,7 @@ Convenções:
 
 ```
 npx tsc --noEmit        # tem de sair vazio
-npx vitest run          # ~417 testes
+npx vitest run          # ~940 testes. Rode pelo PowerShell: no Git Bash dá "reading 'config'"
 npm run lint            # 5 problemas já existiam (semear.mjs, NavMobile, cobrancas/page, Formulario, tipos); não pode aparecer nenhum novo
 npx next build          # pega erro de fronteira servidor/cliente que o tsc não pega
 ```
@@ -146,8 +146,12 @@ Reposição e ausência (`dominio/reposicoes/desfecho.ts`, `dados/reposicoes.ts`
 - Na desistência (ou "sem reposição"), a gestora decide `cobrar` e, cobrando,
   `pagar_professor` ("desistência paga", paga ao professor da turma original,
   com o mesmo cálculo de uma aula dada).
-- Não cobrar uma aula ainda não cobrada: ela sai da próxima cobrança. Já cobrada
-  (recebida ou não): vira **crédito** do responsável.
+- Não cobrar uma aula (opção A, 13/11/2026, caso Isabela): se a cobrança dela não
+  teve **nenhum recebimento** (Rascunho, Confirmada ou Enviada), a aula sai da
+  cobrança (`tirar_item_de_cobranca_em_aberto`). A Enviada volta para Confirmada,
+  com o texto refeito, para a Kelly reenviar. Só vira **crédito** se já entrou
+  dinheiro. Vale também na desmatrícula (`dominio/creditos/saida.ts`). Regra em
+  `destinoDaAulaNaoCobrada`.
 - Quem avisou continua na lista da aula, marcado e sem presença/falta (`dados/lista-da-aula.ts`,
   a ÚNICA montagem da lista; não duplique).
 - A reposição em outra turma cria uma matrícula **só na data** da aula de destino.
@@ -155,7 +159,8 @@ Reposição e ausência (`dominio/reposicoes/desfecho.ts`, `dados/reposicoes.ts`
 - Cobrança da reposição: R$ 0,00 se a turma de destino tiver o mesmo valor ou
   for mais barata; só a diferença se for mais cara.
 - A reposição não tem prazo. O aviso pode ser cancelado enquanto não houver
-  reposição marcada, crédito ou pagamento ao professor.
+  reposição marcada, crédito **usado** (abatido/devolvido) ou pagamento ao professor.
+  Crédito intacto é estornado e solto do aviso ao cancelar.
 - Crédito (`dominio/creditos`, tela /creditos): sem validade, usado em partes,
   abatido de uma cobrança em aberto (vira recebimento com forma "Crédito", sem
   conta) ou devolvido. Aluno que sai com crédito recebe o valor de volta.
@@ -165,6 +170,8 @@ Reposição e ausência (`dominio/reposicoes/desfecho.ts`, `dados/reposicoes.ts`
 ## Status de cobrança e telas (09/11/2026)
 
 `dominio/cobrancas/lista.ts`, `reabertura.ts`, `complementar.ts`:
+- Nomes na tela (13/11/2026, `rotuloDoStatus`): Confirmada = "Pronta p/ enviar",
+  Enviada = "Em aberto", Parcial = "Paga em parte", Quitada = "Paga". O banco não mudou.
 - Cobranças mostra só o que não foi mandado (Rascunho e Confirmada; Cancelada pelo
   filtro). Recebimentos mostra do envio em diante: Enviada (na tela "Em aberto"),
   Parcial e Quitada.
