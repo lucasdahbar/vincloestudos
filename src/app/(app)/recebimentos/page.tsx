@@ -83,7 +83,7 @@ export default async function PaginaRecebimentos({
         </p>
         <p className="mt-1 text-sm text-tinta-suave">
           A cobrança entra aqui quando você marca &ldquo;Já enviei pelo WhatsApp&rdquo; ou registra um
-          pagamento. As confirmadas ainda não enviadas ficam em{' '}
+          pagamento. As prontas para enviar ficam em{' '}
           <Link href="/cobrancas" className="font-medium text-destaque hover:underline">
             Cobranças
           </Link>
@@ -108,7 +108,7 @@ export default async function PaginaRecebimentos({
               Cobrança de {mesNaTela(confirmado.mes)}:{' '}
               {confirmado.saldo > 0
                 ? `ainda faltam ${formatarBRL(confirmado.saldo)} (${rotuloDoStatus(confirmado.status)}).`
-                : 'quitada.'}
+                : 'paga.'}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -166,7 +166,7 @@ export default async function PaginaRecebimentos({
           {lista.length === 0 && !busca && !status && !mes ? (
             <EstadoVazio
               titulo="Nada a receber"
-              descricao="Todas as cobranças enviadas já foram quitadas. Para vê-las, escolha Quitada no filtro."
+              descricao="Todas as cobranças enviadas já foram pagas. Para vê-las, escolha Paga no filtro."
             />
           ) : (
             <ul className="flex flex-col gap-3">

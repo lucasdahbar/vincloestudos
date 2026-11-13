@@ -20,19 +20,35 @@ export interface CobrancaDaLista {
  * para corrigir algo).
  */
 
-export const OPCOES_DE_COBRANCAS = ['Rascunho', 'Confirmada', 'Cancelada'] as const
+/*
+ * Nomes da tela (pedido do Julio, 13/11/2026, depois do caso Isabela):
+ * "Confirmada" dava a entender que a familia ja tinha recebido. O banco
+ * continua com os status antigos; so o que a gestora le muda.
+ */
+const ROTULOS: Record<string, string> = {
+  Confirmada: 'Pronta p/ enviar',
+  Enviada: 'Em aberto',
+  Parcial: 'Paga em parte',
+  Quitada: 'Paga',
+}
+
+/** O nome do status na tela. */
+export function rotuloDoStatus(status: string): string {
+  return ROTULOS[status] ?? status
+}
+
+export const OPCOES_DE_COBRANCAS = ['Rascunho', ROTULOS.Confirmada, 'Cancelada'] as const
 const PADRAO_DE_COBRANCAS = ['Rascunho', 'Confirmada']
 
 /** Status do banco que a tela de Cobrancas mostra para a opcao escolhida. */
 export function statusDaTelaDeCobrancas(opcao?: string): string[] {
-  return opcao && (OPCOES_DE_COBRANCAS as readonly string[]).includes(opcao)
-    ? [opcao]
-    : PADRAO_DE_COBRANCAS
+  if (opcao === ROTULOS.Confirmada) return ['Confirmada']
+  return opcao === 'Rascunho' || opcao === 'Cancelada' ? [opcao] : PADRAO_DE_COBRANCAS
 }
 
-export const STATUS_EM_ABERTO = 'Em aberto'
+export const STATUS_EM_ABERTO = ROTULOS.Enviada
 export const TODAS = 'Todas'
-export const OPCOES_DE_RECEBIMENTOS = [STATUS_EM_ABERTO, 'Parcial', 'Quitada', TODAS] as const
+export const OPCOES_DE_RECEBIMENTOS = [STATUS_EM_ABERTO, ROTULOS.Parcial, ROTULOS.Quitada, TODAS] as const
 
 /**
  * Sem filtro, Recebimentos responde a pergunta do dia a dia ("quem ainda nao
@@ -42,19 +58,15 @@ export function statusDaTelaDeRecebimentos(opcao?: string): string[] {
   switch (opcao) {
     case STATUS_EM_ABERTO:
       return ['Enviada']
-    case 'Parcial':
-    case 'Quitada':
-      return [opcao]
+    case ROTULOS.Parcial:
+      return ['Parcial']
+    case ROTULOS.Quitada:
+      return ['Quitada']
     case TODAS:
       return ['Enviada', 'Parcial', 'Quitada']
     default:
       return ['Enviada', 'Parcial']
   }
-}
-
-/** O nome do status na tela. */
-export function rotuloDoStatus(status: string): string {
-  return status === 'Enviada' ? STATUS_EM_ABERTO : status
 }
 
 /** Minusculas e sem acento: "João" e "joao" sao a mesma busca. */

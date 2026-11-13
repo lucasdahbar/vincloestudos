@@ -35,8 +35,8 @@ export function PainelGeracao({ mes }: { mes: string }) {
           Cria uma cobrança por responsável, juntando todos os filhos e todas as turmas. Fica em
           rascunho para você revisar antes de confirmar. Cada vez que você gera, o rascunho do mês é
           refeito: entram as aulas novas, saem as que deixaram de valer (aluno desmatriculado, aula
-          cancelada, “não cobrar”) e os descontos que você deu são mantidos. Cobrança já confirmada
-          não muda.
+          cancelada, “não cobrar”) e os descontos que você deu são mantidos. Cobrança pronta para
+          enviar não muda ao gerar de novo.
         </p>
       </div>
 

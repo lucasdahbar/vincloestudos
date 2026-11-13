@@ -93,7 +93,7 @@ describe('filtro por status (pedido do Julio, 09/11/2026)', () => {
 
     it('cada opção traz o seu status', () => {
       expect(ids(statusDaTelaDeCobrancas('Rascunho'))).toEqual([1])
-      expect(ids(statusDaTelaDeCobrancas('Confirmada'))).toEqual([2])
+      expect(ids(statusDaTelaDeCobrancas('Pronta p/ enviar'))).toEqual([2])
     })
   })
 
@@ -107,7 +107,7 @@ describe('filtro por status (pedido do Julio, 09/11/2026)', () => {
     })
 
     it('quitadas e "todas"', () => {
-      expect(ids(statusDaTelaDeRecebimentos('Quitada'))).toEqual([5])
+      expect(ids(statusDaTelaDeRecebimentos('Paga'))).toEqual([5])
       expect(ids(statusDaTelaDeRecebimentos(TODAS))).toEqual([3, 4, 5])
     })
 
@@ -120,8 +120,15 @@ describe('filtro por status (pedido do Julio, 09/11/2026)', () => {
     })
   })
 
-  it('na tela, Enviada se chama "Em aberto"', () => {
+  it('nomes da tela (13/11/2026): o banco continua com os status antigos', () => {
+    expect(rotuloDoStatus('Confirmada')).toBe('Pronta p/ enviar')
     expect(rotuloDoStatus('Enviada')).toBe('Em aberto')
-    expect(rotuloDoStatus('Parcial')).toBe('Parcial')
+    expect(rotuloDoStatus('Parcial')).toBe('Paga em parte')
+    expect(rotuloDoStatus('Quitada')).toBe('Paga')
+    expect(rotuloDoStatus('Rascunho')).toBe('Rascunho')
+  })
+
+  it('o filtro "Paga em parte" mostra as parciais', () => {
+    expect(statusDaTelaDeRecebimentos('Paga em parte')).toEqual(['Parcial'])
   })
 })

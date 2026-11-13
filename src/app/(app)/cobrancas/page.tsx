@@ -5,6 +5,7 @@ import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import {
   OPCOES_DE_COBRANCAS,
   listaDeCobrancas,
+  rotuloDoStatus,
   statusDaTelaDeCobrancas,
 } from '@/dominio/cobrancas/lista'
 import { formatarBRL } from '@/dominio/dinheiro'
@@ -54,7 +55,7 @@ export default async function PaginaCobrancas({
         <h1 className="text-3xl">Cobranças</h1>
         <p className="mt-1 text-tinta-suave">
           {mes.split('-').reverse().join('/')}: {rascunhos.length} rascunho(s) ·{' '}
-          {confirmadas.length} confirmada(s) aguardando envio ·{' '}
+          {confirmadas.length} pronta(s) para enviar ·{' '}
           {formatarBRL([...rascunhos, ...confirmadas].reduce((s, c) => s + c.valor_total, 0))}
         </p>
         {enviadas.length > 0 && (
@@ -84,7 +85,7 @@ export default async function PaginaCobrancas({
                 campo: 'status',
                 rotulo: 'Status',
                 opcoes: deValores(OPCOES_DE_COBRANCAS),
-                todos: 'Rascunho e confirmada',
+                todos: 'Rascunho e pronta p/ enviar',
               },
             ]}
             total={cobrancas.length}
@@ -117,7 +118,7 @@ export default async function PaginaCobrancas({
                         </p>
                       )}
                       <div className="mt-1">
-                        <Selo tom={TOM[c.status]}>{c.status}</Selo>
+                        <Selo tom={TOM[c.status]}>{rotuloDoStatus(c.status)}</Selo>
                       </div>
                     </div>
                   </div>

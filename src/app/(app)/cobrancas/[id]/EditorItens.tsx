@@ -240,7 +240,7 @@ export function EditorItens({
             <span className="font-medium">Conta que vai receber</span>
             <span className="text-sm text-tinta-suave">
               É a chave Pix que aparece no texto enviado ao responsável.
-              {!editavel && ' Depois de confirmada, não muda mais.'}
+              {!editavel && ' Depois de pronta para enviar, não muda mais aqui.'}
             </span>
             <select
               value={contaRecebimentoId ?? ''}
