@@ -5,7 +5,7 @@ import { remarcarAulaNoBanco } from './remarcacao'
 import { garantirSalaDaAula } from './sala-da-aula'
 import { errosDaEdicao, varrer } from '@/dominio/agenda/varredura'
 import type { NovoHorario } from '@/dominio/agenda/remarcacao'
-import { trocasDaAulaUnica } from '@/dominio/turmas/aula-unica'
+import { camposPedidos, trocasDaAulaUnica } from '@/dominio/turmas/aula-unica'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
 
 export interface EdicaoDaAula {
@@ -66,12 +66,8 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
   const trocaServico = trocas.aula.servico_id !== undefined
   const trocaModalidade = trocas.aula.modalidade !== undefined
   const trocaTurma = Object.keys(trocas.turma).length > 0
-  const pedido = {
-    quando: e.nova !== null,
-    professor: trocaProfessor,
-    servico: trocaServico,
-    modalidade: trocaModalidade,
-  }
+  // A troca so na turma tambem passa pela varredura (bug de 13/11/2026).
+  const pedido = { quando: e.nova !== null, ...camposPedidos(trocas) }
   if (!pedido.quando && !pedido.professor && !pedido.servico && !pedido.modalidade && !trocaTurma) {
     return { ok: false, erros: ['Nada mudou nesta aula.'] }
   }

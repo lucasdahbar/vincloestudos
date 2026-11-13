@@ -21,6 +21,16 @@ export interface Trocas {
  * conta tambem quando so a turma esta diferente (conserta o dado ja quebrado).
  * Na recorrente, so a aula muda, como antes.
  */
+/**
+ * O que a varredura deve liberar. Bug de 13/11/2026: a aula ja estava com o
+ * professor novo e so a turma com o antigo; o pedido olhava so a aula, saia
+ * vazio, e a varredura respondia "Esta aula nao pode mudar."
+ */
+export function camposPedidos(t: Trocas): { professor: boolean; servico: boolean; modalidade: boolean } {
+  const pede = (c: keyof Campos) => t.aula[c] !== undefined || t.turma[c] !== undefined
+  return { professor: pede('professor_id'), servico: pede('servico_id'), modalidade: pede('modalidade') }
+}
+
 export function trocasDaAulaUnica(
   turma: Campos & { tipo_recorrencia: string },
   aula: Campos,
