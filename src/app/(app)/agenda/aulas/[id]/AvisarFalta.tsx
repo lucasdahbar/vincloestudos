@@ -32,8 +32,12 @@ export function AvisarFalta({
   function registrar(decisao: { gerarReposicao: true } | ({ gerarReposicao: false } & Decisao)) {
     iniciar(async () => {
       const r = await registrarFaltaAvisada(alunoId, aulaId, decisao)
-      if (r.ok) router.refresh()
-      else setErro(r.erros?.[0] ?? 'Não foi possível registrar.')
+      if (r.ok) {
+        // Opcao A (13/11/2026): a aula saiu de uma cobranca ja mandada. A Kelly
+        // precisa saber para reenviar; o componente some com o refresh.
+        if (r.avisos?.length) window.alert(r.avisos.join('\n'))
+        router.refresh()
+      } else setErro(r.erros?.[0] ?? 'Não foi possível registrar.')
     })
   }
 

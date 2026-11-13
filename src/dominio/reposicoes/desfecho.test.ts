@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { creditoAoCancelarAviso, creditoDaDesistencia, podeCancelarAviso, validarDecisao } from './desfecho'
+import { creditoAoCancelarAviso, destinoDaAulaNaoCobrada, podeCancelarAviso, validarDecisao } from './desfecho'
 
 describe('validarDecisao', () => {
   it('aceita cobrar e pagar o professor ("desistência paga")', () => {
@@ -17,40 +17,6 @@ describe('validarDecisao', () => {
   it('recusa pagar o professor por aula que não foi cobrada', () => {
     // A regra só pergunta do professor depois de "cobrar = sim".
     expect(validarDecisao({ cobrar: false, pagarProfessor: true })).not.toEqual([])
-  })
-})
-
-describe('creditoDaDesistencia', () => {
-  it('cobrar a aula não gera crédito', () => {
-    expect(creditoDaDesistencia(true, { valor_final: 9000, cobranca_status: 'Enviada' })).toBe(0)
-  })
-
-  it('não cobrar aula ainda não cobrada não gera crédito: ela sai da próxima cobrança', () => {
-    expect(creditoDaDesistencia(false, null)).toBe(0)
-  })
-
-  it('não cobrar aula já cobrada gera crédito do valor cobrado, recebido ou não', () => {
-    expect(creditoDaDesistencia(false, { valor_final: 9000, cobranca_status: 'Enviada' })).toBe(9000)
-    expect(creditoDaDesistencia(false, { valor_final: 9000, cobranca_status: 'Quitada' })).toBe(9000)
-  })
-
-  it('usa o valor final, já com o desconto que a gestora deu', () => {
-    expect(creditoDaDesistencia(false, { valor_final: 7000, cobranca_status: 'Confirmada' })).toBe(7000)
-  })
-
-  it('cobrança cancelada não conta como cobrada: a aula volta a ser cobrável', () => {
-    expect(creditoDaDesistencia(false, { valor_final: 9000, cobranca_status: 'Cancelada' })).toBe(0)
-  })
-
-  it('item em rascunho não é aula cobrada: não gera crédito', () => {
-    // Rascunho ainda nao foi para o responsavel. Antes gerava credito e deixava
-    // o item no rascunho: a gestora confirmava e o responsavel pagava e ainda
-    // ganhava o credito. O item simplesmente sai do rascunho.
-    expect(creditoDaDesistencia(false, { valor_final: 9000, cobranca_status: 'Rascunho' })).toBe(0)
-  })
-
-  it('item de valor zero não gera crédito', () => {
-    expect(creditoDaDesistencia(false, { valor_final: 0, cobranca_status: 'Enviada' })).toBe(0)
   })
 })
 
@@ -78,6 +44,30 @@ describe('podeCancelarAviso', () => {
 
   it('não cancela depois de o crédito ser abatido ou devolvido: o dinheiro já se mexeu', () => {
     expect(podeCancelarAviso({ ...aviso, status: 'Desistida', temCredito: true }).pode).toBe(false)
+  })
+})
+
+describe('destinoDaAulaNaoCobrada (opção A, 13/11/2026)', () => {
+  it('cobrando, ou sem item, nada a fazer', () => {
+    expect(destinoDaAulaNaoCobrada(true, { status: 'Enviada', temRecebimento: false })).toBe('nada')
+    expect(destinoDaAulaNaoCobrada(false, null)).toBe('nada')
+    expect(destinoDaAulaNaoCobrada(false, { status: 'Cancelada', temRecebimento: false })).toBe('nada')
+  })
+
+  it('cobrança sem nenhum pagamento: a aula sai dela', () => {
+    for (const status of ['Rascunho', 'Confirmada', 'Enviada'] as const) {
+      expect(destinoDaAulaNaoCobrada(false, { status, temRecebimento: false })).toBe('tirar')
+    }
+  })
+
+  it('caso Isabela: Confirmada não paga não vira crédito', () => {
+    expect(destinoDaAulaNaoCobrada(false, { status: 'Confirmada', temRecebimento: false })).not.toBe('credito')
+  })
+
+  it('já entrou dinheiro: vira crédito', () => {
+    expect(destinoDaAulaNaoCobrada(false, { status: 'Parcial', temRecebimento: true })).toBe('credito')
+    expect(destinoDaAulaNaoCobrada(false, { status: 'Quitada', temRecebimento: true })).toBe('credito')
+    expect(destinoDaAulaNaoCobrada(false, { status: 'Enviada', temRecebimento: true })).toBe('credito')
   })
 })
 

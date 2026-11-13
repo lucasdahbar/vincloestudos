@@ -610,6 +610,56 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
   const cobranca = await obterCobranca(id)
   if (!cobranca || !lida) throw new Error('Cobrança não encontrada.')
 
+  const { texto, complementar } = await montarTexto(supabase, id, cobranca)
+
+  const { data: confirmadas, error } = await supabase
+    .from('cobrancas')
+    .update({ status: 'Confirmada', texto_whatsapp: texto, complementar })
+    .eq('id', id)
+    .eq('status', 'Rascunho')
+    .eq('updated_at', lida.updated_at)
+    .select('id')
+  if (error) throw new Error(error.message)
+  if (!confirmadas || confirmadas.length === 0) {
+    throw new Error('A cobrança mudou enquanto você confirmava. Abra-a de novo e confira antes de confirmar.')
+  }
+
+  await supabase.from('logs_operacionais').insert({
+    acao: 'confirmar_cobranca',
+    entidade: 'cobrancas',
+    entidade_id: id,
+    usuario,
+    detalhe: { valor_total: cobranca.valor_total, itens: cobranca.itens.length },
+  })
+}
+
+/**
+ * Opcao A (13/11/2026): uma aula saiu de uma cobranca ja confirmada (ou
+ * enviada, que voltou a confirmada). O texto guardado ainda listava a aula e
+ * o valor antigo; refaz a partir dos itens que ficaram.
+ */
+export async function refazerTextoDaCobranca(id: number): Promise<{ ok: boolean; motivo?: string }> {
+  const supabase = await clienteServidor()
+  const cobranca = await obterCobranca(id)
+  if (!cobranca) return { ok: false, motivo: 'Cobrança não encontrada.' }
+  try {
+    const { texto, complementar } = await montarTexto(supabase, id, cobranca)
+    const { error } = await supabase
+      .from('cobrancas')
+      .update({ texto_whatsapp: texto, complementar })
+      .eq('id', id)
+      .eq('status', 'Confirmada')
+    return error ? { ok: false, motivo: error.message } : { ok: true }
+  } catch (e) {
+    return { ok: false, motivo: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+async function montarTexto(
+  supabase: Awaited<ReturnType<typeof clienteServidor>>,
+  id: number,
+  cobranca: NonNullable<Awaited<ReturnType<typeof obterCobranca>>>,
+): Promise<{ texto: string; complementar: boolean }> {
   // C5 (Rodada 2): a chave Pix vem da conta de recebimento escolhida nesta
   // cobranca. Antes vinha da "primeira conta ativa com chave" — se a gestora
   // cadastrasse uma segunda conta, o texto passava a mostrar a chave errada
@@ -661,25 +711,7 @@ export async function confirmarCobranca(id: number, usuario: string): Promise<vo
     cobradasAntes: cobranca.cobradas_antes,
   }, await carregarModelos(supabase))
 
-  const { data: confirmadas, error } = await supabase
-    .from('cobrancas')
-    .update({ status: 'Confirmada', texto_whatsapp: texto, complementar })
-    .eq('id', id)
-    .eq('status', 'Rascunho')
-    .eq('updated_at', lida.updated_at)
-    .select('id')
-  if (error) throw new Error(error.message)
-  if (!confirmadas || confirmadas.length === 0) {
-    throw new Error('A cobrança mudou enquanto você confirmava. Abra-a de novo e confira antes de confirmar.')
-  }
-
-  await supabase.from('logs_operacionais').insert({
-    acao: 'confirmar_cobranca',
-    entidade: 'cobrancas',
-    entidade_id: id,
-    usuario,
-    detalhe: { valor_total: cobranca.valor_total, itens: cobranca.itens.length },
-  })
+  return { texto, complementar }
 }
 
 /**

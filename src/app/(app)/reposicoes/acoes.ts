@@ -17,6 +17,9 @@ function revalidarTudo() {
   revalidatePath('/reposicoes')
   revalidatePath('/agenda', 'layout')
   revalidatePath('/creditos')
+  // Opcao A (13/11/2026): a aula pode sair de uma cobranca.
+  revalidatePath('/cobrancas', 'layout')
+  revalidatePath('/recebimentos', 'layout')
 }
 
 export async function agendar(pendenciaId: number, aulaDestinoId: number) {
@@ -36,7 +39,7 @@ export async function desistir(pendenciaId: number, decisao: Decisao) {
   if (r.turmasAfetadas?.length) after(() => atualizarAlunosNosEventos(r.turmasAfetadas!))
   revalidarTudo()
   revalidatePath('/turmas', 'layout')
-  return { ok: r.ok, erros: r.erros }
+  return { ok: r.ok, erros: r.erros, avisos: r.avisos }
 }
 
 /** Registra que o aluno avisou que não vem a uma aula específica. */

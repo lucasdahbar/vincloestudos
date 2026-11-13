@@ -27,10 +27,12 @@ export function AcoesPendencia({
   const [erro, setErro] = useState<string | null>(null)
   const [pendente, iniciar] = useTransition()
 
-  function executar(fn: () => Promise<{ ok: boolean; erros?: string[] }>) {
+  function executar(fn: () => Promise<{ ok: boolean; erros?: string[]; avisos?: string[] }>) {
     setErro(null)
     iniciar(async () => {
       const r = await fn()
+      // Opcao A (13/11/2026): a aula saiu de uma cobranca ja mandada.
+      if (r.ok && r.avisos?.length) window.alert(r.avisos.join('\n'))
       if (!r.ok) setErro(r.erros?.join(' ') ?? 'Não foi possível concluir.')
     })
   }

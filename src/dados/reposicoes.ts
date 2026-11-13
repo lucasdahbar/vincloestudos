@@ -4,7 +4,7 @@ import { clienteServidor } from './cliente'
 import { planejarReposicao, validarDesistencia, type Pendencia } from '@/dominio/reposicoes/agendamento'
 import {
   creditoAoCancelarAviso,
-  creditoDaDesistencia,
+  destinoDaAulaNaoCobrada,
   podeCancelarAviso,
   type TipoUsoCredito,
   validarDecisao,
@@ -12,6 +12,7 @@ import {
   type StatusCobranca,
 } from '@/dominio/reposicoes/desfecho'
 import { deNumeric, paraNumeric } from '@/dominio/dinheiro'
+import { refazerTextoDaCobranca } from './cobrancas'
 
 export interface PendenciaComRelacoes {
   id: number
@@ -180,7 +181,7 @@ export async function agendarReposicao(
 export async function desistirReposicao(
   pendenciaId: number,
   decisao: Decisao,
-): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[] }> {
+): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[]; avisos?: string[] }> {
   const supabase = await clienteServidor()
   const { data: p } = await supabase
     .from('pendencias_reposicao')
@@ -230,7 +231,7 @@ export async function registrarAviso(
   alunoId: number,
   aulaOrigemId: number,
   decisao: { gerarReposicao: true } | ({ gerarReposicao: false } & Decisao),
-): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[] }> {
+): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[]; avisos?: string[] }> {
   if (!decisao.gerarReposicao) {
     const erros = validarDecisao(decisao)
     if (erros.length > 0) return { ok: false, erros }
@@ -339,12 +340,13 @@ export async function registrarAviso(
 }
 
 /**
- * Não cobrar uma aula que já foi cobrada vira crédito do responsável. Se ainda
- * não foi, não há nada a fazer aqui: a geração de cobrança já a deixa de fora.
+ * Não cobrar uma aula: se ela está numa cobrança sem nenhum pagamento, sai dela
+ * (opção A, 13/11/2026); se já entrou dinheiro, vira crédito do responsável.
+ * Sem cobrança, nada a fazer: a geração já a deixa de fora.
  */
 export async function aplicarEfeitoFinanceiro(
   pendenciaId: number,
-): Promise<{ ok: boolean; erros?: string[] }> {
+): Promise<{ ok: boolean; erros?: string[]; avisos?: string[] }> {
   const supabase = await clienteServidor()
   const { data: p } = await supabase
     .from('pendencias_reposicao')
@@ -359,39 +361,65 @@ export async function aplicarEfeitoFinanceiro(
   const lerItem = async () => {
     const { data } = await supabase
       .from('itens_cobranca')
-      .select('id, valor_final, cobranca:cobrancas!cobranca_id (status)')
+      .select('id, valor_final, cobranca:cobrancas!cobranca_id (id, status, recebimentos (id))')
       .eq('aula_id', p.aula_origem_id)
       .eq('aluno_id', p.aluno_id)
       .maybeSingle()
     return {
       item: data,
-      cobranca: (data?.cobranca ?? null) as unknown as { status: StatusCobranca } | null,
+      cobranca: (data?.cobranca ?? null) as unknown as {
+        id: number
+        status: StatusCobranca
+        recebimentos: { id: number }[] | null
+      } | null,
     }
   }
 
   let { item, cobranca } = await lerItem()
+  const destino = () =>
+    destinoDaAulaNaoCobrada(
+      false,
+      item && cobranca
+        ? { status: cobranca.status, temRecebimento: (cobranca.recebimentos ?? []).length > 0 }
+        : null,
+    )
 
-  // Item so em rascunho (14/10/2026): a aula ainda nao foi cobrada de ninguem,
-  // entao nao ha credito — o item sai do rascunho e o total acompanha. Antes
-  // virava credito e o item ficava la: o responsavel pagava e ainda ganhava
-  // o credito. A saida e uma funcao do banco, com o rascunho travado: se a
-  // cobranca foi confirmada no meio do caminho ela devolve false, e segue o
-  // caminho do credito com o estado novo.
-  if (item && cobranca?.status === 'Rascunho') {
-    const { data: saiu, error } = await supabase.rpc('remover_item_de_rascunho', { p_item_id: item.id })
+  // Opcao A (13/11/2026, caso Isabela): sem dinheiro recebido, a aula sai da
+  // cobranca — rascunho, confirmada ou enviada — em vez de virar credito. A
+  // saida e uma funcao do banco que confere tudo de novo sob lock: se entrou
+  // um recebimento no meio do caminho ela devolve null, e segue o caminho do
+  // credito com o estado novo.
+  if (item && cobranca && destino() === 'tirar') {
+    const { data: ficou, error } = await supabase.rpc('tirar_item_de_cobranca_em_aberto', {
+      p_item_id: item.id,
+    })
     if (error) {
-      return { ok: false, erros: [`A decisão foi salva, mas o item do rascunho não saiu: ${error.message}`] }
+      return { ok: false, erros: [`A decisão foi salva, mas a aula não saiu da cobrança: ${error.message}`] }
     }
-    if (saiu) return { ok: true }
+    if (ficou === 'Confirmada') {
+      const r = await refazerTextoDaCobranca(cobranca.id)
+      if (!r.ok) {
+        return { ok: false, erros: [`A aula saiu da cobrança, mas o texto do WhatsApp não foi refeito: ${r.motivo}`] }
+      }
+    }
+    if (ficou) {
+      const jaMandada = cobranca.status !== 'Rascunho'
+      return {
+        ok: true,
+        avisos: jaMandada
+          ? [
+              ficou === 'Cancelada'
+                ? 'A cobrança só tinha esta aula e foi cancelada. Avise a família.'
+                : 'A aula saiu da cobrança e o valor foi recalculado. Ela voltou para "Pronta p/ enviar": mande de novo para a família.',
+            ]
+          : [],
+      }
+    }
     ;({ item, cobranca } = await lerItem())
   }
 
-  const valor = creditoDaDesistencia(
-    false,
-    item && cobranca
-      ? { valor_final: deNumeric(item.valor_final), cobranca_status: cobranca.status }
-      : null,
-  )
+  const valor =
+    destino() === 'credito' && item ? Math.max(0, deNumeric(item.valor_final)) : 0
   if (valor === 0) return { ok: true }
 
   const aluno = p.aluno as unknown as { nome: string; responsavel_id: number } | null

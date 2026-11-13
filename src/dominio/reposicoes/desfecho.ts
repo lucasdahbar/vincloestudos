@@ -34,23 +34,25 @@ export type StatusCobranca =
   | 'Cancelada'
 
 /**
- * Não cobrar a aula tem dois efeitos, conforme ela já tenha sido cobrada:
- * ainda não foi, e sai da próxima cobrança; já foi, recebida ou não, e vira
- * crédito do responsável.
+ * Nao cobrar a aula: ainda sem cobranca, ela sai da proxima (a geracao a deixa
+ * de fora); cancelada tambem nao conta, porque cancelar libera as aulas (C7).
  *
- * Rascunho e cobrança cancelada não contam: rascunho ainda não foi cobrado (o
- * item sai dele), e cancelar libera as aulas para serem cobradas
- * de novo (C7), então é o mesmo que nunca ter cobrado.
+ * Opcao A do Julio (13/11/2026), depois do caso Isabela: a Kelly manda a
+ * cobranca, a familia avisa que nao vem, a aula nao e cobrada — e o sistema
+ * gerava credito sobre uma cobranca que ninguem tinha pago. Agora, enquanto
+ * nao entrou dinheiro nenhum, a aula sai da cobranca (que e recalculada e,
+ * se ja tinha sido enviada, volta a "pronta para enviar"). Credito so quando
+ * ja houve recebimento.
  */
-export function creditoDaDesistencia(
+export type DestinoDaAula = 'nada' | 'tirar' | 'credito'
+
+export function destinoDaAulaNaoCobrada(
   cobrar: boolean,
-  itemCobrado: { valor_final: Centavos; cobranca_status: StatusCobranca } | null,
-): Centavos {
-  // Rascunho (14/10/2026) tambem nao e aula cobrada: ainda nao foi para o
-  // responsavel, e o item sai dele.
-  if (cobrar || !itemCobrado) return 0
-  if (itemCobrado.cobranca_status === 'Cancelada' || itemCobrado.cobranca_status === 'Rascunho') return 0
-  return Math.max(0, itemCobrado.valor_final)
+  item: { status: StatusCobranca; temRecebimento: boolean } | null,
+): DestinoDaAula {
+  if (cobrar || !item || item.status === 'Cancelada') return 'nada'
+  if (item.temRecebimento || item.status === 'Parcial' || item.status === 'Quitada') return 'credito'
+  return 'tirar'
 }
 
 /**
