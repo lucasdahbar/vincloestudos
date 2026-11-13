@@ -88,10 +88,34 @@ export function podeCancelarAviso(p: {
     return { pode: false, motivo: 'A reposição já foi marcada. Registre a desistência dela, em Reposições.' }
   }
   if (p.temCredito) {
-    return { pode: false, motivo: 'Este aviso já gerou crédito ao responsável.' }
+    return {
+      pode: false,
+      motivo: 'O crédito deste aviso já foi abatido ou devolvido ao responsável.',
+    }
   }
   if (p.pagoAoProfessor) {
     return { pode: false, motivo: 'Esta aula já entrou no pagamento do professor.' }
   }
   return { pode: true }
+}
+
+export type TipoUsoCredito = 'Abatimento' | 'Devolução' | 'Cancelamento'
+
+/**
+ * Caso Isabela (12/11/2026): o aviso gerou credito, a gestora cancelou o
+ * credito porque a aluna resolveu vir, e mesmo assim o aviso nao podia mais
+ * ser cancelado — qualquer credito ligado travava. A aluna ficou presa como
+ * "avisou que nao vem" na aula.
+ *
+ * So trava o credito que mexeu em dinheiro (abatido numa cobranca ou
+ * devolvido). O que sobrou intacto e estornado ao cancelar o aviso, e o
+ * credito fica como historico, sem saldo.
+ */
+export function creditoAoCancelarAviso(
+  credito: { valor: Centavos; usos: { tipo: TipoUsoCredito; valor: Centavos }[] } | null,
+): { usado: boolean; estornar: Centavos } {
+  if (!credito) return { usado: false, estornar: 0 }
+  const usado = credito.usos.some((u) => u.tipo !== 'Cancelamento')
+  const saldo = credito.valor - credito.usos.reduce((t, u) => t + u.valor, 0)
+  return { usado, estornar: usado ? 0 : Math.max(0, saldo) }
 }

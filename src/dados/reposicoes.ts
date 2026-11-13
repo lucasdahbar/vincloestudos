@@ -3,8 +3,10 @@ import type { OrigemAusencia } from '@/dominio/tipos'
 import { clienteServidor } from './cliente'
 import { planejarReposicao, validarDesistencia, type Pendencia } from '@/dominio/reposicoes/agendamento'
 import {
+  creditoAoCancelarAviso,
   creditoDaDesistencia,
   podeCancelarAviso,
+  type TipoUsoCredito,
   validarDecisao,
   type Decisao,
   type StatusCobranca,
@@ -428,7 +430,7 @@ export async function cancelarAviso(
   pendenciaId: number,
 ): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[] }> {
   const supabase = await clienteServidor()
-  const [{ data: p }, { count: creditos }, { count: pagos }] = await Promise.all([
+  const [{ data: p }, { data: creditoLido }, { count: pagos }] = await Promise.all([
     supabase
       .from('pendencias_reposicao')
       .select('id, origem, status, aula:aulas!aula_origem_id (status, turma_id)')
@@ -436,8 +438,9 @@ export async function cancelarAviso(
       .maybeSingle(),
     supabase
       .from('creditos')
-      .select('id', { count: 'exact', head: true })
-      .eq('pendencia_id', pendenciaId),
+      .select('id, valor, usos:usos_credito (tipo, valor)')
+      .eq('pendencia_id', pendenciaId)
+      .maybeSingle(),
     supabase
       .from('itens_conta_pagar_professor')
       .select('id, conta:contas_pagar_professor!inner (status)', { count: 'exact', head: true })
@@ -448,14 +451,46 @@ export async function cancelarAviso(
 
   if (!p) return { ok: false, erros: ['Aviso não encontrado.'] }
 
+  const credito = creditoAoCancelarAviso(
+    creditoLido
+      ? {
+          valor: deNumeric(creditoLido.valor),
+          usos: ((creditoLido.usos ?? []) as { tipo: TipoUsoCredito; valor: number | string }[]).map((u) => ({
+            tipo: u.tipo,
+            valor: deNumeric(u.valor),
+          })),
+        }
+      : null,
+  )
+
   const permissao = podeCancelarAviso({
     origem: p.origem,
     status: p.status,
     aulaExcluida: (p.aula as unknown as { status: string } | null)?.status === 'Excluída',
-    temCredito: (creditos ?? 0) > 0,
+    temCredito: credito.usado,
     pagoAoProfessor: (pagos ?? 0) > 0,
   })
   if (!permissao.pode) return { ok: false, erros: [permissao.motivo] }
+
+  // Credito nao usado (caso Isabela, 12/11/2026): estorna o saldo e solta o
+  // credito do aviso, que fica como historico. A ordem permite repetir se um
+  // passo falhar: credito zerado e solto nao trava a proxima tentativa.
+  if (creditoLido) {
+    if (credito.estornar > 0) {
+      const { error } = await supabase.from('usos_credito').insert({
+        credito_id: creditoLido.id,
+        tipo: 'Cancelamento',
+        valor: paraNumeric(credito.estornar),
+        observacao: 'Aviso de ausência cancelado: o aluno vai à aula.',
+      })
+      if (error) return { ok: false, erros: [`O crédito não foi estornado: ${error.message}`] }
+    }
+    const { error } = await supabase
+      .from('creditos')
+      .update({ pendencia_id: null })
+      .eq('id', creditoLido.id)
+    if (error) return { ok: false, erros: [`O crédito não foi solto do aviso: ${error.message}`] }
+  }
 
   const { error } = await supabase.from('pendencias_reposicao').delete().eq('id', pendenciaId)
   if (error) return { ok: false, erros: [error.message] }
