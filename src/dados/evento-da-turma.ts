@@ -27,6 +27,7 @@ import {
   alunosDaSerie,
   alunosNaData,
   fimDoHorizonte,
+  inicioDoHorizonte,
   horariosPassadosDivergentes,
 } from '@/dominio/agenda/ocorrencias'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
@@ -365,7 +366,7 @@ async function ajustarOcorrencias(
   const lidas = await listarOcorrencias(
     googleCalendarId,
     eventoId,
-    hoje,
+    inicioDoHorizonte(matriculas, hoje),
     fimDoHorizonte(matriculas, hoje),
   )
   if (!lidas.ok) return lidas

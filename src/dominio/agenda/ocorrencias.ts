@@ -99,6 +99,16 @@ export function ajustesDasOcorrencias(
 }
 
 /**
+ * Desde onde conferir as ocorrências: da matrícula ativa mais antiga (13/11/2026,
+ * turma 31). Antes era de hoje em diante, e a aula passada herdava o texto geral
+ * da série: quando um aluno ganhava data de fim e saía desse texto, as aulas em
+ * que ele esteve ficavam com "Nenhum aluno matriculado" no Google do professor.
+ */
+export function inicioDoHorizonte(matriculas: MatriculaDoEvento[], hoje: string): string {
+  return matriculas.filter(conta).reduce((a, m) => (m.data_inicio < a ? m.data_inicio : a), hoje)
+}
+
+/**
  * Até onde conferir as ocorrências: um ano, ou uma semana depois da última
  * data em que a turma muda, o que for mais longe. Depois disso a lista de cada
  * ocorrência é a da série, e herdar dela já está certo.

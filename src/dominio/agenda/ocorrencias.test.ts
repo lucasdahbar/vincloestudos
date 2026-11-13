@@ -6,6 +6,7 @@ import {
   alunosNaData,
   fimDoHorizonte,
   horariosPassadosDivergentes,
+  inicioDoHorizonte,
   type OcorrenciaNoGoogle,
 } from './ocorrencias'
 
@@ -103,6 +104,29 @@ describe('ajustesDasOcorrencias', () => {
     expect(ajustesDasOcorrencias(ocorrencias, [fixa], descrever)).toEqual([
       { id: 'evt_20261005', descricao: 'Alunos: Ana Souza' },
     ])
+  })
+})
+
+// Turma 31, 13/11/2026: o Miguel ganhou data de fim (12/11), saiu do texto geral
+// da série, e as aulas de 29/10 e 05/11 ficaram "Nenhum aluno matriculado" no
+// Google do professor, porque só se conferiam as ocorrências de hoje em diante.
+describe('inicioDoHorizonte', () => {
+  it('volta até a matrícula mais antiga, para as aulas passadas não herdarem a lista errada', () => {
+    const miguel = matricula({ data_inicio: '2026-10-01', data_fim: '2026-11-12' })
+    expect(inicioDoHorizonte([miguel, fixa], '2026-11-07')).toBe('2026-08-01')
+    expect(inicioDoHorizonte([miguel], '2026-11-07')).toBe('2026-10-01')
+  })
+
+  it('nunca passa de hoje, e sem matrícula ativa é hoje', () => {
+    expect(inicioDoHorizonte([matricula({ data_inicio: '2026-12-01' })], '2026-11-07')).toBe('2026-11-07')
+    expect(inicioDoHorizonte([matricula({ status: 'Encerrada' })], '2026-11-07')).toBe('2026-11-07')
+    expect(inicioDoHorizonte([], '2026-11-07')).toBe('2026-11-07')
+  })
+
+  it('com ele, a ocorrência passada é corrigida', () => {
+    const miguel = matricula({ nome: 'Miguel', data_inicio: '2026-10-01', data_fim: '2026-11-12' })
+    const passada: OcorrenciaNoGoogle = { id: 'o1', data: '2026-11-05', descricao: 'Nenhum aluno matriculado.' }
+    expect(ajustesDasOcorrencias([passada], [miguel], (a) => a.join(','))).toEqual([{ id: 'o1', descricao: 'Miguel' }])
   })
 })
 
