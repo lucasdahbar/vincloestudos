@@ -3,6 +3,7 @@ import { clienteServidor } from './cliente'
 import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
 import { saldoDoCredito, validarAbatimento, validarCancelamento, validarDevolucao } from '@/dominio/creditos/saldo'
 import { acertoDaSaida } from '@/dominio/creditos/saida'
+import { refazerTextoDaCobranca } from './cobrancas'
 import type { StatusCobranca as StatusDoItem } from '@/dominio/reposicoes/desfecho'
 import { saldoEStatus, type StatusCobranca } from '@/dominio/recebimentos/quitacao'
 
@@ -280,14 +281,23 @@ export async function cancelarCredito(entrada: {
 }
 
 /**
- * Decisão 11 (28/10/2026): depois que a matrícula do aluno encolhe ou sai, as
- * aulas da turma que ficaram fora dela e já tinham sido cobradas viram
- * crédito; em rascunho, o item só sai. A regra mora em `dominio/creditos/saida.ts`.
+ * Decisão 11 (28/10/2026) e opção A (13/11/2026): depois que a matrícula do
+ * aluno encolhe ou sai, as aulas da turma que ficaram fora dela saem da
+ * cobrança se ela ainda não teve pagamento; se já teve, viram crédito.
+ * A regra mora em `dominio/creditos/saida.ts`.
  */
 export async function acertarCobrancasDaSaida(
   alunoId: number,
   turmaId: number,
-): Promise<{ ok: boolean; creditado: Centavos; aulasCreditadas: number; tiradas: number; erros?: string[] }> {
+): Promise<{
+  ok: boolean
+  creditado: Centavos
+  aulasCreditadas: number
+  tiradas: number
+  /** Cobranças já mandadas que mudaram e precisam ser reenviadas. */
+  reenviar: number
+  erros?: string[]
+}> {
   const supabase = await clienteServidor()
   const [{ data: aluno }, { data: turma }, { data: matriculas }, { data: itens, error }, { data: creditos }] =
     await Promise.all([
@@ -296,7 +306,7 @@ export async function acertarCobrancasDaSaida(
       supabase.from('matriculas').select('data_inicio, data_fim').eq('aluno_id', alunoId).eq('turma_id', turmaId),
       supabase
         .from('itens_cobranca')
-        .select('id, aula_id, valor_final, cobranca:cobrancas!cobranca_id (status), aula:aulas!inner (turma_id, data_hora_referencia)')
+        .select('id, aula_id, valor_final, cobranca:cobrancas!cobranca_id (id, status, recebimentos (id)), aula:aulas!inner (turma_id, data_hora_referencia)')
         .eq('aluno_id', alunoId)
         .eq('aula.turma_id', turmaId),
       supabase
@@ -305,7 +315,7 @@ export async function acertarCobrancasDaSaida(
         .eq('aluno_id', alunoId),
     ])
 
-  const vazio = { creditado: 0, aulasCreditadas: 0, tiradas: 0 }
+  const vazio = { creditado: 0, aulasCreditadas: 0, tiradas: 0, reenviar: 0 }
   if (error) return { ok: false, ...vazio, erros: [error.message] }
   if (!aluno) return { ok: false, ...vazio, erros: ['Aluno não encontrado.'] }
 
@@ -324,25 +334,49 @@ export async function acertarCobrancasDaSaida(
       data: dia((i.aula as unknown as { data_hora_referencia: string }).data_hora_referencia),
       valor_final: deNumeric(i.valor_final),
       cobranca_status: (i.cobranca as unknown as { status: StatusDoItem }).status,
+      temRecebimento: ((i.cobranca as unknown as { recebimentos: unknown[] | null }).recebimentos ?? []).length > 0,
       jaVirouCredito: jaCreditados.has(i.id) || aulasCreditadas.has(i.aula_id),
     })),
     (matriculas ?? []).map((m) => ({ data_inicio: dia(m.data_inicio), data_fim: m.data_fim ? dia(m.data_fim) : null })),
   )
 
-  // Mesmo caminho da desistencia (14/10/2026): a funcao do banco trava o
-  // rascunho, e devolve false se a cobranca foi confirmada no meio. Ai a aula
-  // ja foi cobrada e segue para o credito.
+  // Mesmo caminho do aviso (opcao A, 13/11/2026): a funcao do banco confere
+  // sob lock que a cobranca segue sem pagamento; se entrou um recebimento no
+  // meio, devolve null e a aula segue para o credito.
   let tiradas = 0
   const creditar = [...acerto.creditar]
-  for (const id of acerto.tirarDoRascunho) {
-    const { data: saiu, error: erroRpc } = await supabase.rpc('remover_item_de_rascunho', { p_item_id: id })
-    if (erroRpc) return { ok: false, ...vazio, tiradas, erros: [erroRpc.message] }
-    if (saiu) tiradas++
-    else {
+  // Cobrancas ja mandadas que mudaram: texto refeito, e a Kelly reenvia.
+  const paraReenviar = new Set<number>()
+  const refazerTexto = new Set<number>()
+  for (const id of acerto.tirar) {
+    const { data: ficou, error: erroRpc } = await supabase.rpc('tirar_item_de_cobranca_em_aberto', {
+      p_item_id: id,
+    })
+    if (erroRpc) return { ok: false, ...vazio, tiradas, reenviar: paraReenviar.size, erros: [erroRpc.message] }
+    const cobranca = (itens ?? []).find((x) => x.id === id)!.cobranca as unknown as { id: number; status: StatusDoItem }
+    if (ficou) {
+      tiradas++
+      if (cobranca.status !== 'Rascunho') paraReenviar.add(cobranca.id)
+      if (ficou === 'Confirmada') refazerTexto.add(cobranca.id)
+      else refazerTexto.delete(cobranca.id)
+    } else {
       const i = (itens ?? []).find((x) => x.id === id)!
       const valor = deNumeric(i.valor_final)
       const data = dia((i.aula as unknown as { data_hora_referencia: string }).data_hora_referencia)
       if (valor > 0) creditar.push({ item_id: id, aula_id: i.aula_id, data, valor })
+    }
+  }
+
+  for (const cobrancaId of refazerTexto) {
+    const r = await refazerTextoDaCobranca(cobrancaId)
+    if (!r.ok) {
+      return {
+        ok: false,
+        ...vazio,
+        tiradas,
+        reenviar: paraReenviar.size,
+        erros: [`A aula saiu da cobrança, mas o texto do WhatsApp não foi refeito: ${r.motivo}`],
+      }
     }
   }
 
@@ -357,7 +391,7 @@ export async function acertarCobrancasDaSaida(
         descricao: `${aluno.nome} saiu da turma (${nomeTurma}), e a aula de ${c.data.slice(8, 10)}/${c.data.slice(5, 7)} já tinha sido cobrada.`,
       })),
     )
-    if (erroCredito) return { ok: false, ...vazio, tiradas, erros: [`O crédito falhou: ${erroCredito.message}`] }
+    if (erroCredito) return { ok: false, ...vazio, tiradas, reenviar: paraReenviar.size, erros: [`O crédito falhou: ${erroCredito.message}`] }
   }
 
   return {
@@ -365,5 +399,6 @@ export async function acertarCobrancasDaSaida(
     creditado: creditar.reduce((t, c) => t + c.valor, 0),
     aulasCreditadas: creditar.length,
     tiradas,
+    reenviar: paraReenviar.size,
   }
 }

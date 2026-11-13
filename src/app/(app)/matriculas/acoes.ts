@@ -189,7 +189,15 @@ function juntarAviso(
       )
     }
     if (r.tiradas > 0) {
-      partes.push(`${r.tiradas === 1 ? '1 aula saiu' : `${r.tiradas} aulas saíram`} do rascunho de cobrança.`)
+      partes.push(`${r.tiradas === 1 ? '1 aula saiu' : `${r.tiradas} aulas saíram`} da cobrança ainda não paga.`)
+    }
+    // Opcao A (13/11/2026): cobranca ja mandada mudou de valor.
+    if (r.reenviar > 0) {
+      partes.push(
+        r.reenviar === 1
+          ? 'Uma cobrança já mandada mudou de valor e voltou para "Pronta p/ enviar": mande de novo para a família.'
+          : `${r.reenviar} cobranças já mandadas mudaram de valor e voltaram para "Pronta p/ enviar": mande de novo para a família.`,
+      )
     }
   }
   return partes.length ? partes.join(' ') : undefined
