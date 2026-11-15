@@ -14,10 +14,14 @@ const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_RO
 vi.mock('server-only', () => ({}))
 vi.mock('@/dados/cliente', () => ({ clienteServidor: async () => admin }))
 
-const { cancelarAviso } = await import('./reposicoes')
+const { cancelarAviso, registrarAviso } = await import('./reposicoes')
 vi.setConfig({ testTimeout: 60000, hookTimeout: 90000 })
 
-const ids = { resp: 0, aluno: 0, turma: 0, aulas: [] as number[], pend: [] as number[], creditos: [] as number[] }
+const ids = {
+  resp: 0, aluno: 0, turma: 0,
+  aulas: [] as number[], pend: [] as number[], creditos: [] as number[],
+  matriculas: [] as number[], cobrancas: [] as number[],
+}
 
 async function cenario(n: number, usos: { tipo: string; valor: number }[] | null) {
   const { data: aula, error: eAula } = await admin
@@ -27,7 +31,6 @@ async function cenario(n: number, usos: { tipo: string; valor: number }[] | null
       google_calendar_event_id: `local:zz${ids.turma}:${n}`,
       data_hora_inicio: `2031-03-1${n}T19:00:00+00:00`,
       data_hora_fim: `2031-03-1${n}T20:00:00+00:00`,
-      data_hora_referencia: `2031-03-1${n}T19:00:00+00:00`,
       status: 'Agendada',
     })
     .select('id')
@@ -77,6 +80,13 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // Pendencias criadas pelo registrarAviso do ultimo cenario.
+  await admin.from('pendencias_reposicao').delete().eq('aluno_id', ids.aluno)
+  if (ids.cobrancas.length) {
+    await admin.from('itens_cobranca').delete().in('cobranca_id', ids.cobrancas)
+    await admin.from('cobrancas').delete().in('id', ids.cobrancas)
+  }
+  if (ids.matriculas.length) await admin.from('matriculas').delete().in('id', ids.matriculas)
   for (const c of ids.creditos) await admin.from('usos_credito').delete().eq('credito_id', c)
   if (ids.creditos.length) await admin.from('creditos').delete().in('id', ids.creditos)
   if (ids.pend.length) await admin.from('pendencias_reposicao').delete().in('id', ids.pend)

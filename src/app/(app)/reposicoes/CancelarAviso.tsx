@@ -38,8 +38,11 @@ export function CancelarAviso({ pendenciaId, nome }: { pendenciaId: number; nome
         onClick={() =>
           iniciar(async () => {
             const r = await desfazerAviso(pendenciaId)
-            if (r.ok) router.refresh()
-            else setErro(r.erros?.[0] ?? 'Não foi possível cancelar.')
+            if (r.ok) {
+              // 13/11/2026: a aula voltou para uma cobranca ja mandada.
+              if (r.avisos?.length) window.alert(r.avisos.join('\n'))
+              router.refresh()
+            } else setErro(r.erros?.[0] ?? 'Não foi possível cancelar.')
           })
         }
         className="min-h-[44px] font-medium text-destaque underline-offset-4 hover:underline"

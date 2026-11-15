@@ -5,6 +5,7 @@ import { planejarReposicao, validarDesistencia, type Pendencia } from '@/dominio
 import {
   creditoAoCancelarAviso,
   destinoDaAulaNaoCobrada,
+  voltaParaAMesmaCobranca,
   podeCancelarAviso,
   type TipoUsoCredito,
   validarDecisao,
@@ -361,7 +362,7 @@ export async function aplicarEfeitoFinanceiro(
   const lerItem = async () => {
     const { data } = await supabase
       .from('itens_cobranca')
-      .select('id, valor_final, cobranca:cobrancas!cobranca_id (id, status, recebimentos (id))')
+      .select('id, valor_final, descricao, valor_original, desconto, data_aula, cobranca:cobrancas!cobranca_id (id, status, recebimentos (id))')
       .eq('aula_id', p.aula_origem_id)
       .eq('aluno_id', p.aluno_id)
       .maybeSingle()
@@ -404,6 +405,23 @@ export async function aplicarEfeitoFinanceiro(
     }
     if (ficou) {
       const jaMandada = cobranca.status !== 'Rascunho'
+      // 13/11/2026: guarda de onde a aula saiu, para o cancelamento do aviso
+      // devolve-la a mesma cobranca. Se falhar, so perde esse retorno: a aula
+      // volta pela geracao, como antes.
+      if (jaMandada) {
+        await supabase
+          .from('pendencias_reposicao')
+          .update({
+            item_retirado: {
+              cobranca_id: cobranca.id,
+              descricao: item.descricao,
+              valor_original: item.valor_original,
+              desconto: item.desconto,
+              data_aula: item.data_aula,
+            },
+          })
+          .eq('id', p.id)
+      }
       return {
         ok: true,
         avisos: jaMandada
@@ -456,12 +474,12 @@ export async function aplicarEfeitoFinanceiro(
  */
 export async function cancelarAviso(
   pendenciaId: number,
-): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[] }> {
+): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[]; avisos?: string[] }> {
   const supabase = await clienteServidor()
   const [{ data: p }, { data: creditoLido }, { count: pagos }] = await Promise.all([
     supabase
       .from('pendencias_reposicao')
-      .select('id, origem, status, aula:aulas!aula_origem_id (status, turma_id)')
+      .select('id, origem, status, aluno_id, aula_origem_id, item_retirado, aula:aulas!aula_origem_id (status, turma_id)')
       .eq('id', pendenciaId)
       .maybeSingle(),
     supabase
@@ -524,5 +542,49 @@ export async function cancelarAviso(
   if (error) return { ok: false, erros: [error.message] }
   // O aluno volta para a ocorrencia do dia no evento do professor.
   const turmaId = (p.aula as unknown as { turma_id: number } | null)?.turma_id
-  return { ok: true, turmasAfetadas: turmaId ? [turmaId] : [] }
+  const turmasAfetadas = turmaId ? [turmaId] : []
+
+  // 13/11/2026: a aula volta para a mesma cobranca de onde saiu por causa
+  // deste aviso, se ela continua sem pagamento. Depois de apagar o aviso, de
+  // proposito: se a devolucao falhar, a aula so volta pela geracao, como antes.
+  const retirado = p.item_retirado as { cobranca_id: number } | null
+  if (!retirado) return { ok: true, turmasAfetadas }
+
+  const { data: origem } = await supabase
+    .from('cobrancas')
+    .select('status, recebimentos (id)')
+    .eq('id', retirado.cobranca_id)
+    .maybeSingle()
+  const volta = voltaParaAMesmaCobranca(
+    origem
+      ? {
+          status: origem.status as StatusCobranca,
+          temRecebimento: ((origem.recebimentos ?? []) as unknown[]).length > 0,
+        }
+      : null,
+  )
+  if (!volta) return { ok: true, turmasAfetadas }
+
+  const { data: ficou, error: erroDevolver } = await supabase.rpc('devolver_item_a_cobranca', {
+    p_aluno_id: p.aluno_id,
+    p_aula_id: p.aula_origem_id,
+    p_item: retirado,
+  })
+  if (erroDevolver || !ficou) {
+    return {
+      ok: true,
+      turmasAfetadas,
+      avisos: ['O aviso foi cancelado, mas a aula não voltou para a cobrança de antes. Ela entra na próxima geração.'],
+    }
+  }
+  const texto = await refazerTextoDaCobranca(retirado.cobranca_id)
+  return {
+    ok: true,
+    turmasAfetadas,
+    avisos: [
+      texto.ok
+        ? 'A aula voltou para a cobrança de antes e o valor foi recalculado. Ela está em "Pronta p/ enviar": mande de novo para a família.'
+        : `A aula voltou para a cobrança, mas o texto do WhatsApp não foi refeito (${texto.motivo}). Abra a cobrança antes de mandar.`,
+    ],
+  }
 }

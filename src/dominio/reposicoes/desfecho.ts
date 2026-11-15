@@ -56,6 +56,20 @@ export function destinoDaAulaNaoCobrada(
 }
 
 /**
+ * Pedido do Julio (13/11/2026): a aula saiu de uma cobranca ja pronta ou
+ * enviada por causa do aviso, e o aviso foi cancelado. Antes ela voltava numa
+ * cobranca complementar nova, so com aquela aula — confuso para a familia.
+ * Agora volta para a mesma cobranca, se ela continua sem pagamento. Rascunho
+ * nao precisa: gerar de novo ja poe a aula nele.
+ */
+export function voltaParaAMesmaCobranca(
+  cobranca: { status: StatusCobranca; temRecebimento: boolean } | null,
+): boolean {
+  if (!cobranca || cobranca.temRecebimento) return false
+  return cobranca.status === 'Confirmada' || cobranca.status === 'Enviada'
+}
+
+/**
  * Aviso registrado por engano, ou o aluno acabou vindo.
  *
  * Enquanto nada aconteceu por causa dele — reposição marcada, crédito gerado —

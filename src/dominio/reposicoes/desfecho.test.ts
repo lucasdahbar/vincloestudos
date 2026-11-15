@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { creditoAoCancelarAviso, destinoDaAulaNaoCobrada, podeCancelarAviso, validarDecisao } from './desfecho'
+import {
+  creditoAoCancelarAviso,
+  destinoDaAulaNaoCobrada,
+  podeCancelarAviso,
+  voltaParaAMesmaCobranca,
+  validarDecisao,
+} from './desfecho'
+
+describe('voltaParaAMesmaCobranca (13/11/2026)', () => {
+  it('a cobrança de onde a aula saiu segue sem pagamento: a aula volta para ela', () => {
+    expect(voltaParaAMesmaCobranca({ status: 'Confirmada', temRecebimento: false })).toBe(true)
+    expect(voltaParaAMesmaCobranca({ status: 'Enviada', temRecebimento: false })).toBe(true)
+  })
+
+  it('paga, cancelada ou sumida: a aula volta pela geração, como antes', () => {
+    expect(voltaParaAMesmaCobranca({ status: 'Parcial', temRecebimento: true })).toBe(false)
+    expect(voltaParaAMesmaCobranca({ status: 'Quitada', temRecebimento: true })).toBe(false)
+    expect(voltaParaAMesmaCobranca({ status: 'Cancelada', temRecebimento: false })).toBe(false)
+    expect(voltaParaAMesmaCobranca(null)).toBe(false)
+  })
+
+  it('rascunho não precisa: gerar de novo já põe a aula nele', () => {
+    expect(voltaParaAMesmaCobranca({ status: 'Rascunho', temRecebimento: false })).toBe(false)
+  })
+})
 
 describe('validarDecisao', () => {
   it('aceita cobrar e pagar o professor ("desistência paga")', () => {
