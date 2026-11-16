@@ -8,7 +8,9 @@ import {
 } from '@/dados/aulas'
 import { clienteServidor } from '@/dados/cliente'
 import { situacoesDasAulas } from '@/dados/situacao-das-aulas'
+import { listarMatriculas } from '@/dados/matriculas'
 import { exigirSessao } from '@/dados/sessao'
+import { aulasDoAluno } from '@/dominio/agenda/filtro-aluno'
 import { opcoesDeTurma, turmasResumidas } from '@/dados/turmas'
 import { comFiltros, comoId, comoOpcao, comoTexto, deOpcoes, deValores } from '@/dominio/filtros'
 import { MODALIDADES, STATUS_AULA } from '@/dominio/tipos'
@@ -87,7 +89,7 @@ const LEGENDA = [
 ]
 
 /** Os parametros que sao filtro — `vista` e `data` sao navegacao. */
-const CAMPOS_FILTRO = ['professor', 'turma', 'materia', 'escola', 'modalidade', 'status']
+const CAMPOS_FILTRO = ['aluno', 'professor', 'turma', 'materia', 'escola', 'modalidade', 'status']
 
 /** A agenda não lista aula excluída: filtrar por ela mostraria sempre nada. */
 const STATUS_DO_FILTRO = STATUS_AULA.filter((s) => s !== 'Excluída')
@@ -144,7 +146,7 @@ export default async function PaginaAgenda({
   }
 
   const supabase = await clienteServidor()
-  const [aulas, conflitos, recessos, { data: feriadosDoPeriodo }, opcoes, turmas] = await Promise.all([
+  const [todasAsAulas, conflitos, recessos, { data: feriadosDoPeriodo }, opcoes, turmas] = await Promise.all([
     (async () =>
       listarAulas({
         de: ctx.de,
@@ -160,6 +162,25 @@ export default async function PaginaAgenda({
     opcoesDeTurma(),
     turmasResumidas(ehGestora ? {} : { professorId: sessao.professorId ?? -1 }),
   ])
+
+  // Filtro por aluno (Julio, 15/11/2026): as opcoes sao os alunos ativos das
+  // turmas visiveis (o professor so ve os das turmas dele), e a aula fica
+  // quando a matricula do aluno vale no dia dela — regra em dominio/agenda.
+  const alunoId = comoId(params.aluno)
+  const matriculasVisiveis = await listarMatriculas({ turmaIds: turmas.map((t) => t.id) })
+  const opcoesDeAluno = [
+    ...new Map(
+      matriculasVisiveis
+        .filter((m) => m.aluno?.ativo)
+        .map((m) => [m.aluno!.id, { id: m.aluno!.id, nome: m.aluno!.nome }]),
+    ).values(),
+  ].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  const aulas = alunoId
+    ? aulasDoAluno(
+        todasAsAulas,
+        matriculasVisiveis.filter((m) => m.aluno_id === alunoId),
+      )
+    : todasAsAulas
 
   // Etapa 3: o selo mostra a situacao da aula, nao o status gravado.
   const situacoes = await situacoesDasAulas(aulas)
@@ -244,6 +265,7 @@ export default async function PaginaAgenda({
 
       <Filtros
         seletores={[
+          { campo: 'aluno', rotulo: 'Aluno', opcoes: deOpcoes(opcoesDeAluno) },
           {
             campo: 'professor',
             rotulo: 'Professor',
