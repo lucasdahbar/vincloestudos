@@ -50,7 +50,7 @@ async function situacao(
   const aPartir = <T extends { gte: (c: string, v: string) => T }>(q: T, coluna: string) =>
     desde ? q.gte(coluna, desde) : q
 
-  const [aulas, presencas, matriculas, chegando, itens, pendencias] = await Promise.all([
+  const [aulas, presencas, matriculas, chegando, itens, pendencias, todasMatriculas] = await Promise.all([
     aPartir(
       supabase.from('aulas').select('id, data_hora_referencia, status').eq('turma_id', turmaId),
       'data_hora_referencia',
@@ -90,8 +90,20 @@ async function situacao(
         .eq('aula.turma_id', turmaId),
       'aula.data_hora_referencia',
     ),
+    // Para saber se o aluno do item ainda esta na turma na data (caso Eric).
+    supabase.from('matriculas').select('aluno_id, data_inicio, data_fim').eq('turma_id', turmaId),
   ])
-  for (const r of [aulas, presencas, matriculas, chegando, itens, pendencias]) falhou(r.error)
+  for (const r of [aulas, presencas, matriculas, chegando, itens, pendencias, todasMatriculas]) {
+    falhou(r.error)
+  }
+
+  const matriculadoEm = (alunoId: number, data: string) =>
+    (todasMatriculas.data ?? []).some(
+      (m) =>
+        m.aluno_id === alunoId &&
+        dia(m.data_inicio) <= data &&
+        (m.data_fim == null || dia(m.data_fim) >= data),
+    )
 
   const comPresenca = new Set((presencas.data ?? []).map((p) => p.aula_id as number))
   const comReposicao = new Set(
@@ -117,9 +129,11 @@ async function situacao(
     cobrancas: (itens.data ?? []).map((i) => {
       const aula = i.aula as unknown as { data_hora_referencia: string; status: StatusAula }
       const cobranca = i.cobranca as unknown as { status: string }
+      const data = dia(aula.data_hora_referencia)
       return {
         aluno: nome(i.aluno),
-        data: dia(aula.data_hora_referencia),
+        data,
+        alunoSaiu: !matriculadoEm(i.aluno_id as number, data),
         confirmada: cobranca.status !== 'Rascunho',
         // Aula ja excluida tambem resolve: os alunos dela ja foram para reposicao.
         temReposicao:

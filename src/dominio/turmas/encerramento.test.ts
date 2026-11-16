@@ -154,6 +154,30 @@ describe('avaliarEncerramento', () => {
     expect(r.pode).toBe(true)
   })
 
+  it('aluno que já saiu da turma não bloqueia: a saída já virou crédito ou tirou a aula (caso Éric)', () => {
+    const r = avaliarEncerramento(
+      turma({
+        cobrancas: [
+          { aluno: 'Éric', data: '2026-10-21', confirmada: true, temReposicao: false, alunoSaiu: true },
+        ],
+      }),
+      '2026-10-14',
+    )
+    expect(r.pode).toBe(true)
+  })
+
+  it('a mensagem aponta o botão que existe na tela (Editar aulas)', () => {
+    const r = avaliarEncerramento(
+      turma({ cobrancas: [{ aluno: 'Ana', data: '2026-10-21', confirmada: true, temReposicao: false }] }),
+      '2026-10-14',
+    )
+    expect(r.pode).toBe(false)
+    if (!r.pode) {
+      expect(r.motivos[0]).toContain('"Editar aulas"')
+      expect(r.motivos[0]).not.toContain('Prévia de mudança')
+    }
+  })
+
   it('cobrança confirmada antes da data não importa', () => {
     const r = avaliarEncerramento(
       turma({ cobrancas: [{ aluno: 'Ana', data: '2026-10-07', confirmada: true, temReposicao: false }] }),

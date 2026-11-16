@@ -21,7 +21,18 @@ export interface SituacaoEncerramento {
   /** Alunos de outras turmas com reposicao Agendada numa aula desta. */
   reposicoesChegando: { aluno: string; data: string }[]
   /** Itens de cobranca das aulas desta turma (cobranca nao cancelada). */
-  cobrancas: { aluno: string; data: string; confirmada: boolean; temReposicao: boolean }[]
+  cobrancas: {
+    aluno: string
+    data: string
+    confirmada: boolean
+    temReposicao: boolean
+    /**
+     * O aluno nao tem mais matricula na turma nessa data. A saida ja acertou a
+     * aula (credito ou tirou da cobranca, opcao A de 13/11/2026), mas o item
+     * pode seguir na cobranca, e o credito nao aponta para ele (caso Eric, 16/11/2026).
+     */
+    alunoSaiu?: boolean
+  }[]
 }
 
 export type AvaliacaoEncerramento =
@@ -94,12 +105,13 @@ export function avaliarEncerramento(
   // cobrada e a reposicao sai a R$ 0,00 — Rodada 3).
   const semReposicao = opcoes.resolvidoNaPrevia
     ? []
-    : depois(s.cobrancas).filter((c) => c.confirmada && !c.temReposicao)
+    : depois(s.cobrancas).filter((c) => c.confirmada && !c.temReposicao && !c.alunoSaiu)
   if (semReposicao.length > 0) {
     const quem = semReposicao.map((c) => `${c.aluno} em ${ddmmaaaa(c.data)}`).join(', ')
+    // O nome e o do botao na pagina da turma; "Previa de mudanca" era nome interno.
     motivos.push(
-      `Já há cobrança confirmada de aulas a partir dessa data: ${quem}. Encerre pela ` +
-        '"Prévia de mudança" (Encerrar a turma), que oferece reposição ou crédito para cada aluno.',
+      `Já há cobrança confirmada de aulas a partir dessa data: ${quem}. Encerre pelo botão ` +
+        '"Editar aulas" → "Encerrar a turma", que oferece reposição ou crédito para cada aluno.',
     )
   }
 
