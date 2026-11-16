@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { alunosDasCobrancasDoMes, listarCobrancas } from '@/dados/cobrancas'
+import { alunosDasCobrancasDoMes, chamadasSemMatriculaDoMes, listarCobrancas } from '@/dados/cobrancas'
 import { exigirGestora } from '@/dados/sessao'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import {
@@ -38,7 +38,11 @@ export default async function PaginaCobrancas({
   const busca = comoTexto(params.busca)
   const status = comoOpcao(params.status, OPCOES_DE_COBRANCAS)
 
-  const [doMes, alunos] = await Promise.all([listarCobrancas({ mes }), alunosDasCobrancasDoMes(mes)])
+  const [doMes, alunos, semMatricula] = await Promise.all([
+    listarCobrancas({ mes }),
+    alunosDasCobrancasDoMes(mes),
+    chamadasSemMatriculaDoMes(mes),
+  ])
   // Separacao das telas (09/11/2026): daqui so o que ainda nao foi mandado.
   const rascunhos = doMes.filter((c) => c.status === 'Rascunho')
   const confirmadas = doMes.filter((c) => c.status === 'Confirmada')
@@ -70,6 +74,31 @@ export default async function PaginaCobrancas({
       </header>
 
       <PainelGeracao mes={mes} />
+
+      {/* Caso Alice (16/11/2026): chamada sem matrícula é aula que nunca entra na cobrança. */}
+      {semMatricula.length > 0 && (
+        <section className="rounded-cartao border border-alerta/40 bg-alerta-suave p-5">
+          <h2 className="font-medium text-alerta">
+            {semMatricula.length === 1
+              ? '1 aula com chamada fica fora da cobrança'
+              : `${semMatricula.length} aulas com chamada ficam fora da cobrança`}
+          </h2>
+          <p className="mt-1 text-sm">
+            O aluno está na chamada, mas não tem matrícula na turma nessa data. Crie a matrícula e gere as
+            cobranças de novo.
+          </p>
+          <ul className="mt-3 flex flex-col gap-1 text-sm">
+            {semMatricula.map((c) => (
+              <li key={`${c.aula_id}-${c.aluno}`}>
+                <Link href={`/agenda/aulas/${c.aula_id}`} className="font-medium hover:underline">
+                  {c.dia.split('-').reverse().join('/')}
+                </Link>{' '}
+                · {c.aluno} · <span className="text-tinta-suave">{c.turma}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {doMes.length === 0 ? (
         <EstadoVazio

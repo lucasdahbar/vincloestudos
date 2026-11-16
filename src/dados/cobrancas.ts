@@ -11,6 +11,7 @@ import { gerarTextoCobranca, type ItemDoTexto } from '@/dominio/cobrancas/texto'
 import { cobradasEmOutroMes } from '@/dominio/cobrancas/outro-mes'
 import { ehComplementar } from '@/dominio/cobrancas/complementar'
 import { podeReabrirCobranca } from '@/dominio/cobrancas/reabertura'
+import { chamadasSemMatricula, type MatriculaDoMes } from '@/dominio/cobrancas/chamada-sem-matricula'
 
 export interface CobrancaResumo {
   id: number
@@ -1084,4 +1085,67 @@ export async function cancelarCobranca(
   })
 
   return { ok: true }
+}
+
+export interface ChamadaSemMatricula {
+  aula_id: number
+  dia: string
+  aluno: string
+  turma: string
+}
+
+/**
+ * Chamadas do mes (presenca ou falta) de aluno sem matricula valendo na data:
+ * aulas que a geracao nunca vai cobrar (caso Alice, 16/11/2026).
+ */
+export async function chamadasSemMatriculaDoMes(mes: string): Promise<ChamadaSemMatricula[]> {
+  const supabase = await clienteServidor()
+  const { primeiro, ultimo } = limitesDoMes(mes)
+  const [presencas, matriculas] = await Promise.all([
+    lerTudo((a, b) =>
+      supabase
+        .from('presencas')
+        .select('aula_id, aluno_id, aluno:alunos!aluno_id (nome), aula:aulas!inner (turma_id, status, data_hora_referencia, turma:turmas!turma_id (nome))')
+        .gte('aula.data_hora_referencia', `${primeiro}T00:00:00`)
+        .lte('aula.data_hora_referencia', `${ultimo}T23:59:59`)
+        .order('id')
+        .range(a, b),
+    ),
+    lerTudo((a, b) =>
+      supabase
+        .from('matriculas')
+        .select('aluno_id, turma_id, data_inicio, data_fim, status')
+        .lte('data_inicio', ultimo)
+        .order('id')
+        .range(a, b),
+    ),
+  ])
+
+  const linhas = presencas as unknown as {
+    aula_id: number
+    aluno_id: number
+    aluno: { nome: string } | null
+    aula: { turma_id: number; status: StatusAula; data_hora_referencia: string; turma: { nome: string } | null }
+  }[]
+  const nomes = new Map(linhas.map((p) => [`${p.aula_id}:${p.aluno_id}`, p]))
+
+  return chamadasSemMatricula(
+    linhas.map((p) => ({
+      aula_id: p.aula_id,
+      aluno_id: p.aluno_id,
+      turma_id: p.aula.turma_id,
+      dia: String(p.aula.data_hora_referencia).slice(0, 10),
+      status_aula: p.aula.status,
+    })),
+    (matriculas as unknown as MatriculaDoMes[]).map((m) => ({
+      ...m,
+      data_inicio: String(m.data_inicio).slice(0, 10),
+      data_fim: m.data_fim ? String(m.data_fim).slice(0, 10) : null,
+    })),
+  )
+    .map((c) => {
+      const p = nomes.get(`${c.aula_id}:${c.aluno_id}`)!
+      return { aula_id: c.aula_id, dia: c.dia, aluno: p.aluno?.nome ?? '', turma: p.aula.turma?.nome ?? '' }
+    })
+    .sort((x, y) => x.dia.localeCompare(y.dia) || x.aluno.localeCompare(y.aluno))
 }
