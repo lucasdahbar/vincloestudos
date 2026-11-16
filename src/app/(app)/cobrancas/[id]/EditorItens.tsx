@@ -17,6 +17,7 @@ import { Cartao } from '@/ui/Cartao'
 import { Botao } from '@/ui/Botao'
 import { entradaClasse } from '@/ui/Campo'
 import { formatarBRL } from '@/dominio/dinheiro'
+import { agruparItens } from '@/dominio/cobrancas/agrupar-itens'
 
 interface Item {
   id: number
@@ -61,6 +62,7 @@ export function EditorItens({
   const [copiado, setCopiado] = useState(false)
   const [confirmandoCancelamento, setConfirmandoCancelamento] = useState(false)
   const editavel = status === 'Rascunho'
+  const grupos = agruparItens(itens)
 
   // C7: só faz sentido oferecer a ação quando ela pode dar certo.
   const podeCancelar =
@@ -88,19 +90,33 @@ export function EditorItens({
     <div className="flex flex-col gap-6">
       {/* Celular: um cartao por item. A tabela de 40rem obrigaria a rolar de
           lado para ver o valor final de cada aula. */}
-      <ul className="flex flex-col gap-3 sm:hidden">
-        {itens.map((i) => (
+      {/* Julio (15/11/2026): agrupado por aluno e materia, em ordem de data,
+          com subtotal, para conferir contra a planilha. */}
+      <div className="flex flex-col gap-5 sm:hidden">
+        {grupos.map((a) => (
+          <section key={a.aluno} className="flex flex-col gap-3">
+            <h2 className="flex justify-between text-lg">
+              <span>{a.aluno}</span>
+              <span>{formatarBRL(a.total)}</span>
+            </h2>
+            {a.grupos.map((g) => (
+              <div key={g.descricao} className="flex flex-col gap-2">
+                <p className="flex justify-between text-sm font-semibold text-tinta-suave">
+                  <span>
+                    {g.descricao} · {g.itens.length} {g.itens.length === 1 ? 'aula' : 'aulas'}
+                  </span>
+                  <span>{formatarBRL(g.subtotal)}</span>
+                </p>
+      <ul className="flex flex-col gap-3">
+        {g.itens.map((i) => (
           <li
             key={i.id}
             className="rounded-cartao border border-borda bg-superficie p-4 shadow-sutil"
           >
             <div className="flex items-start justify-between gap-3">
-              <span className="font-medium">{i.aluno_nome}</span>
+              <span className="font-medium">{i.data.split('-').reverse().join('/')}</span>
               <span className="font-medium">{formatarBRL(i.valor_final)}</span>
             </div>
-            <p className="mt-1 text-sm text-tinta-suave">
-              {i.data.split('-').reverse().join('/')} · {i.descricao}
-            </p>
             {editavel ? (
               <label className="mt-3 flex items-center justify-between gap-3 text-sm">
                 <span className="text-tinta-suave">Desconto</span>
@@ -141,13 +157,18 @@ export function EditorItens({
           </li>
         ))}
       </ul>
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
 
       <div className="hidden overflow-x-auto rounded-cartao border border-borda bg-superficie shadow-sutil sm:block">
         <table className="w-full border-collapse text-left">
           <thead>
             <tr className="border-b border-borda bg-superficie-2/60 text-sm text-tinta-suave">
               <th className="px-5 py-3 font-semibold">Aluno</th>
-              <th className="px-5 py-3 font-semibold">Aula</th>
+              <th className="px-5 py-3 font-semibold">Data</th>
               <th className="px-5 py-3 font-semibold">Valor</th>
               <th className="px-5 py-3 font-semibold">Desconto</th>
               <th className="px-5 py-3 font-semibold">Final</th>
@@ -158,12 +179,23 @@ export function EditorItens({
               )}
             </tr>
           </thead>
-          <tbody>
-            {itens.map((i) => (
-              <tr key={i.id} className="border-b border-borda/60 last:border-0">
-                <td className="px-5 py-3">{i.aluno_nome}</td>
+          {grupos.flatMap((a) => a.grupos.map((g) => ({ aluno: a.aluno, ...g }))).map((g) => (
+          <tbody key={`${g.aluno}:${g.descricao}`} className="border-b border-borda last:border-0">
+            <tr className="bg-superficie-2/30">
+              <td colSpan={4} className="px-5 pt-4 pb-2 font-semibold">
+                {g.aluno}
+                <span className="ml-2 text-sm font-normal text-tinta-suave">
+                  {g.descricao} · {g.itens.length} {g.itens.length === 1 ? 'aula' : 'aulas'}
+                </span>
+              </td>
+              <td className="px-5 pt-4 pb-2 font-semibold">{formatarBRL(g.subtotal)}</td>
+              {editavel && <td />}
+            </tr>
+            {g.itens.map((i) => (
+              <tr key={i.id} className="border-t border-borda/60">
+                <td className="px-5 py-3 text-sm text-tinta-suave">{i.aluno_nome}</td>
                 <td className="px-5 py-3 text-sm text-tinta-suave">
-                  {i.data.split('-').reverse().join('/')} · {i.descricao}
+                  {i.data.split('-').reverse().join('/')}
                 </td>
                 <td className="px-5 py-3">{formatarBRL(i.valor_original)}</td>
                 <td className="px-5 py-3">
@@ -204,6 +236,7 @@ export function EditorItens({
               </tr>
             ))}
           </tbody>
+          ))}
         </table>
       </div>
 
