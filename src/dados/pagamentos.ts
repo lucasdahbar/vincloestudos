@@ -27,6 +27,26 @@ const parteDaCobranca = (
   return { situacao: i.status === 'Rascunho' ? 'rascunho' : 'confirmada', valor: i.valor }
 }
 
+type DiferencaDoPagamento = { destino: 'Complementar' | 'Crédito'; valor: Centavos; item: { status: string; valor: Centavos } | null }
+
+/**
+ * Troca de servico em aula ja paga (Julio, 24/11/2026): a base do professor
+ * acompanha. A complementar soma quando confirmada (ate la a aula espera, como
+ * qualquer aula sem cobranca); o credito ja devolvido a familia subtrai.
+ */
+const partesDaDiferenca = (
+  diferencas: Map<string, DiferencaDoPagamento[]>,
+  aulaId: number,
+  alunoId: number,
+): ParteCobrada[] =>
+  (diferencas.get(`${aulaId}:${alunoId}`) ?? []).map((d) =>
+    d.destino === 'Crédito'
+      ? { situacao: 'confirmada', valor: d.valor }
+      : d.item
+        ? { situacao: d.item.status === 'Rascunho' ? 'rascunho' : 'confirmada', valor: d.item.valor }
+        : { situacao: 'nenhuma', valor: 0 },
+  )
+
 function emGrupos<T>(lista: T[], tamanho = 100): T[][] {
   return Array.from({ length: Math.ceil(lista.length / tamanho) }, (_, i) =>
     lista.slice(i * tamanho, (i + 1) * tamanho),
@@ -127,27 +147,52 @@ export async function previaFechamento(professorId: number, ate: string) {
     ...desistencias.map((d) => d.aula_origem_id),
   ])
   const itens = new Map<string, { status: string; valor: Centavos }>()
+  const itensDaDiferenca = new Map<number, { status: string; valor: Centavos }>()
+  const diferencas = new Map<string, DiferencaDoPagamento[]>()
   for (const grupo of emGrupos([...aulasDosItens])) {
-    const linhas = (await lerTudo((a, b) =>
-      supabase
-        .from('itens_cobranca')
-        .select('id, aula_id, aluno_id, valor_final, cobranca:cobrancas!inner (status)')
-        .in('aula_id', grupo)
-        .order('id')
-        .range(a, b),
-    )) as unknown as {
+    const [linhas, lidas] = await Promise.all([
+      lerTudo((a, b) =>
+        supabase
+          .from('itens_cobranca')
+          .select('id, aula_id, aluno_id, diferenca_id, valor_final, cobranca:cobrancas!inner (status)')
+          .in('aula_id', grupo)
+          .order('id')
+          .range(a, b),
+      ),
+      lerTudo((a, b) =>
+        supabase
+          .from('diferencas_servico')
+          .select('id, aula_id, aluno_id, valor, destino')
+          .in('aula_id', grupo)
+          .in('destino', ['Complementar', 'Crédito'])
+          .order('id')
+          .range(a, b),
+      ),
+    ])
+    for (const i of linhas as unknown as {
       aula_id: number
       aluno_id: number
+      diferenca_id: number | null
       valor_final: string
       cobranca: { status: string }
-    }[]
-    for (const i of linhas) {
-      itens.set(`${i.aula_id}:${i.aluno_id}`, {
-        status: i.cobranca.status,
-        valor: deNumeric(i.valor_final),
-      })
+    }[]) {
+      const parte = { status: i.cobranca.status, valor: deNumeric(i.valor_final) }
+      if (i.diferenca_id === null) itens.set(`${i.aula_id}:${i.aluno_id}`, parte)
+      else itensDaDiferenca.set(i.diferenca_id, parte)
+    }
+    // Depois dos itens: a diferenca procura o item dela.
+    for (const d of lidas as unknown as { id: number; aula_id: number; aluno_id: number; valor: string; destino: 'Complementar' | 'Crédito' }[]) {
+      const k = `${d.aula_id}:${d.aluno_id}`
+      diferencas.set(k, [
+        ...(diferencas.get(k) ?? []),
+        { destino: d.destino, valor: deNumeric(d.valor), item: itensDaDiferenca.get(d.id) ?? null },
+      ])
     }
   }
+  const daAula = (aulaId: number, alunoId: number) => [
+    parteDaCobranca(itens, aulaId, alunoId),
+    ...partesDaDiferenca(diferencas, aulaId, alunoId),
+  ]
 
   const vigencias = await carregarVigencias()
 
@@ -176,11 +221,12 @@ export async function previaFechamento(professorId: number, ate: string) {
                 parteDaCobranca(itens, origem.aula_id, p.aluno_id),
                 vigencias.valorServico(origem.servico_id, origem.dia),
               ),
-              parteDaCobranca(itens, p.aula.id, p.aluno_id),
+              ...partesDaDiferenca(diferencas, origem.aula_id, p.aluno_id),
+              ...daAula(p.aula.id, p.aluno_id),
             ]
           : p.flag_reposicao
             ? []
-            : [parteDaCobranca(itens, p.aula.id, p.aluno_id)],
+            : daAula(p.aula.id, p.aluno_id),
       }
     }),
     ...desistencias.map((d): CandidataAoPagamento => ({
@@ -194,7 +240,7 @@ export async function previaFechamento(professorId: number, ate: string) {
       data_aula: d.data_aula,
       flag_reposicao: false,
       percentual: vigencias.percentualProfessor(professorId, d.data_aula),
-      cobrancas: [parteDaCobranca(itens, d.aula_origem_id, d.aluno_id)],
+      cobrancas: daAula(d.aula_origem_id, d.aluno_id),
     })),
   ]
 

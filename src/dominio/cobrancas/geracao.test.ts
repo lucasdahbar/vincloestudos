@@ -210,3 +210,47 @@ describe('semAnotacaoDeAusencia (caso Francisco, 24/11/2026)', () => {
     )
   })
 })
+
+describe('diferenca da troca de servico (Julio, 24/11/2026)', () => {
+  const diferenca: AulaFaturavel = {
+    ...base,
+    ja_cobrada: false,
+    valor: 4500,
+    descricao: 'Matemática — 7º ano — Aula regular de reforço 1h - individual',
+    diferenca: { id: 7 },
+  }
+
+  it('entra como item proprio, com o valor da diferenca e o id dela', () => {
+    const [c] = montarCobrancas([{ ...base, ja_cobrada: true }, diferenca])
+    expect(c.itens).toEqual([
+      expect.objectContaining({
+        aula_id: 1,
+        valor_original: 4500,
+        valor_final: 4500,
+        diferenca_id: 7,
+        descricao: 'Matemática — 7º ano — Aula regular de reforço 1h - individual (diferença da troca de serviço)',
+      }),
+    ])
+  })
+
+  it('o item comum nao leva diferenca_id', () => {
+    const [c] = montarCobrancas([base])
+    expect(c.itens[0].diferenca_id).toBeUndefined()
+  })
+
+  it('ja na complementar: nao entra de novo', () => {
+    expect(montarCobrancas([{ ...diferenca, ja_cobrada: true }])).toEqual([])
+  })
+
+  it('aluno que saiu ou aula que nao vai ser cobrada: a diferenca sai junto', () => {
+    expect(montarCobrancas([{ ...diferenca, matricula_ativa: false }])).toEqual([])
+    expect(montarCobrancas([{ ...diferenca, ausencia: { origem: 'Aviso', cobrar: false } }])).toEqual([])
+  })
+
+  it('na aula de reposicao o valor ja vem calculado: nao subtrai a original de novo', () => {
+    const [c] = montarCobrancas([
+      { ...diferenca, matricula_reposicao: true, reposicao_de: { data: '2026-11-03', valor: 10500 } },
+    ])
+    expect(c.itens[0].valor_original).toBe(4500)
+  })
+})

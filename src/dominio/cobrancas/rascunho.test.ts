@@ -124,3 +124,19 @@ describe('resumoDaGeracao', () => {
     )
   })
 })
+
+describe('planejarRascunho com diferenca de servico', () => {
+  it('a diferenca e o item comum da mesma aula sao itens distintos', () => {
+    const plano = planejarRascunho(
+      [existente()],
+      [montado(), montado({ valor_original: 4500, valor_final: 4500, diferenca_id: 7 })],
+    )
+    expect(plano.apagar).toEqual([])
+    expect(plano.inserir).toEqual([expect.objectContaining({ diferenca_id: 7, valor_original: 4500 })])
+  })
+
+  it('a diferenca que deixou de valer sai do rascunho', () => {
+    const plano = planejarRascunho([existente(), existente({ id: 2, valor_original: 4500, diferenca_id: 7 })], [montado()])
+    expect(plano.apagar).toEqual([2])
+  })
+})

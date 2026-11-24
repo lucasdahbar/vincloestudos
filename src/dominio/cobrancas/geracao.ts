@@ -28,6 +28,13 @@ export interface AulaFaturavel {
    * data dela, para cobrar so a diferenca quando a turma de destino e mais cara.
    */
   reposicao_de?: { data: string; valor: Centavos } | null
+  /**
+   * Troca de servico em aula ja paga (Julio, 24/11/2026): esta linha e a
+   * diferenca, nao a aula. `valor` ja e a diferenca, e `ja_cobrada` diz se ela
+   * ja esta numa cobranca. Passa pelo mesmo filtro da aula: aluno que saiu ou
+   * aula que nao vai ser cobrada levam a diferenca junto.
+   */
+  diferenca?: { id: number } | null
 }
 
 export interface ItemMontado {
@@ -39,6 +46,8 @@ export interface ItemMontado {
   valor_original: Centavos
   desconto: Centavos
   valor_final: Centavos
+  /** So no item da diferenca de servico. */
+  diferenca_id?: number
 }
 
 export interface CobrancaMontada {
@@ -59,7 +68,8 @@ export interface CobrancaMontada {
  * nao: o aluno ja pagou pela aula original (RN 5.4).
  *
  * A exclusao de `ja_cobrada` e o que torna a geracao idempotente do lado da
- * aplicacao; do lado do banco, `UNIQUE(itens_cobranca.aula_id)` garante o mesmo
+ * aplicacao; do lado do banco, o indice unico de (aula_id, aluno_id) dos itens
+ * comuns (e um item por diferenca de servico, 24/11/2026) garante o mesmo
  * mesmo que dois processos rodem ao mesmo tempo.
  */
 export function faturavel(aula: AulaFaturavel): boolean {
@@ -91,6 +101,8 @@ const ddmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
  * descricao nesse separador para montar a mensagem.
  */
 function valorEDescricao(a: AulaFaturavel): { valor: Centavos; descricao: string } {
+  // O valor da diferenca ja foi calculado na troca, reposicao incluida.
+  if (a.diferenca) return { valor: a.valor, descricao: `${a.descricao} (diferença da troca de serviço)` }
   if (a.reposicao_de) {
     return {
       valor: Math.max(0, a.valor - a.reposicao_de.valor),
@@ -141,6 +153,7 @@ export function montarCobrancas(aulas: AulaFaturavel[]): CobrancaMontada[] {
           valor_original: valor,
           desconto: 0,
           valor_final: valor,
+          ...(a.diferenca ? { diferenca_id: a.diferenca.id } : {}),
         }
       })
 
