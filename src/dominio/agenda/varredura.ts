@@ -190,15 +190,14 @@ function editar(
   }
 
   if (acao.servico) {
-    // Decisao 8: vale o que foi cobrado. Rascunho e refeito na proxima geracao.
-    const jaCobrada = a.alunos.some(cobrado)
-    campos.servico = !jaCobrada && a.situacao.pagamento === null
-    if (!campos.servico) {
-      motivos.push(
-        jaCobrada
-          ? 'O serviço fica: a aula já foi cobrada. Para mudar o preço, cancele a cobrança e gere de novo, ou dê desconto.'
-          : 'O serviço fica: a aula já está no pagamento do professor.',
-      )
+    // Julio, 24/11/2026 (caso Ana Clara): a aula cobrada tambem muda, e a
+    // diferenca vai para o dinheiro (dominio/cobrancas/troca-de-servico.ts).
+    // Antes a decisao 8 prendia o servico ao cobrado. A aula no pagamento do
+    // professor continua presa: mudar refaria um pagamento fechado.
+    campos.servico = a.situacao.pagamento === null
+    if (!campos.servico) motivos.push('O serviço fica: a aula já está no pagamento do professor.')
+    else if (a.alunos.some(cobrado)) {
+      avisos.push('A aula já foi cobrada: a diferença de preço acompanha a troca (veja abaixo).')
     }
   }
 

@@ -20,6 +20,7 @@ import { somarDias } from '@/dominio/agenda/recorrencia'
 import type { MudancaDaSerie } from '@/dominio/turmas/divisao'
 import { pilulaDaSituacao } from '@/ui/situacao-da-aula'
 import { editarEstaAula, mudarSerieDaTurma, tirarDaAgenda } from './acoes'
+import { DiferencaDaTroca, usePreviaDaDiferenca } from './DiferencaDaTroca'
 
 /** O que a edicao de "so esta aula" precisa saber da aula (etapa 6b). */
 export interface DadosDaEdicao {
@@ -211,6 +212,7 @@ export function PreviaDaMudanca({
 
       {edicao && acao.tipo === 'editar' ? (
         <EditarEstaAula
+          turmaId={turmaId}
           aula={v.aulas[0]}
           dados={edicao}
           aconteceu={respostas.aconteceu?.[edicao.aulaId]}
@@ -234,11 +236,13 @@ export function PreviaDaMudanca({
  * diz que a aula muda; o servidor confere tudo de novo antes de gravar.
  */
 function EditarEstaAula({
+  turmaId,
   aula,
   dados,
   aconteceu,
   emRascunho,
 }: {
+  turmaId: number
   aula: AulaVarrida | undefined
   dados: DadosDaEdicao
   aconteceu: boolean | undefined
@@ -252,6 +256,7 @@ function EditarEstaAula({
   const [professorId, setProfessorId] = useState(dados.professorId)
   const [servicoId, setServicoId] = useState(dados.servicoId)
   const [modalidade, setModalidade] = useState(dados.modalidade)
+  const diferenca = usePreviaDaDiferenca(turmaId, { escopo: 'esta', aulaId: dados.aulaId })
   const [alerta, setAlerta] = useState<string | null>(null)
   const [erros, setErros] = useState<string[]>([])
   const [feito, setFeito] = useState<{
@@ -299,6 +304,7 @@ function EditarEstaAula({
           modalidade: mudouModalidade ? modalidade : null,
           aconteceu,
           confirmouAlerta: alerta !== null,
+          aplicarDiferenca: diferenca.aplicar,
         })
         if (r.ok) {
           setFeito({ avisar: r.avisar, servico: mudouServico, aviso: r.aviso })
@@ -371,7 +377,14 @@ function EditarEstaAula({
         {podeServico && (
           <label className="flex flex-col gap-1 text-sm sm:col-span-2">
             <span className="font-medium">Serviço desta aula</span>
-            <select value={servicoId} onChange={(e) => setServicoId(Number(e.target.value))} className={entradaClasse}>
+            <select
+              value={servicoId}
+              onChange={(e) => {
+                setServicoId(Number(e.target.value))
+                diferenca.consultar(Number(e.target.value), dados.servicoId)
+              }}
+              className={entradaClasse}
+            >
               {dados.servicos.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.nome}
@@ -409,6 +422,7 @@ function EditarEstaAula({
       {!nadaMudou && bloqueio.length > 0 && (
         <p className="mt-3 text-sm text-tinta-suave">{bloqueio[0]}</p>
       )}
+      {mudouServico && <DiferencaDaTroca {...diferenca} />}
       {alerta && (
         <div role="alert" className="mt-3 rounded-campo bg-alerta-suave px-4 py-3 text-sm">
           {alerta} Mudar mesmo assim?
@@ -557,6 +571,7 @@ function AplicarNaSerie({
   const [professorId, setProfessorId] = useState(dados.professorId)
   const [servicoId, setServicoId] = useState(dados.servicoId)
   const [modalidade, setModalidade] = useState(dados.modalidade)
+  const diferenca = usePreviaDaDiferenca(turmaId, { escopo: dados.escopo, aPartirDe: dados.aPartirDe })
   const [erros, setErros] = useState<string[]>([])
   const [feito, setFeito] = useState<Extract<Awaited<ReturnType<typeof mudarSerieDaTurma>>, { ok: true }> | null>(null)
   const [pendente, iniciar] = useTransition()
@@ -577,7 +592,11 @@ function AplicarNaSerie({
     setErros([])
     iniciar(async () => {
       try {
-        const r = await mudarSerieDaTurma(turmaId, { escopo: dados.escopo, aPartirDe: dados.aPartirDe, mudanca }, respostas)
+        const r = await mudarSerieDaTurma(
+          turmaId,
+          { escopo: dados.escopo, aPartirDe: dados.aPartirDe, mudanca, aplicarDiferenca: diferenca.aplicar },
+          respostas,
+        )
         if (r.ok) {
           setFeito(r)
           router.refresh()
@@ -664,7 +683,14 @@ function AplicarNaSerie({
         {acao.servico && (
           <label className="flex flex-col gap-1 text-sm sm:col-span-2">
             <span className="font-medium">Serviço</span>
-            <select value={servicoId} onChange={(e) => setServicoId(Number(e.target.value))} className={entradaClasse}>
+            <select
+              value={servicoId}
+              onChange={(e) => {
+                setServicoId(Number(e.target.value))
+                diferenca.consultar(Number(e.target.value), dados.servicoId)
+              }}
+              className={entradaClasse}
+            >
               {dados.servicos.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.nome}
@@ -688,6 +714,7 @@ function AplicarNaSerie({
         )}
       </div>
 
+      {acao.servico && servicoId !== dados.servicoId && <DiferencaDaTroca {...diferenca} />}
       {escolhas > 0 && (
         <p className="mt-3 text-sm text-tinta-suave">Responda as aulas que precisam de escolha antes de aplicar.</p>
       )}

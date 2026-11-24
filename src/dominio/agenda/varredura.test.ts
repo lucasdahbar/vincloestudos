@@ -106,10 +106,20 @@ describe('varrer: editar o serviço', () => {
     expect(v.aulas[0].grupo).toBe('muda')
   })
 
-  it('aula cobrada fica: vale o que foi cobrado', () => {
-    const v = varrer([aula({ alunos: [aluno({ cobranca: 'Confirmada' })] })], servico, 'serie')
+  it('aula cobrada muda, avisando que a diferença acompanha (Julio, 24/11/2026)', () => {
+    const v = varrer([aula({ alunos: [aluno({ cobranca: 'Parcial' })] })], servico, 'serie')
+    expect(v.aulas[0]).toMatchObject({ grupo: 'muda', campos: { servico: true } })
+    expect(v.aulas[0].avisos.join(' ')).toMatch(/diferença/)
+  })
+
+  it('aula no pagamento do professor fica (Julio, 24/11/2026: continua travada)', () => {
+    const v = varrer(
+      [aula({ situacao: sit('Realizada', { pagamento: 'Paga' }), alunos: [aluno({ cobranca: 'Quitada' })] })],
+      servico,
+      'serie',
+    )
     expect(v.aulas[0].grupo).toBe('fica')
-    expect(v.aulas[0].motivo).toMatch(/cobrad/)
+    expect(v.aulas[0].motivo).toMatch(/pagamento do professor/)
   })
 
   it('aula realizada e não cobrada muda (decisão 8), sem perguntar se aconteceu', () => {
@@ -121,7 +131,7 @@ describe('varrer: editar o serviço', () => {
 describe('varrer: várias mudanças juntas', () => {
   it('a aula muda no que pode e avisa o que fica', () => {
     const v = varrer(
-      [aula({ alunos: [aluno({ cobranca: 'Confirmada' })] })],
+      [aula({ situacao: sit('Confirmada', { pagamento: 'Em pagamento' }), alunos: [aluno({ cobranca: 'Confirmada' })] })],
       { tipo: 'editar', quando: true, servico: true },
       'serie',
     )

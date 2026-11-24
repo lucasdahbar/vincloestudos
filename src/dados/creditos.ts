@@ -7,6 +7,7 @@ import { refazerTextoDaCobranca } from './cobrancas'
 import type { StatusCobranca as StatusDoItem } from '@/dominio/reposicoes/desfecho'
 import { saldoEStatus, type StatusCobranca } from '@/dominio/recebimentos/quitacao'
 import { abateCredito, INICIO_DA_COBRANCA_NO_SISTEMA } from '@/dominio/cobrancas/inicio'
+import { acertosDaTroca } from './troca-de-servico'
 
 /**
  * Rodada 3: créditos do responsável — aula já cobrada que a gestora decidiu
@@ -308,7 +309,7 @@ export async function acertarCobrancasDaSaida(
       supabase.from('matriculas').select('data_inicio, data_fim').eq('aluno_id', alunoId).eq('turma_id', turmaId),
       supabase
         .from('itens_cobranca')
-        .select('id, aula_id, valor_final, cobranca:cobrancas!cobranca_id (id, status, recebimentos (id)), aula:aulas!inner (turma_id, data_hora_referencia)')
+        .select('id, aula_id, diferenca_id, valor_final, cobranca:cobrancas!cobranca_id (id, status, recebimentos (id)), aula:aulas!inner (turma_id, data_hora_referencia)')
         .eq('aluno_id', alunoId)
         .eq('aula.turma_id', turmaId),
       supabase
@@ -382,10 +383,24 @@ export async function acertarCobrancasDaSaida(
     }
   }
 
-  if (creditar.length > 0) {
+  // Troca de servico (24/11/2026): o item da diferenca ja paga e creditado
+  // como qualquer item; do item da aula sai o credito que a troca para um
+  // servico mais barato ja deu, para nao devolver a diferenca duas vezes.
+  let troca: Awaited<ReturnType<typeof acertosDaTroca>>
+  try {
+    troca = await acertosDaTroca(alunoId, [...new Set(creditar.map((c) => c.aula_id))])
+  } catch (e) {
+    return { ok: false, ...vazio, tiradas, reenviar: paraReenviar.size, erros: [e instanceof Error ? e.message : 'Falha ao ler as trocas de serviço.'] }
+  }
+  const daAula = new Set((itens ?? []).filter((i) => i.diferenca_id === null).map((i) => i.id))
+  const aCreditar = creditar
+    .map((c) => (daAula.has(c.item_id) ? { ...c, valor: Math.max(0, c.valor - (troca.get(c.aula_id)?.devolvido ?? 0)) } : c))
+    .filter((c) => c.valor > 0)
+
+  if (aCreditar.length > 0) {
     const nomeTurma = turma?.nome ?? 'turma'
     const { error: erroCredito } = await supabase.from('creditos').insert(
-      creditar.map((c) => ({
+      aCreditar.map((c) => ({
         responsavel_id: aluno.responsavel_id,
         aluno_id: alunoId,
         item_cobranca_id: c.item_id,
@@ -398,8 +413,8 @@ export async function acertarCobrancasDaSaida(
 
   return {
     ok: true,
-    creditado: creditar.reduce((t, c) => t + c.valor, 0),
-    aulasCreditadas: creditar.length,
+    creditado: aCreditar.reduce((t, c) => t + c.valor, 0),
+    aulasCreditadas: aCreditar.length,
     tiradas,
     reenviar: paraReenviar.size,
   }

@@ -1,4 +1,4 @@
-import type { Centavos } from '@/dominio/dinheiro'
+import { formatarBRL, type Centavos } from '@/dominio/dinheiro'
 import type { StatusCobranca } from './cancelamento'
 
 /**
@@ -98,4 +98,30 @@ export function resumoDaTroca(
     porFamilia.set(responsavel_id, linha)
   }
   return [...porFamilia.values()]
+}
+
+const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`
+
+/** O que a tela diz depois de aplicar a troca. Nulo: o dinheiro nao mudou. */
+export function avisoDaTroca(r: {
+  complementar: Centavos
+  credito: Centavos
+  ajustadas: number
+  dispensadas: number
+  reenviar: number
+}): string | null {
+  const partes: string[] = []
+  if (r.complementar > 0) {
+    partes.push(`Diferença de ${formatarBRL(r.complementar)} a cobrar: entra na complementar quando você gerar as cobranças do mês.`)
+  }
+  if (r.credito > 0) partes.push(`Crédito de ${formatarBRL(r.credito)} criado (veja em Créditos).`)
+  if (r.ajustadas > 0) {
+    const reenvio =
+      r.reenviar > 0
+        ? `; ${plural(r.reenviar, 'cobrança já enviada precisa', 'cobranças já enviadas precisam')} ser reenviada${r.reenviar === 1 ? '' : 's'}`
+        : ''
+    partes.push(`${plural(r.ajustadas, 'aula corrigida', 'aulas corrigidas')} na própria cobrança${reenvio}.`)
+  }
+  if (r.dispensadas > 0) partes.push(`${plural(r.dispensadas, 'diferença dispensada', 'diferenças dispensadas')}.`)
+  return partes.length > 0 ? partes.join(' ') : null
 }

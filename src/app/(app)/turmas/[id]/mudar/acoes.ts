@@ -11,6 +11,8 @@ import { atualizarAlunosNosEventos, sincronizarEventoDaTurma } from '@/dados/eve
 import { encerrarPelaPrevia, excluirPelaPrevia, type ResultadoDaSaida } from '@/dados/saida-de-aulas'
 import type { Respostas } from '@/dominio/agenda/varredura'
 import type { MudancaDaSerie } from '@/dominio/turmas/divisao'
+import type { LinhaDoResumo } from '@/dominio/cobrancas/troca-de-servico'
+import { previaDaTroca, trocasDaMudanca } from '@/dados/troca-de-servico'
 
 /**
  * A varredura le muito do banco e estoura numa falha de leitura, de proposito
@@ -39,8 +41,8 @@ export async function editarEstaAula(
   | { ok: true; avisar: { nome: string; data: string }[]; aviso?: string }
   | { ok: false; erros?: string[]; alerta?: string }
 > {
-  await exigirGestora()
-  const r = await semEstourar(() => editarAula(aulaId, edicao))
+  const sessao = await exigirGestora()
+  const r = await semEstourar(() => editarAula(aulaId, edicao, sessao.nome))
   if (!r.ok) return r
 
   after(async () => {
@@ -55,7 +57,27 @@ export async function editarEstaAula(
   revalidatePath('/agenda', 'layout')
   revalidatePath(`/turmas/${r.turmaId}`, 'layout')
   revalidatePath('/pagamentos', 'layout')
+  revalidatePath('/cobrancas', 'layout')
+  revalidatePath('/creditos')
   return { ok: true, avisar: r.avisar, aviso: r.aviso }
+}
+
+/**
+ * Previa da troca de servico em aula ja cobrada (Julio, 24/11/2026): o que
+ * acontece no dinheiro de cada familia, para a Kelly decidir se aplica a
+ * diferenca. So leitura.
+ */
+export async function previaDaDiferenca(
+  turmaId: number,
+  pedido: { escopo: 'esta'; aulaId: number } | { escopo: 'a-partir' | 'serie'; aPartirDe: string },
+  servicoNovo: number,
+): Promise<{ ok: true; familias: LinhaDoResumo[] } | { ok: false; erros: string[] }> {
+  await exigirGestora()
+  const r = await semEstourar(async () => ({
+    ok: true as const,
+    familias: await previaDaTroca(await trocasDaMudanca(turmaId, pedido, servicoNovo)),
+  }))
+  return r
 }
 
 /**
@@ -104,12 +126,15 @@ export async function tirarDaAgenda(
  */
 export async function mudarSerieDaTurma(
   turmaId: number,
-  pedido: { escopo: 'a-partir' | 'serie'; aPartirDe: string; mudanca: MudancaDaSerie },
+  pedido: { escopo: 'a-partir' | 'serie'; aPartirDe: string; mudanca: MudancaDaSerie; aplicarDiferenca?: boolean },
   respostas: Respostas,
 ): Promise<ResultadoDaDivisao> {
-  await exigirGestora()
+  const sessao = await exigirGestora()
   const r = await semEstourar(() =>
-    mudarSerie(turmaId, pedido.escopo, pedido.aPartirDe, pedido.mudanca, respostas),
+    mudarSerie(turmaId, pedido.escopo, pedido.aPartirDe, pedido.mudanca, respostas, {
+      aplicarDiferenca: pedido.aplicarDiferenca !== false,
+      usuario: sessao.nome,
+    }),
   )
   if (!r.ok) return r
 

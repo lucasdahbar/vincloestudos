@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   acertoDaTroca,
+  avisoDaTroca,
   devidoNaAula,
   descricaoDaDiferenca,
   resumoDaTroca,
@@ -104,5 +105,20 @@ describe('resumoDaTroca', () => {
       { responsavel_id: 2, responsavel_nome: 'Bia', complementar: 0, credito: 4500, ajustadas: 0 },
       { responsavel_id: 3, responsavel_nome: 'Caio', complementar: 0, credito: 0, ajustadas: 1 },
     ])
+  })
+})
+
+describe('avisoDaTroca', () => {
+  it('nada mudou no dinheiro: sem aviso', () => {
+    expect(avisoDaTroca({ complementar: 0, credito: 0, ajustadas: 0, dispensadas: 0, reenviar: 0 })).toBeNull()
+  })
+
+  it('diz o que foi para a complementar, o credito, o ajuste e o reenvio', () => {
+    expect(avisoDaTroca({ complementar: 4500, credito: 9000, ajustadas: 2, dispensadas: 1, reenviar: 1 })).toBe(
+      'Diferença de R$ 45,00 a cobrar: entra na complementar quando você gerar as cobranças do mês. ' +
+        'Crédito de R$ 90,00 criado (veja em Créditos). ' +
+        '2 aulas corrigidas na própria cobrança; 1 cobrança já enviada precisa ser reenviada. ' +
+        '1 diferença dispensada.',
+    )
   })
 })

@@ -7,6 +7,8 @@ import { errosDaEdicao, varrer } from '@/dominio/agenda/varredura'
 import type { NovoHorario } from '@/dominio/agenda/remarcacao'
 import { camposPedidos, trocasDaAulaUnica } from '@/dominio/turmas/aula-unica'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
+import { avisoDaTroca } from '@/dominio/cobrancas/troca-de-servico'
+import { aplicarTroca, levantarTroca } from './troca-de-servico'
 
 export interface EdicaoDaAula {
   /** Dia e horario novos; nulo = nao muda. */
@@ -24,6 +26,11 @@ export interface EdicaoDaAula {
   aconteceu?: boolean
   /** A data nova cai em feriado ou recesso, e a gestora confirmou. */
   confirmouAlerta?: boolean
+  /**
+   * Aula ja paga que troca de servico: a resposta da Kelly a "cobrar a
+   * diferenca / gerar credito?" (24/11/2026). Ausente = sim.
+   */
+  aplicarDiferenca?: boolean
 }
 
 export type ResultadoEdicao =
@@ -39,7 +46,7 @@ export type ResultadoEdicao =
  * navegador pode estar velha. Dia e horario seguem a remarcacao de sempre
  * (`remarcacao.ts`), que move a aula com tudo o que esta preso a ela.
  */
-export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<ResultadoEdicao> {
+export async function editarAula(aulaId: number, e: EdicaoDaAula, usuario: string): Promise<ResultadoEdicao> {
   const supabase = await clienteServidor()
   const { data: aula, error } = await supabase
     .from('aulas')
@@ -126,10 +133,14 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
     await supabase.from('presenca_tokens').delete().eq('aula_id', aulaId).is('usado_em', null)
   }
 
+  let avisoDoDinheiro: string[] = []
   if (trocaServico) {
-    // Decisao 8 (a varredura ja barrou aula cobrada ou paga): o preco sai do
-    // servico da aula na geracao da cobranca, e o rascunho e refeito nela.
-    // O gatilho da turma nao desfaz isto: so leva aula que segue a turma.
+    // A varredura ja barrou a aula no pagamento do professor. A aula cobrada
+    // muda, e a diferenca acompanha (Julio, 24/11/2026): o levantamento e
+    // antes de gravar, porque depois o servico antigo nao esta mais na aula.
+    // O rascunho e refeito na geracao. O gatilho da turma nao desfaz isto:
+    // so leva aula que segue a turma.
+    const troca = await levantarTroca([{ aula_id: aulaId, servico_antes: aula.servico_id, servico_depois: e.servicoId! }])
     const { error: erroServico } = await supabase
       .from('aulas')
       .update({ servico_id: e.servicoId })
@@ -144,6 +155,9 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
         ],
       }
     }
+    const acerto = await aplicarTroca(troca, e.aplicarDiferenca !== false, usuario)
+    const texto = avisoDaTroca(acerto)
+    avisoDoDinheiro = [...(texto ? [texto] : []), ...acerto.erros]
   }
 
   let aviso: string | undefined
@@ -193,5 +207,11 @@ export async function editarAula(aulaId: number, e: EdicaoDaAula): Promise<Resul
     }
   }
 
-  return { ok: true, turmaId: aula.turma_id, avisar: pedido.quando ? v.avisar : [], aviso }
+  const juntos = [aviso, ...avisoDoDinheiro].filter((x): x is string => Boolean(x))
+  return {
+    ok: true,
+    turmaId: aula.turma_id,
+    avisar: pedido.quando ? v.avisar : [],
+    aviso: juntos.length > 0 ? juntos.join(' ') : undefined,
+  }
 }

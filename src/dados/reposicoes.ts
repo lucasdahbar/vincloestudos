@@ -15,6 +15,7 @@ import {
 } from '@/dominio/reposicoes/desfecho'
 import { deNumeric, paraNumeric } from '@/dominio/dinheiro'
 import { refazerTextoDaCobranca } from './cobrancas'
+import { acertosDaTroca } from './troca-de-servico'
 import { semAnotacaoDeAusencia } from '@/dominio/cobrancas/geracao'
 
 export interface PendenciaComRelacoes {
@@ -440,8 +441,13 @@ export async function aplicarEfeitoFinanceiro(
     ;({ item, cobranca } = await lerItem())
   }
 
+  // Troca de servico (24/11/2026): devolve o que a familia pagou pela aula,
+  // com a complementar ja paga e sem o credito que a troca ja deu.
+  const troca = item ? (await acertosDaTroca(p.aluno_id, [p.aula_origem_id])).get(p.aula_origem_id) : undefined
   const valor =
-    destino() === 'credito' && item ? Math.max(0, deNumeric(item.valor_final)) : 0
+    destino() === 'credito' && item
+      ? Math.max(0, deNumeric(item.valor_final) + (troca?.complementarPaga ?? 0) - (troca?.devolvido ?? 0))
+      : 0
   if (valor === 0) return { ok: true }
 
   const aluno = p.aluno as unknown as { nome: string; responsavel_id: number } | null
