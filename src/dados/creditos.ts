@@ -6,14 +6,15 @@ import { acertoDaSaida } from '@/dominio/creditos/saida'
 import { refazerTextoDaCobranca } from './cobrancas'
 import type { StatusCobranca as StatusDoItem } from '@/dominio/reposicoes/desfecho'
 import { saldoEStatus, type StatusCobranca } from '@/dominio/recebimentos/quitacao'
+import { abateCredito, INICIO_DA_COBRANCA_NO_SISTEMA } from '@/dominio/cobrancas/inicio'
 
 /**
  * Rodada 3: créditos do responsável — aula já cobrada que a gestora decidiu
  * não cobrar. A regra das decisões mora em `dominio/creditos/saldo.ts`.
  */
 
-/** Cobranças em que ainda cabe abater: geradas e não quitadas nem canceladas. */
-const COBRANCA_ABERTA: StatusCobranca[] = ['Rascunho', 'Confirmada', 'Enviada', 'Parcial']
+/** Candidatas a abatimento; `abateCredito` decide (sem rascunho nem outubro). */
+const COBRANCA_ABERTA: StatusCobranca[] = ['Confirmada', 'Enviada', 'Parcial']
 
 export interface CreditoListado {
   id: number
@@ -81,6 +82,7 @@ async function cobrancasAbertas(
     .select('id, responsavel_id, mes_referencia, valor_total, status, recebimentos (valor_recebido)')
     .in('responsavel_id', responsaveis)
     .in('status', COBRANCA_ABERTA)
+    .gte('mes_referencia', INICIO_DA_COBRANCA_NO_SISTEMA)
     .order('mes_referencia')
 
   const mapa = new Map<number, { id: number; mes_referencia: string; saldo: Centavos }[]>()
@@ -149,7 +151,7 @@ export async function abaterCredito(entrada: {
   if (cobranca.responsavel_id !== credito.responsavel_id) {
     return { ok: false, erros: ['O crédito é de outro responsável.'] }
   }
-  if (!COBRANCA_ABERTA.includes(cobranca.status as StatusCobranca)) {
+  if (!abateCredito(cobranca.status as StatusCobranca, cobranca.mes_referencia)) {
     return { ok: false, erros: ['Esta cobrança não está em aberto.'] }
   }
 

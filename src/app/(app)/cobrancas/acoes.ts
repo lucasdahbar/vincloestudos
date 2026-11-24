@@ -14,12 +14,17 @@ import {
 } from '@/dados/cobrancas'
 import { exigirGestora } from '@/dados/sessao'
 import { deReal } from '@/dominio/dinheiro'
+import { mesCobravel } from '@/dominio/cobrancas/inicio'
 
 export async function gerar(mes: string) {
   await exigirGestora()
+  // Outubro foi cobrado fora do sistema (Julio, 03/11 e 24/11/2026).
+  if (!mesCobravel(mes)) {
+    return { ok: false as const, erro: 'Antes de novembro de 2026 a cobrança foi feita fora do sistema.' }
+  }
   const r = await gerarCobrancasDoMes(mes)
   revalidatePath('/cobrancas')
-  return r
+  return { ok: true as const, ...r }
 }
 
 export async function salvarDesconto(itemId: number, cobrancaId: number, valorTexto: string) {

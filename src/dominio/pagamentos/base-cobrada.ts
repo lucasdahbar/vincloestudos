@@ -1,5 +1,6 @@
 import { somar, type Centavos } from '@/dominio/dinheiro'
 import type { DesistenciaPaga, PresencaRemunerada } from './fechamento'
+import { INICIO_DA_COBRANCA_NO_SISTEMA } from '@/dominio/cobrancas/inicio'
 
 /**
  * A base do pagamento do professor é o que foi efetivamente cobrado (pedido do
@@ -58,11 +59,8 @@ export interface ClassificacaoPelaCobranca {
   aguardando: AulaAguardando[]
 }
 
-/**
- * Outubro de 2026 foi cobrado fora do sistema, e as cobranças dele foram
- * apagadas (pedido do Julio, 03/11/2026).
- */
-export const INICIO_DA_COBRANCA_NO_SISTEMA = '2026-11-01'
+// Outubro de 2026 foi cobrado fora do sistema: a data mora com as cobrancas.
+export { INICIO_DA_COBRANCA_NO_SISTEMA }
 
 /**
  * A parte da aula ORIGINAL de uma reposição. Se a original é de antes de a

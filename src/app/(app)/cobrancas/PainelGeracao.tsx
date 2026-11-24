@@ -5,6 +5,7 @@ import { useState, useTransition } from 'react'
 import { motion } from 'motion/react'
 import { gerar } from './acoes'
 import { resumoDaGeracao } from '@/dominio/cobrancas/rascunho'
+import { INICIO_DA_COBRANCA_NO_SISTEMA } from '@/dominio/cobrancas/inicio'
 import { Botao } from '@/ui/Botao'
 import { Campo, entradaClasse } from '@/ui/Campo'
 import { Cartao } from '@/ui/Cartao'
@@ -44,6 +45,7 @@ export function PainelGeracao({ mes }: { mes: string }) {
         <Campo etiqueta="Mês de referência">
           <input
             type="month"
+            min={INICIO_DA_COBRANCA_NO_SISTEMA.slice(0, 7)}
             value={mes}
             onChange={(e) => trocarMes(e.target.value)}
             className={`${entradaClasse} max-w-[12rem]`}
@@ -56,6 +58,10 @@ export function PainelGeracao({ mes }: { mes: string }) {
           onClick={() =>
             iniciar(async () => {
               const r = await gerar(mes)
+              if (!r.ok) {
+                setResultado(r.erro)
+                return
+              }
               setResultado(
                 r.falhas.length === 0
                   ? resumoDaGeracao(r)
