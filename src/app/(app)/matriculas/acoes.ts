@@ -5,7 +5,7 @@ import { after } from 'next/server'
 import { clienteServidor } from '@/dados/cliente'
 import { atualizarAlunosNosEventos } from '@/dados/evento-da-turma'
 import { exigirGestora } from '@/dados/sessao'
-import { acertarCobrancasDaSaida } from '@/dados/creditos'
+import { acertarCobrancasDaSaida, acertarCreditosDaVolta } from '@/dados/creditos'
 import { formatarBRL } from '@/dominio/dinheiro'
 import { enfileirarBoasVindas } from '@/dados/notificacoes'
 import { agoraNaEscola } from '@/dominio/agenda/relogio'
@@ -159,6 +159,13 @@ export async function salvarMatricula(
     }
   }
 
+  // Volta (Julio, 24/11/2026): o aluno voltou para uma aula que, na saida,
+  // tinha virado credito. Depois do acerto da saida: uma edicao pode encolher
+  // de um lado e crescer do outro.
+  if (datasMudaram && !entrada.flag_reposicao && entrada.aluno_id !== null && entrada.turma_id !== null) {
+    aviso = juntarAvisoDaVolta(aviso, await acertarCreditosDaVolta(entrada.aluno_id, entrada.turma_id))
+  }
+
   // O nome do aluno na descricao do evento da turma, no Google Agenda. Depois
   // da resposta: o Google lento ou fora nao pode segurar a matricula.
   const turmasAfetadas = [entrada.turma_id, anterior?.turma_id].filter(
@@ -172,6 +179,31 @@ export async function salvarMatricula(
   if (id !== null) revalidatePath(`/matriculas/${id}`)
   if (aviso) revalidatePath('/creditos')
   return { ok: true, id: resposta.data.id, aviso }
+}
+
+/** O que o acerto da volta fez, numa frase para a gestora. */
+function juntarAvisoDaVolta(
+  anterior: string | undefined,
+  r: Awaited<ReturnType<typeof acertarCreditosDaVolta>>,
+): string | undefined {
+  const partes: string[] = anterior ? [anterior] : []
+  const ddmm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
+  if (!r.ok) {
+    partes.push(`A matrícula foi salva, mas o crédito da aula a que o aluno voltou não foi acertado: ${r.erros?.join(' ')} Avise o suporte.`)
+  }
+  const estornados = r.cancelados.filter((c) => c.estornado > 0)
+  if (estornados.length > 0) {
+    const total = estornados.reduce((t, c) => t + c.estornado, 0)
+    partes.push(
+      `O aluno tinha crédito pela${estornados.length === 1 ? ' aula de' : 's aulas de'} ${estornados.map((c) => ddmm(c.data)).join(', ')}, de quando saiu da turma. Como voltou, o crédito de ${formatarBRL(total)} foi cancelado: a aula vale pelo que já foi pago.`,
+    )
+  }
+  if (r.jaUsados.length > 0) {
+    partes.push(
+      `Atenção: ${r.jaUsados.length === 1 ? 'a aula de' : 'as aulas de'} ${r.jaUsados.map(ddmm).join(', ')} já ${r.jaUsados.length === 1 ? 'tinha virado' : 'tinham virado'} crédito quando o aluno saiu, e esse crédito já foi usado. O sistema não consegue cobrar de novo: acerte com a família.`,
+    )
+  }
+  return partes.length ? partes.join(' ') : undefined
 }
 
 /** O que o acerto da saida fez, numa frase para a gestora. */

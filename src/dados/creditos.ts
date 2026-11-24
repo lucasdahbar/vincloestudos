@@ -2,9 +2,9 @@ import 'server-only'
 import { clienteServidor } from './cliente'
 import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
 import { saldoDoCredito, validarAbatimento, validarCancelamento, validarDevolucao } from '@/dominio/creditos/saldo'
-import { acertoDaSaida } from '@/dominio/creditos/saida'
+import { acertoDaSaida, acertoDaVolta } from '@/dominio/creditos/saida'
 import { refazerTextoDaCobranca } from './cobrancas'
-import type { StatusCobranca as StatusDoItem } from '@/dominio/reposicoes/desfecho'
+import type { StatusCobranca as StatusDoItem, TipoUsoCredito } from '@/dominio/reposicoes/desfecho'
 import { saldoEStatus, type StatusCobranca } from '@/dominio/recebimentos/quitacao'
 import { abateCredito, INICIO_DA_COBRANCA_NO_SISTEMA } from '@/dominio/cobrancas/inicio'
 
@@ -403,4 +403,64 @@ export async function acertarCobrancasDaSaida(
     tiradas,
     reenviar: paraReenviar.size,
   }
+}
+
+/**
+ * Volta (Julio, 24/11/2026): o aluno voltou para aulas que, na saida, tinham
+ * virado credito. A regra mora em `acertoDaVolta` (dominio/creditos/saida.ts).
+ * So a matricula comum conta: a de reposicao nao gera cobranca.
+ */
+export async function acertarCreditosDaVolta(
+  alunoId: number,
+  turmaId: number,
+): Promise<{ ok: boolean; cancelados: { data: string; estornado: Centavos }[]; jaUsados: string[]; erros?: string[] }> {
+  const supabase = await clienteServidor()
+  const [{ data: matriculas }, { data: creditos, error }] = await Promise.all([
+    supabase
+      .from('matriculas')
+      .select('data_inicio, data_fim')
+      .eq('aluno_id', alunoId)
+      .eq('turma_id', turmaId)
+      .eq('flag_reposicao', false),
+    supabase
+      .from('creditos')
+      .select('id, valor, usos:usos_credito (tipo, valor), item:itens_cobranca!item_cobranca_id!inner (aula:aulas!inner (turma_id, data_hora_referencia))')
+      .eq('aluno_id', alunoId)
+      .eq('item.aula.turma_id', turmaId),
+  ])
+  if (error) return { ok: false, cancelados: [], jaUsados: [], erros: [error.message] }
+
+  const dia = (v: unknown) => String(v).slice(0, 10)
+  const acerto = acertoDaVolta(
+    (creditos ?? []).map((c) => ({
+      credito_id: c.id,
+      data: dia((c.item as unknown as { aula: { data_hora_referencia: string } }).aula.data_hora_referencia),
+      valor: deNumeric(c.valor),
+      usos: ((c.usos ?? []) as { tipo: TipoUsoCredito; valor: number | string }[]).map((u) => ({
+        tipo: u.tipo,
+        valor: deNumeric(u.valor),
+      })),
+    })),
+    (matriculas ?? []).map((m) => ({ data_inicio: dia(m.data_inicio), data_fim: m.data_fim ? dia(m.data_fim) : null })),
+  )
+
+  // Mesma ordem do aviso cancelado: estorna, depois solta. Repetir e seguro:
+  // o credito solto nao volta a aparecer aqui.
+  const cancelados: { data: string; estornado: Centavos }[] = []
+  for (const c of acerto.cancelar) {
+    if (c.estornar > 0) {
+      const { error: erroUso } = await supabase.from('usos_credito').insert({
+        credito_id: c.credito_id,
+        tipo: 'Cancelamento',
+        valor: paraNumeric(c.estornar),
+        observacao: `O aluno voltou para a aula de ${c.data.slice(8, 10)}/${c.data.slice(5, 7)}: a aula volta a valer pelo que já foi pago.`,
+      })
+      if (erroUso) return { ok: false, cancelados, jaUsados: [], erros: [`O crédito não foi estornado: ${erroUso.message}`] }
+    }
+    const { error: erroSoltar } = await supabase.from('creditos').update({ item_cobranca_id: null }).eq('id', c.credito_id)
+    if (erroSoltar) return { ok: false, cancelados, jaUsados: [], erros: [`O crédito não foi solto da aula: ${erroSoltar.message}`] }
+    cancelados.push({ data: c.data, estornado: c.estornar })
+  }
+
+  return { ok: true, cancelados, jaUsados: acerto.jaUsados.map((u) => u.data) }
 }

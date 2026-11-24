@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acertoDaSaida, type ItemDaSaida } from './saida'
+import { acertoDaSaida, acertoDaVolta, type CreditoDaAula, type ItemDaSaida } from './saida'
 
 const item = (id: number, data: string, extra: Partial<ItemDaSaida> = {}): ItemDaSaida => ({
   id,
@@ -82,5 +82,45 @@ describe('acertoDaSaida', () => {
   it('matrícula sem fim cobre tudo dali em diante', () => {
     const r = acertoDaSaida([item(1, '2027-03-01')], [{ data_inicio: '2026-10-05', data_fim: null }])
     expect(r).toEqual({ creditar: [], tirar: [] })
+  })
+})
+
+// Volta (Julio, 24/11/2026): o aluno saiu, a aula paga virou crédito, e depois
+// ele voltou para fazer essa aula.
+describe('acertoDaVolta', () => {
+  const credito = (extra: Partial<CreditoDaAula> = {}): CreditoDaAula => ({
+    credito_id: 7,
+    data: '2026-11-24',
+    valor: 10500,
+    usos: [],
+    ...extra,
+  })
+  const avulsa = [{ data_inicio: '2026-11-24', data_fim: '2026-11-24' }]
+
+  it('crédito intacto de uma aula que voltou a ser dele: estorna e solta da aula', () => {
+    expect(acertoDaVolta([credito()], avulsa)).toEqual({
+      cancelar: [{ credito_id: 7, data: '2026-11-24', estornar: 10500 }],
+      jaUsados: [],
+    })
+  })
+
+  it('crédito já cancelado à mão: só solta, nada a estornar', () => {
+    expect(acertoDaVolta([credito({ usos: [{ tipo: 'Cancelamento', valor: 10500 }] })], avulsa).cancelar).toEqual([
+      { credito_id: 7, data: '2026-11-24', estornar: 0 },
+    ])
+  })
+
+  it('crédito já abatido ou devolvido, mesmo em parte: não mexe, avisa', () => {
+    const r = acertoDaVolta([credito({ usos: [{ tipo: 'Devolução', valor: 5000 }] })], avulsa)
+    expect(r).toEqual({ cancelar: [], jaUsados: [{ credito_id: 7, data: '2026-11-24' }] })
+  })
+
+  it('aula fora das matrículas: o crédito continua', () => {
+    expect(acertoDaVolta([credito({ data: '2026-12-01' })], avulsa)).toEqual({ cancelar: [], jaUsados: [] })
+  })
+
+  it('matrícula em aberto cobre as aulas dali em diante', () => {
+    const r = acertoDaVolta([credito({ data: '2026-12-01' })], [{ data_inicio: '2026-11-24', data_fim: null }])
+    expect(r.cancelar).toHaveLength(1)
   })
 })

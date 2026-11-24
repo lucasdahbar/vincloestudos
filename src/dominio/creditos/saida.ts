@@ -1,5 +1,5 @@
 import type { Centavos } from '@/dominio/dinheiro'
-import { destinoDaAulaNaoCobrada, type StatusCobranca } from '@/dominio/reposicoes/desfecho'
+import { creditoAoCancelarAviso, destinoDaAulaNaoCobrada, type StatusCobranca, type TipoUsoCredito } from '@/dominio/reposicoes/desfecho'
 
 /** Um item de cobranca do aluno numa aula da turma de que ele saiu. */
 export interface ItemDaSaida {
@@ -49,5 +49,45 @@ export function acertoDaSaida(
     creditar: fora
       .filter((i) => destino(i) === 'credito' && i.valor_final > 0)
       .map((i) => ({ item_id: i.id, aula_id: i.aula_id, data: i.data, valor: i.valor_final })),
+  }
+}
+
+/** Um credito que nasceu da saida (ligado ao item de uma aula da turma). */
+export interface CreditoDaAula {
+  credito_id: number
+  /** yyyy-mm-dd da referencia da aula do item. */
+  data: string
+  valor: Centavos
+  usos: { tipo: TipoUsoCredito; valor: Centavos }[]
+}
+
+/**
+ * Volta (Julio, 24/11/2026): o aluno saiu, a aula ja paga virou credito
+ * (Decisao 11), e depois ele voltou para fazer essa aula — numa aula avulsa ou
+ * numa matricula nova. A aula continua na cobranca paga, entao a geracao nao a
+ * cobra de novo; sem este acerto a familia ficava com a aula E com o credito.
+ *
+ * Credito intacto: estornado e solto da aula, como no aviso cancelado (caso
+ * Isabela). Solto, uma nova saida pode credita-la de novo.
+ *
+ * Credito ja usado (abatido ou devolvido, mesmo em parte): a regra do Julio e
+ * cobrar a aula de novo, mas o item pago ainda ocupa a aula (um item por aula e
+ * aluno), entao por ora a gestora e avisada e acerta com a familia.
+ */
+export function acertoDaVolta(
+  creditos: CreditoDaAula[],
+  periodos: { data_inicio: string; data_fim: string | null }[],
+): {
+  cancelar: { credito_id: number; data: string; estornar: Centavos }[]
+  jaUsados: { credito_id: number; data: string }[]
+} {
+  const coberta = (d: string) => periodos.some((p) => d >= p.data_inicio && (p.data_fim === null || d <= p.data_fim))
+  const voltaram = creditos.filter((c) => coberta(c.data))
+  const situacao = (c: CreditoDaAula) => creditoAoCancelarAviso({ valor: c.valor, usos: c.usos })
+  return {
+    cancelar: voltaram
+      .filter((c) => !situacao(c).usado)
+      .map((c) => ({ credito_id: c.credito_id, data: c.data, estornar: situacao(c).estornar })),
+    jaUsados: voltaram.filter((c) => situacao(c).usado).map((c) => ({ credito_id: c.credito_id, data: c.data })),
   }
 }
