@@ -68,6 +68,20 @@ describe('não sobreposição de períodos', () => {
     'Este aluno já possui uma matrícula nesta turma no período informado. ' +
     'Encerre a matrícula atual antes de criar uma nova.'
 
+  // Caso Francisco (24/11/2026): a Kelly tentou incluir só na aula do dia um
+  // aluno que já estava na turma (tinha avisado que não vinha). "Encerre a
+  // matrícula atual" mandava fazer a coisa errada.
+  it('aula avulsa de quem já está na turma no dia: explica onde resolver', () => {
+    const erros = validarMatricula(
+      { ...matriculaValida, data_inicio: '2026-11-24', data_fim: '2026-11-24' },
+      turmaAtiva,
+      [{ id: 1, data_inicio: '2026-10-05', data_fim: null }],
+    )
+    expect(erros).toHaveLength(1)
+    expect(erros[0]).toContain('já está na lista desta turma neste dia')
+    expect(erros[0]).not.toContain('Encerre')
+  })
+
   it('aceita matrículas sequenciais na mesma turma', () => {
     const erros = validarMatricula({ ...matriculaValida, data_inicio: '2026-08-01' }, turmaAtiva, [
       { id: 1, data_inicio: '2026-03-01', data_fim: '2026-07-31' },

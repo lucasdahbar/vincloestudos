@@ -8,6 +8,7 @@ import {
   cancelarAviso,
   desistirReposicao,
   registrarAviso,
+  veioMesmoAssim,
 } from '@/dados/reposicoes'
 import { exigirGestora } from '@/dados/sessao'
 import type { Decisao } from '@/dominio/reposicoes/desfecho'
@@ -60,6 +61,15 @@ export async function registrarFaltaAvisada(
 export async function desfazerAviso(pendenciaId: number) {
   await exigirGestora()
   const r = await cancelarAviso(pendenciaId)
+  if (r.ok && r.turmasAfetadas?.length) after(() => atualizarAlunosNosEventos(r.turmasAfetadas!))
+  revalidarTudo()
+  return r
+}
+
+/** Caso Francisco (24/11/2026): avisou, repôs e veio à aula original mesmo assim. */
+export async function marcarQueVeioMesmoAssim(pendenciaId: number) {
+  const sessao = await exigirGestora()
+  const r = await veioMesmoAssim(pendenciaId, sessao.nome)
   if (r.ok && r.turmasAfetadas?.length) after(() => atualizarAlunosNosEventos(r.turmasAfetadas!))
   revalidarTudo()
   return r

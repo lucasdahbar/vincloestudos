@@ -50,7 +50,16 @@ export function validarMatricula(
       erros.push('A data de fim não pode ser anterior à data de início.')
     }
 
-    if (seSobrepoe(matricula, jaMatriculado)) {
+    // Caso Francisco (24/11/2026): na aula avulsa de quem ja esta na turma,
+    // "encerre a matricula" mandava fazer a coisa errada. Quem esta na turma
+    // ja esta na lista; se avisou que nao vinha, resolve-se na pagina da aula.
+    const avulsaNova = matricula.id == null && matricula.data_fim === matricula.data_inicio
+    if (seSobrepoe(matricula, jaMatriculado) && avulsaNova) {
+      erros.push(
+        'Este aluno já está na lista desta turma neste dia. Se ele tinha avisado que não vinha, ' +
+          'abra a aula na Agenda e use "Cancelar aviso" (ou "Veio mesmo assim", se já fez a reposição).',
+      )
+    } else if (seSobrepoe(matricula, jaMatriculado)) {
       erros.push(
         'Este aluno já possui uma matrícula nesta turma no período informado. ' +
           'Encerre a matrícula atual antes de criar uma nova.',

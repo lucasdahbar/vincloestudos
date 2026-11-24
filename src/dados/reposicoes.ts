@@ -7,6 +7,7 @@ import {
   destinoDaAulaNaoCobrada,
   voltaParaAMesmaCobranca,
   podeCancelarAviso,
+  podeVirMesmoAssim,
   type TipoUsoCredito,
   validarDecisao,
   type Decisao,
@@ -14,6 +15,7 @@ import {
 } from '@/dominio/reposicoes/desfecho'
 import { deNumeric, paraNumeric } from '@/dominio/dinheiro'
 import { refazerTextoDaCobranca } from './cobrancas'
+import { semAnotacaoDeAusencia } from '@/dominio/cobrancas/geracao'
 
 export interface PendenciaComRelacoes {
   id: number
@@ -587,4 +589,114 @@ export async function cancelarAviso(
         : `A aula voltou para a cobrança, mas o texto do WhatsApp não foi refeito (${texto.motivo}). Abra a cobrança antes de mandar.`,
     ],
   }
+}
+
+/**
+ * Caso Francisco (24/11/2026): avisou, repos e apareceu na aula original mesmo
+ * assim. A regra e o porque estao em `podeVirMesmoAssim`.
+ *
+ * A ordem permite repetir se um passo falhar: o item a R$ 0 ja retirado e as
+ * marcas ja desligadas nao travam a proxima tentativa, e o aviso so some no
+ * fim, quando tudo o mais ja foi feito.
+ */
+export async function veioMesmoAssim(
+  pendenciaId: number,
+  usuario: string,
+): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[]; avisos?: string[] }> {
+  const supabase = await clienteServidor()
+  const { data: p } = await supabase
+    .from('pendencias_reposicao')
+    .select(`
+      id, origem, status, aluno_id, aula_origem_id, aula_reposicao_id, matricula_reposicao_id,
+      origem_aula:aulas!aula_origem_id (status, turma_id),
+      reposicao_aula:aulas!aula_reposicao_id (turma_id)
+    `)
+    .eq('id', pendenciaId)
+    .maybeSingle()
+  if (!p) return { ok: false, erros: ['Aviso não encontrado.'] }
+
+  const origemAula = p.origem_aula as unknown as { status: string; turma_id: number } | null
+  const reposicaoAula = p.reposicao_aula as unknown as { turma_id: number } | null
+
+  const { data: item } = p.aula_reposicao_id
+    ? await supabase
+        .from('itens_cobranca')
+        .select('id, cobranca_id, valor_final, cobranca:cobrancas!inner (status)')
+        .eq('aula_id', p.aula_reposicao_id)
+        .eq('aluno_id', p.aluno_id)
+        .maybeSingle()
+    : { data: null }
+  const statusDoItem = (item?.cobranca as unknown as { status: StatusCobranca } | null)?.status
+
+  const permissao = podeVirMesmoAssim({
+    origem: p.origem,
+    status: p.status,
+    aulaExcluida: origemAula?.status === 'Excluída',
+    itemDaReposicao: item && statusDoItem ? { valor: deNumeric(item.valor_final), status: statusDoItem } : null,
+  })
+  if (!permissao.pode) return { ok: false, erros: [permissao.motivo] }
+
+  const avisos: string[] = []
+
+  // O item a R$ 0 sai da cobranca (o total nao muda); a aula volta inteira
+  // pela geracao, numa complementar.
+  if (permissao.tirarItem && item) {
+    const { error } = await supabase.from('itens_cobranca').delete().eq('id', item.id)
+    if (error) return { ok: false, erros: [`A reposição não saiu da cobrança: ${error.message}`] }
+    // So a confirmada tem texto ainda por mandar.
+    if (statusDoItem === 'Confirmada') await refazerTextoDaCobranca(item.cobranca_id)
+  }
+
+  // A reposicao vira aula avulsa: a matricula daquele dia e a presenca deixam
+  // de ser de reposicao, e a cobranca e o pagamento passam a trata-la como
+  // aula comum da turma.
+  if (p.matricula_reposicao_id) {
+    const { error } = await supabase
+      .from('matriculas')
+      .update({ flag_reposicao: false })
+      .eq('id', p.matricula_reposicao_id)
+    if (error) return { ok: false, erros: [`A matrícula da reposição não foi ajustada: ${error.message}`] }
+  }
+  if (p.aula_reposicao_id) {
+    const { error } = await supabase
+      .from('presencas')
+      .update({ flag_reposicao: false })
+      .eq('aula_id', p.aula_reposicao_id)
+      .eq('aluno_id', p.aluno_id)
+    if (error) return { ok: false, erros: [`A presença da reposição não foi ajustada: ${error.message}`] }
+  }
+
+  // A aula original ja estava cobrada, anotada como "nao participou".
+  const { data: itemOrigem } = await supabase
+    .from('itens_cobranca')
+    .select('id, descricao')
+    .eq('aula_id', p.aula_origem_id)
+    .eq('aluno_id', p.aluno_id)
+    .maybeSingle()
+  if (itemOrigem) {
+    const descricao = semAnotacaoDeAusencia(itemOrigem.descricao)
+    if (descricao !== itemOrigem.descricao) {
+      await supabase.from('itens_cobranca').update({ descricao }).eq('id', itemOrigem.id)
+    }
+  }
+
+  const { error } = await supabase.from('pendencias_reposicao').delete().eq('id', pendenciaId)
+  if (error) return { ok: false, erros: [error.message] }
+
+  // O aviso apagado nao deixa rastro na tabela dele: fica aqui.
+  await supabase.from('logs_operacionais').insert({
+    acao: 'veio_mesmo_assim',
+    entidade: 'pendencias_reposicao',
+    entidade_id: pendenciaId,
+    usuario,
+    detalhe: { pendencia: p, item_retirado: permissao.tirarItem ? item : null },
+  })
+
+  avisos.push(
+    'O aluno voltou para a chamada desta aula. A reposição virou aula avulsa: gere as cobranças do mês de novo para ela entrar na cobrança.',
+  )
+  const turmasAfetadas = [
+    ...new Set([origemAula?.turma_id, reposicaoAula?.turma_id].filter((t): t is number => t != null)),
+  ]
+  return { ok: true, turmasAfetadas, avisos }
 }

@@ -3,6 +3,7 @@ import {
   creditoAoCancelarAviso,
   destinoDaAulaNaoCobrada,
   podeCancelarAviso,
+  podeVirMesmoAssim,
   voltaParaAMesmaCobranca,
   validarDecisao,
 } from './desfecho'
@@ -130,5 +131,46 @@ describe('podeCancelarAviso (reposição e professor)', () => {
 
   it('falta marcada pelo professor não é aviso: não se cancela por aqui', () => {
     expect(podeCancelarAviso({ ...aviso, origem: 'Falta' }).pode).toBe(false)
+  })
+})
+
+// Caso Francisco (24/11/2026): avisou, repôs em outra turma e apareceu na aula
+// original mesmo assim. Regra do Julio: é como uma nova matrícula — cobra e o
+// professor recebe. A reposição vira aula avulsa, cobrada à parte.
+describe('podeVirMesmoAssim', () => {
+  const realizada = { origem: 'Aviso' as const, status: 'Realizada' as const, itemDaReposicao: null }
+
+  it('reposição feita e ainda sem cobrança: pode, sem item a tirar', () => {
+    expect(podeVirMesmoAssim(realizada)).toEqual({ pode: true, tirarItem: false })
+  })
+
+  it('reposição a R$ 0 numa cobrança já paga: pode, e o item sai (o total não muda)', () => {
+    expect(podeVirMesmoAssim({ ...realizada, itemDaReposicao: { valor: 0, status: 'Quitada' } })).toEqual({
+      pode: true,
+      tirarItem: true,
+    })
+  })
+
+  it('reposição ainda em rascunho: pode, a geração refaz o valor', () => {
+    expect(
+      podeVirMesmoAssim({ ...realizada, itemDaReposicao: { valor: 3000, status: 'Rascunho' } }),
+    ).toEqual({ pode: true, tirarItem: false })
+  })
+
+  it('reposição que cobrou diferença numa cobrança confirmada: recusa', () => {
+    const r = podeVirMesmoAssim({ ...realizada, itemDaReposicao: { valor: 3000, status: 'Quitada' } })
+    expect(r.pode).toBe(false)
+  })
+
+  it('reposição ainda não feita, ou sem reposição: não é este caminho', () => {
+    for (const status of ['Pendente', 'Agendada', 'Desistida'] as const) {
+      expect(podeVirMesmoAssim({ ...realizada, status }).pode).toBe(false)
+    }
+  })
+
+  it('falta marcada pelo professor ou aula excluída: recusa', () => {
+    expect(podeVirMesmoAssim({ ...realizada, origem: 'Falta' }).pode).toBe(false)
+    expect(podeVirMesmoAssim({ ...realizada, origem: 'Exclusão' }).pode).toBe(false)
+    expect(podeVirMesmoAssim({ ...realizada, aulaExcluida: true }).pode).toBe(false)
   })
 })

@@ -107,6 +107,15 @@ function valorEDescricao(a: AulaFaturavel): { valor: Centavos; descricao: string
   return { valor: a.valor, descricao: a.descricao }
 }
 
+/**
+ * Caso Francisco (24/11/2026): o aluno avisou e acabou vindo. A aula ja estava
+ * numa cobranca confirmada, anotada como "nao participou"; o valor nao muda,
+ * so a anotacao sai.
+ */
+export function semAnotacaoDeAusencia(descricao: string): string {
+  return descricao.replace(/ \(não participou: avisou que não vem\)$/, '')
+}
+
 export function montarCobrancas(aulas: AulaFaturavel[]): CobrancaMontada[] {
   const porResponsavel = new Map<number, AulaFaturavel[]>()
 

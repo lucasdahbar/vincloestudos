@@ -14,6 +14,7 @@ import { aulaPrecisaDeSala } from '@/dominio/agenda/meet'
 import { ExcluirAula } from './ExcluirAula'
 import { CorrigirChamada } from './CorrigirChamada'
 import { CancelarAviso } from '../../../reposicoes/CancelarAviso'
+import { VeioMesmoAssim } from '../../../reposicoes/VeioMesmoAssim'
 
 /** O que aconteceu depois do aviso, do ponto de vista desta aula. */
 const ROTULO_AVISO = {
@@ -273,7 +274,14 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
                   <Selo tom={m.status === 'Pendente' ? 'alerta' : 'neutro'}>
                     {ROTULO_AVISO[m.status]}
                   </Selo>
-                  {ehGestora && <CancelarAviso pendenciaId={m.pendencia_id} nome={m.nome} />}
+                  {/* Caso Francisco (24/11/2026): reposição feita não se cancela;
+                      se ele veio mesmo assim, a reposição vira aula avulsa. */}
+                  {ehGestora &&
+                    (m.status === 'Realizada' ? (
+                      <VeioMesmoAssim pendenciaId={m.pendencia_id} nome={m.nome} />
+                    ) : (
+                      <CancelarAviso pendenciaId={m.pendencia_id} nome={m.nome} />
+                    ))}
                 </span>
               </li>
             ))}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { montarCobrancas, type AulaFaturavel } from './geracao'
+import { montarCobrancas, semAnotacaoDeAusencia, type AulaFaturavel } from './geracao'
 
 const base: AulaFaturavel = {
   aula_id: 1,
@@ -194,5 +194,19 @@ describe('aula excluída', () => {
     ])
     expect(c.itens).toHaveLength(1)
     expect(c.itens[0].descricao).toContain('avisou que não vem')
+  })
+})
+
+describe('semAnotacaoDeAusencia (caso Francisco, 24/11/2026)', () => {
+  it('tira a anotação de quem avisou e acabou vindo', () => {
+    expect(semAnotacaoDeAusencia('Matemática — 8º ano — Aula (não participou: avisou que não vem)')).toBe(
+      'Matemática — 8º ano — Aula',
+    )
+  })
+
+  it('não mexe em outra anotação', () => {
+    expect(semAnotacaoDeAusencia('Português — Aula (reposição da aula de 24/11)')).toBe(
+      'Português — Aula (reposição da aula de 24/11)',
+    )
   })
 })

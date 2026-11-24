@@ -115,6 +115,50 @@ export function podeCancelarAviso(p: {
   return { pode: true }
 }
 
+/**
+ * Caso Francisco (24/11/2026): o aluno avisou, repos em outra turma e depois
+ * apareceu na aula original. Regra do Julio: "e como se fosse uma nova
+ * matricula na aula" — cobra, e o professor recebe. So neste caso: o aviso
+ * comum continua como sempre.
+ *
+ * Nova matricula de verdade nao cabe (presenca e item de cobranca sao unicos
+ * por aula e aluno), entao o efeito e o mesmo por outro caminho: o aviso some
+ * (o aluno volta a chamada da aula original, ja cobrada) e a reposicao vira
+ * aula avulsa, cobrada pelo valor da propria turma.
+ *
+ * A reposicao a R$ 0 ja numa cobranca sai dela — o total nao muda — e volta
+ * pela geracao, inteira, numa complementar. A que cobrou diferenca numa
+ * cobranca ja confirmada nao: seria mexer em valor ja mandado a familia.
+ */
+export function podeVirMesmoAssim(p: {
+  origem: OrigemAusencia
+  status: StatusReposicao
+  aulaExcluida?: boolean
+  /** O item da aula de reposicao, se ela ja entrou numa cobranca. */
+  itemDaReposicao: { valor: Centavos; status: StatusCobranca } | null
+}): { pode: true; tirarItem: boolean } | { pode: false; motivo: string } {
+  if (p.origem !== 'Aviso' || p.aulaExcluida) {
+    return { pode: false, motivo: 'Só vale para quem avisou que não vinha a esta aula.' }
+  }
+  if (p.status !== 'Realizada') {
+    return {
+      pode: false,
+      motivo:
+        p.status === 'Agendada'
+          ? 'A reposição ainda não aconteceu. Registre a desistência dela, em Reposições, e depois cancele o aviso.'
+          : 'A reposição não foi feita: use "Cancelar aviso".',
+    }
+  }
+  const item = p.itemDaReposicao
+  if (!item || item.status === 'Rascunho' || item.status === 'Cancelada') return { pode: true, tirarItem: false }
+  if (item.valor === 0) return { pode: true, tirarItem: true }
+  return {
+    pode: false,
+    motivo:
+      'A reposição já foi cobrada com diferença de valor numa cobrança confirmada. Se ela ainda não foi paga, use "Reabrir rascunho" nela e tente de novo.',
+  }
+}
+
 export type TipoUsoCredito = 'Abatimento' | 'Devolução' | 'Cancelamento'
 
 /**
