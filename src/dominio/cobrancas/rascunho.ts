@@ -19,6 +19,8 @@ export interface ItemDoRascunho {
   descricao: string
   valor_original: Centavos
   desconto: Centavos
+  /** Item da diferenca de servico (24/11/2026): outro item da mesma aula. */
+  diferenca_id?: number | null
 }
 
 export interface PlanoDoRascunho {
@@ -34,8 +36,12 @@ export interface PlanoDoRascunho {
   inserir: ItemMontado[]
 }
 
-/** Por aula E aluno: numa turma em grupo, o colega é outro item. */
-const chave = (aulaId: number, alunoId: number) => `${aulaId}:${alunoId}`
+/**
+ * Por aula E aluno: numa turma em grupo, o colega é outro item. A diferença da
+ * troca de serviço (24/11/2026) é mais um item da mesma aula.
+ */
+const chave = (i: { aula_id: number; aluno_id: number; diferenca_id?: number | null }) =>
+  `${i.aula_id}:${i.aluno_id}:${i.diferenca_id ?? ''}`
 
 /**
  * Compara o que está no rascunho com o que a montagem devolve agora.
@@ -49,14 +55,14 @@ export function planejarRascunho(
   existentes: ItemDoRascunho[],
   montados: ItemMontado[],
 ): PlanoDoRascunho {
-  const devidos = new Map(montados.map((m) => [chave(m.aula_id, m.aluno_id), m]))
-  const jaNoRascunho = new Set(existentes.map((e) => chave(e.aula_id, e.aluno_id)))
+  const devidos = new Map(montados.map((m) => [chave(m), m]))
+  const jaNoRascunho = new Set(existentes.map((e) => chave(e)))
 
   const apagar: number[] = []
   const atualizar: PlanoDoRascunho['atualizar'] = []
 
   for (const e of existentes) {
-    const devido = devidos.get(chave(e.aula_id, e.aluno_id))
+    const devido = devidos.get(chave(e))
     if (!devido) {
       apagar.push(e.id)
       continue
@@ -78,7 +84,7 @@ export function planejarRascunho(
     }
   }
 
-  const inserir = montados.filter((m) => !jaNoRascunho.has(chave(m.aula_id, m.aluno_id)))
+  const inserir = montados.filter((m) => !jaNoRascunho.has(chave(m)))
 
   return { apagar, atualizar, inserir }
 }

@@ -9,6 +9,8 @@ import { agoraNaEscola } from '@/dominio/agenda/relogio'
 import { varrer, type Respostas } from '@/dominio/agenda/varredura'
 import { planoDeDivisao, type AulaDaDivisao, type MudancaDaSerie } from '@/dominio/turmas/divisao'
 import { gerarNomeTurma } from '@/dominio/turmas/nome'
+import { avisoDaTroca } from '@/dominio/cobrancas/troca-de-servico'
+import { aplicarTroca, levantarTroca } from './troca-de-servico'
 
 export type ResultadoDaDivisao =
   | {
@@ -35,6 +37,8 @@ export async function mudarSerie(
   aPartirDe: string,
   mudanca: MudancaDaSerie,
   respostas: Respostas,
+  /** Resposta da Kelly a "cobrar a diferença / gerar crédito?" (24/11/2026). */
+  opcoes: { aplicarDiferenca: boolean; usuario: string },
 ): Promise<ResultadoDaDivisao> {
   const supabase = await clienteServidor()
   const turma = await obterTurma(turmaId)
@@ -108,6 +112,13 @@ export async function mudarSerie(
     })
   }
 
+  // Troca de servico em aula ja cobrada (Julio, 24/11/2026): o levantamento e
+  // antes de gravar, porque depois o servico antigo nao esta mais na aula.
+  const antes = new Map(aulas.map((a) => [a.id, a.servico_id]))
+  const troca = await levantarTroca(
+    plano.aulas.map((a) => ({ aula_id: a.id, servico_antes: antes.get(a.id) ?? a.servico_id, servico_depois: a.servico_id })),
+  )
+
   const quando = mudanca.quando ?? regraDeHoje
   const { data: destino, error: erro } = await supabase.rpc('dividir_turma', {
     p_turma_id: turmaId,
@@ -125,6 +136,10 @@ export async function mudarSerie(
     p_aulas: plano.aulas,
   })
   if (erro) return { ok: false, erros: [erro.message] }
+
+  // A serie ja mudou: falha aqui vira aviso, nao desfaz a mudanca.
+  const acerto = await aplicarTroca(troca, opcoes.aplicarDiferenca, opcoes.usuario)
+  const avisoDoDinheiro = avisoDaTroca(acerto)
 
   // A regra nova ganha as aulas que faltam na janela da agenda. Do corte (ou
   // de hoje) em diante: no passado, a semana sem aula ficou sem aula.
@@ -146,6 +161,6 @@ export async function mudarSerie(
     novaTurma: plano.novaTurma,
     corte: plano.corte,
     avisar: v.avisar.filter((x) => x.data >= plano.corte),
-    avisos: plano.avisos,
+    avisos: [...plano.avisos, ...(avisoDoDinheiro ? [avisoDoDinheiro] : []), ...acerto.erros],
   }
 }

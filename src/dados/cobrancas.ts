@@ -103,7 +103,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
 
   if (linhas.length === 0) return []
 
-  const [matriculas, cobradas, pendencias] = await Promise.all([
+  const [matriculas, cobradas, pendencias, diferencas] = await Promise.all([
     lerTudo((a, b) =>
       supabase
         .from('matriculas')
@@ -116,7 +116,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
     lerTudo((a, b) =>
       supabase
         .from('itens_cobranca')
-        .select('id, aula_id, aluno_id, cobranca:cobrancas!inner (status), aula:aulas!inner (data_hora_referencia)')
+        .select('id, aula_id, aluno_id, diferenca_id, cobranca:cobrancas!inner (status), aula:aulas!inner (data_hora_referencia)')
         .not('cobranca.status', 'in', '(Rascunho,Cancelada)')
         .gte('aula.data_hora_referencia', de)
         .lte('aula.data_hora_referencia', ate)
@@ -132,12 +132,32 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
         .order('id')
         .range(a, b),
     ),
+    // Troca de servico em aula ja paga, mais cara (Julio, 24/11/2026): a
+    // diferenca vai para a complementar.
+    lerTudo((a, b) =>
+      supabase
+        .from('diferencas_servico')
+        .select('id, aula_id, aluno_id, valor, aula:aulas!inner (data_hora_referencia)')
+        .eq('destino', 'Complementar')
+        .gte('aula.data_hora_referencia', de)
+        .lte('aula.data_hora_referencia', ate)
+        .order('id')
+        .range(a, b),
+    ),
   ])
 
   // Por aluno, nao por aula: numa turma em grupo, a aula ja cobrada de um
-  // aluno nao pode impedir a cobranca do colega que entrou depois.
+  // aluno nao pode impedir a cobranca do colega que entrou depois. O item da
+  // diferenca de servico nao marca a aula: marca a diferenca dele.
   const chave = (aulaId: number, alunoId: number) => `${aulaId}:${alunoId}`
-  const jaCobradas = new Set((cobradas ?? []).map((c) => chave(c.aula_id, c.aluno_id)))
+  const itensCobrados = (cobradas ?? []) as unknown as { aula_id: number; aluno_id: number; diferenca_id: number | null }[]
+  const jaCobradas = new Set(itensCobrados.filter((c) => c.diferenca_id === null).map((c) => chave(c.aula_id, c.aluno_id)))
+  const diferencasCobradas = new Set(itensCobrados.map((c) => c.diferenca_id).filter((x) => x !== null))
+  const diferencasDaAula = new Map<string, { id: number; valor: Centavos }[]>()
+  for (const d of (diferencas ?? []) as unknown as { id: number; aula_id: number; aluno_id: number; valor: string }[]) {
+    const k = chave(d.aula_id, d.aluno_id)
+    diferencasDaAula.set(k, [...(diferencasDaAula.get(k) ?? []), { id: d.id, valor: deNumeric(d.valor) }])
+  }
 
   const pends = (pendencias ?? []) as unknown as {
     aluno_id: number
@@ -193,7 +213,7 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
         aula.servico?.nome,
       ].filter(Boolean)
 
-      faturaveis.push({
+      const daAula: AulaFaturavel = {
         aula_id: aula.id,
         aluno_id: m.aluno_id,
         aluno_nome: m.aluno.nome,
@@ -213,7 +233,16 @@ async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
         ja_cobrada: jaCobradas.has(chave(aula.id, m.aluno_id)),
         ausencia: ausenciaDe(ausencias.get(chave(aula.id, m.aluno_id))),
         reposicao_de: reposicaoDe(reposicoes.get(chave(aula.id, m.aluno_id)), vigencias),
-      })
+      }
+      faturaveis.push(daAula)
+      for (const d of diferencasDaAula.get(chave(aula.id, m.aluno_id)) ?? []) {
+        faturaveis.push({
+          ...daAula,
+          valor: d.valor,
+          ja_cobrada: diferencasCobradas.has(d.id),
+          diferenca: { id: d.id },
+        })
+      }
     }
   }
 
@@ -252,7 +281,8 @@ function reposicaoDe(
  * cancelada, "não cobrar"). O desconto digitado à mão é mantido. Cobrança
  * confirmada nunca é tocada: o que faltar vai numa cobrança complementar (C1).
  *
- * Reprocessar não duplica: `UNIQUE(itens_cobranca.aula_id, aluno_id)` fecha a
+ * Reprocessar não duplica: o índice único de (aula_id, aluno_id) dos itens comuns
+ * (e um item por diferença de serviço) fecha a
  * porta no banco. Cada responsável é aplicado numa transação só.
  */
 export async function gerarCobrancasDoMes(mes: string): Promise<{
@@ -276,7 +306,7 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
     supabase
       .from('itens_cobranca')
       .select(
-        'id, aula_id, aluno_id, descricao, valor_original, desconto, cobranca:cobrancas!inner (responsavel_id, status, mes_referencia), aula:aulas!inner (data_hora_referencia)',
+        'id, aula_id, aluno_id, diferenca_id, descricao, valor_original, desconto, cobranca:cobrancas!inner (responsavel_id, status, mes_referencia), aula:aulas!inner (data_hora_referencia)',
       )
       .eq('cobranca.status', 'Rascunho')
       .eq('cobranca.mes_referencia', primeiro)
@@ -288,6 +318,7 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
     id: number
     aula_id: number
     aluno_id: number
+    diferenca_id: number | null
     descricao: string
     valor_original: string
     desconto: string
@@ -301,7 +332,7 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
     supabase
       .from('itens_cobranca')
       .select(
-        'id, aula_id, aluno_id, descricao, valor_original, desconto, cobranca:cobrancas!inner (responsavel_id, status, mes_referencia), aula:aulas!inner (data_hora_referencia)',
+        'id, aula_id, aluno_id, diferenca_id, descricao, valor_original, desconto, cobranca:cobrancas!inner (responsavel_id, status, mes_referencia), aula:aulas!inner (data_hora_referencia)',
       )
       .eq('cobranca.status', 'Rascunho')
       .neq('cobranca.mes_referencia', primeiro)
@@ -323,6 +354,7 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
       id: i.id,
       aula_id: i.aula_id,
       aluno_id: i.aluno_id,
+      diferenca_id: i.diferenca_id,
       descricao: i.descricao,
       valor_original: deNumeric(i.valor_original),
       desconto: deNumeric(i.desconto),
@@ -370,6 +402,7 @@ export async function gerarCobrancasDoMes(mes: string): Promise<{
         valor_original: paraNumeric(i.valor_original),
         desconto: paraNumeric(i.desconto),
         valor_final: paraNumeric(i.valor_final),
+        diferenca_id: i.diferenca_id ?? null,
       })),
       p_trazer: trazidos,
     })

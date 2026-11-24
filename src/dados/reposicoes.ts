@@ -15,6 +15,7 @@ import {
 } from '@/dominio/reposicoes/desfecho'
 import { deNumeric, paraNumeric } from '@/dominio/dinheiro'
 import { refazerTextoDaCobranca } from './cobrancas'
+import { acertosDaTroca } from './troca-de-servico'
 import { semAnotacaoDeAusencia } from '@/dominio/cobrancas/geracao'
 
 export interface PendenciaComRelacoes {
@@ -367,6 +368,8 @@ export async function aplicarEfeitoFinanceiro(
       .select('id, valor_final, descricao, valor_original, desconto, data_aula, cobranca:cobrancas!cobranca_id (id, status, recebimentos (id))')
       .eq('aula_id', p.aula_origem_id)
       .eq('aluno_id', p.aluno_id)
+      // O item da aula, nao o da diferenca de servico (24/11/2026).
+      .is('diferenca_id', null)
       .maybeSingle()
     return {
       item: data,
@@ -438,8 +441,13 @@ export async function aplicarEfeitoFinanceiro(
     ;({ item, cobranca } = await lerItem())
   }
 
+  // Troca de servico (24/11/2026): devolve o que a familia pagou pela aula,
+  // com a complementar ja paga e sem o credito que a troca ja deu.
+  const troca = item ? (await acertosDaTroca(p.aluno_id, [p.aula_origem_id])).get(p.aula_origem_id) : undefined
   const valor =
-    destino() === 'credito' && item ? Math.max(0, deNumeric(item.valor_final)) : 0
+    destino() === 'credito' && item
+      ? Math.max(0, deNumeric(item.valor_final) + (troca?.complementarPaga ?? 0) - (troca?.devolvido ?? 0))
+      : 0
   if (valor === 0) return { ok: true }
 
   const aluno = p.aluno as unknown as { nome: string; responsavel_id: number } | null
@@ -624,6 +632,7 @@ export async function veioMesmoAssim(
         .select('id, cobranca_id, valor_final, cobranca:cobrancas!inner (status)')
         .eq('aula_id', p.aula_reposicao_id)
         .eq('aluno_id', p.aluno_id)
+        .is('diferenca_id', null)
         .maybeSingle()
     : { data: null }
   const statusDoItem = (item?.cobranca as unknown as { status: StatusCobranca } | null)?.status
@@ -672,6 +681,7 @@ export async function veioMesmoAssim(
     .select('id, descricao')
     .eq('aula_id', p.aula_origem_id)
     .eq('aluno_id', p.aluno_id)
+    .is('diferenca_id', null)
     .maybeSingle()
   if (itemOrigem) {
     const descricao = semAnotacaoDeAusencia(itemOrigem.descricao)
