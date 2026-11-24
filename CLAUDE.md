@@ -181,6 +181,26 @@ Reposição e ausência (`dominio/reposicoes/desfecho.ts`, `dados/reposicoes.ts`
   sem crédito ligado a item. Junta outro rascunho do mesmo mês (`reabrir_cobranca`).
 - "Complementar" é recalculado na confirmação; cancelada e rascunho não contam.
 
+## Troca de serviço em aula já cobrada (24/11/2026, caso Maíra/Ana Clara)
+
+`dominio/cobrancas/troca-de-servico.ts`, `dados/troca-de-servico.ts`, tabela `diferencas_servico`:
+- A aula cobrada pode trocar de serviço (antes a decisão 8 travava). A que está no
+  pagamento do professor continua travada.
+- Cobrança sem recebimento: o item muda de preço nela mesma (`ajustar_item_pela_troca_de_servico`);
+  a Enviada volta para Confirmada, com o texto refeito.
+- Com recebimento: mais cara vira diferença `Complementar`, que a geração põe num item
+  próprio (`itens_cobranca.diferenca_id`); mais barata vira **crédito**.
+- A prévia pergunta, já marcado sim, "cobrar a diferença / gerar o crédito", com o valor
+  por família. O "não" fica como `Dispensada`. Prévia e gravação usam o mesmo levantamento,
+  feito ANTES de gravar o serviço novo.
+- O UNIQUE de itens agora é parcial: um item comum por (aula, aluno) e um por diferença.
+  Quem lê "o item da aula" filtra `diferenca_id is null`.
+- A base do professor soma o item da complementar e desconta o crédito da troca.
+  "Não cobrar" e saída da turma devolvem o que a família pagou (`acertosDaTroca`).
+- Outubro de 2026 foi cobrado fora do sistema: `INICIO_DA_COBRANCA_NO_SISTEMA`
+  (`dominio/cobrancas/inicio.ts`) trava a geração antes de 11/2026, e o crédito só abate
+  cobrança Confirmada/Enviada/Parcial (nunca rascunho).
+
 ## Cadastro pelo próprio responsável (18/10/2026)
 
 `dominio/cadastro-publico/`, `dados/cadastro-publico.ts`, `/p/cadastro/[token]`, `/novos-cadastros`:
