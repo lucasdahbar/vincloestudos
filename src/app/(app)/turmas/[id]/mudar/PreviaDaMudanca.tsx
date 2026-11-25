@@ -774,7 +774,8 @@ function Alunos({
                 checked={x.escolhido === d}
                 onChange={() => escolher(aula.id, x.aluno_id, d)}
               />
-              {ROTULO_DESFECHO[d]}
+              {/* Opcao A: sem pagamento, o "credito" so tira a aula da cobranca. */}
+              {d === 'credito' && !x.pago ? 'Sai da cobrança (ainda não paga)' : ROTULO_DESFECHO[d]}
             </label>
           ))}
         </li>

@@ -37,7 +37,12 @@ export interface SituacaoEncerramento {
 
 export type AvaliacaoEncerramento =
   | { pode: true; vespera: string; alunos: number; aulasQueSaem: number; itensDeRascunho: number }
-  | { pode: false; motivos: string[] }
+  | {
+      pode: false
+      motivos: string[]
+      /** So falta escolher o destino de cada aluno: o encerramento com acerto resolve. */
+      acertoNaPrevia: boolean
+    }
 
 const ddmmaaaa = (iso: string) => iso.split('-').reverse().join('/')
 
@@ -97,6 +102,10 @@ export function avaliarEncerramento(
     )
   }
 
+  // Ate aqui, travas de data. As de baixo (reposicao chegando, aula cobrada)
+  // o encerramento com acerto dos alunos resolve (/turmas/[id]/encerrar).
+  const travasDeData = motivos.length
+
   for (const r of opcoes.resolvidoNaPrevia ? [] : depois(s.reposicoesChegando)) {
     motivos.push(`${r.aluno} tem reposição marcada em ${ddmmaaaa(r.data)}: remarque antes.`)
   }
@@ -108,14 +117,19 @@ export function avaliarEncerramento(
     : depois(s.cobrancas).filter((c) => c.confirmada && !c.temReposicao && !c.alunoSaiu)
   if (semReposicao.length > 0) {
     const quem = semReposicao.map((c) => `${c.aluno} em ${ddmmaaaa(c.data)}`).join(', ')
-    // O nome e o do botao na pagina da turma; "Previa de mudanca" era nome interno.
+    // 25/11/2026: o "Editar aulas" nao encerra mais; o modal oferece o botao
+    // do encerramento com acerto logo abaixo desta mensagem.
     motivos.push(
-      `Já há cobrança confirmada de aulas a partir dessa data: ${quem}. Encerre pelo botão ` +
-        '"Editar aulas" → "Encerrar a turma", que oferece reposição ou crédito para cada aluno.',
+      `Já há cobrança confirmada de aulas a partir dessa data: ${quem}. Para essas aulas, ` +
+        'é preciso escolher o que fazer com cada aluno: reposição ou crédito (se ainda não ' +
+        'foi paga, a aula só sai da cobrança).',
     )
   }
 
-  if (motivos.length > 0) return { pode: false, motivos }
+  if (motivos.length > 0) {
+    const acertoNaPrevia = travasDeData === 0 && s.tipo_recorrencia === 'Recorrente'
+    return { pode: false, motivos, acertoNaPrevia }
+  }
 
   return {
     pode: true,

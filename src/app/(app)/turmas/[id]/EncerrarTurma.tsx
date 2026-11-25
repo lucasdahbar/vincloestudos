@@ -5,7 +5,7 @@ import { useRef, useState, useTransition } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { consultarEncerramento, encerrarTurma } from '../acoes'
 import type { PreviaEncerramento } from '@/dados/encerramento'
-import { Botao } from '@/ui/Botao'
+import { Botao, BotaoLink } from '@/ui/Botao'
 import { entradaClasse } from '@/ui/Campo'
 import { somarDias } from '@/dominio/agenda/recorrencia'
 
@@ -161,6 +161,15 @@ export function EncerrarTurma({
                       <li key={m}>{m}</li>
                     ))}
                   </ul>
+                  {/* Julio, 25/11/2026: em vez de so bloquear, leva direto ao
+                      encerramento que pergunta o destino de cada aluno. */}
+                  {avaliada.avaliacao.acertoNaPrevia && (
+                    <div className="mt-3">
+                      <BotaoLink href={`/turmas/${id}/encerrar?data=${avaliada.data}`}>
+                        Encerrar com acerto dos alunos
+                      </BotaoLink>
+                    </div>
+                  )}
                 </div>
               )}
 

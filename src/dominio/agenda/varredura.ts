@@ -58,6 +58,12 @@ export interface AlunoComEscolha {
   nome: string
   opcoes: Desfecho[]
   escolhido: Desfecho | null
+  /**
+   * Ja entrou dinheiro na cobranca desta aula (Parcial ou Quitada). Sem
+   * pagamento, o "credito" nao gera credito: a aula so sai da cobranca
+   * (opcao A, caso Isabela; decidido de novo pelo Julio em 25/11/2026).
+   */
+  pago: boolean
 }
 
 export interface AulaVarrida {
@@ -290,7 +296,8 @@ function excluir(
       const resposta = respostas.alunos?.[`${a.id}:${x.aluno_id}`]
       const escolhido = resposta && opcoes.includes(resposta) ? resposta : null
       if (cobrado(x) || escolhido === 'reposicao') segura = true
-      alunos.push({ aluno_id: x.aluno_id, nome: x.nome, opcoes, escolhido })
+      const pago = x.cobranca === 'Parcial' || x.cobranca === 'Quitada'
+      alunos.push({ aluno_id: x.aluno_id, nome: x.nome, opcoes, escolhido, pago })
     }
   }
 

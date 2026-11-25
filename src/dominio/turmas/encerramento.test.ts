@@ -166,16 +166,26 @@ describe('avaliarEncerramento', () => {
     expect(r.pode).toBe(true)
   })
 
-  it('a mensagem aponta o botão que existe na tela (Editar aulas)', () => {
+  it('aula cobrada: o modal oferece o encerramento com acerto dos alunos (Julio, 25/11/2026)', () => {
     const r = avaliarEncerramento(
       turma({ cobrancas: [{ aluno: 'Ana', data: '2026-10-21', confirmada: true, temReposicao: false }] }),
       '2026-10-14',
     )
     expect(r.pode).toBe(false)
     if (!r.pode) {
-      expect(r.motivos[0]).toContain('"Editar aulas"')
-      expect(r.motivos[0]).not.toContain('Prévia de mudança')
+      expect(r.acertoNaPrevia).toBe(true)
+      // O botao "Editar aulas" nao encerra mais (30/10/2026): a mensagem nao o cita.
+      expect(r.motivos[0]).not.toContain('Editar aulas')
     }
+  })
+
+  it('com outra trava (ex.: data além do fim), não oferece o acerto', () => {
+    const r = avaliarEncerramento(
+      turma({ cobrancas: [{ aluno: 'Ana', data: '2026-10-21', confirmada: true, temReposicao: false }] }),
+      '2099-01-01',
+    )
+    expect(r.pode).toBe(false)
+    if (!r.pode) expect(r.acertoNaPrevia).toBe(false)
   })
 
   it('cobrança confirmada antes da data não importa', () => {

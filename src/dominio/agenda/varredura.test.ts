@@ -159,6 +159,15 @@ describe('varrer: excluir', () => {
     expect(v.aulas[0].alunos[0].opcoes).toEqual(['reposicao', 'credito'])
   })
 
+  it('diz se já entrou dinheiro: sem pagamento, a aula só sai da cobrança (opção A)', () => {
+    const pago = (cobranca: AlunoDaVarredura['cobranca']) =>
+      varrer([aula({ alunos: [aluno({ cobranca })] })], excluir, 'esta').aulas[0].alunos[0].pago
+    expect(pago('Confirmada')).toBe(false)
+    expect(pago('Enviada')).toBe(false)
+    expect(pago('Parcial')).toBe(true)
+    expect(pago('Quitada')).toBe(true)
+  })
+
   it('com as escolhas feitas, a aula muda: apagada se ninguém precisa dela, senão fica Excluída', () => {
     const semRep = varrer([aula()], excluir, 'esta', { alunos: { '10:1': 'sem-reposicao' } })
     expect(semRep.aulas[0]).toMatchObject({ grupo: 'muda', destino: 'apagada' })
