@@ -23,9 +23,9 @@ function revalidarTudo() {
   revalidatePath('/recebimentos', 'layout')
 }
 
-export async function agendar(pendenciaId: number, aulaDestinoId: number) {
+export async function agendar(pendenciaId: number, aulaDestinoId: number, gerarCredito?: boolean) {
   await exigirGestora()
-  const r = await agendarReposicao(pendenciaId, aulaDestinoId)
+  const r = await agendarReposicao(pendenciaId, aulaDestinoId, gerarCredito)
   // Correcao de 13/10/2026: quem repoe aparece no evento do professor, na
   // ocorrencia do dia. Remarcar tambem tira o aluno da aula anterior.
   if (r.turmasAfetadas?.length) after(() => atualizarAlunosNosEventos(r.turmasAfetadas!))

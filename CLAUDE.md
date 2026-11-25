@@ -197,6 +197,12 @@ Reposição e ausência (`dominio/reposicoes/desfecho.ts`, `dados/reposicoes.ts`
   Quem lê "o item da aula" filtra `diferenca_id is null`.
 - A base do professor soma o item da complementar e desconta o crédito da troca.
   "Não cobrar" e saída da turma devolvem o que a família pagou (`acertosDaTroca`).
+- Reposição em turma mais barata (`dominio/reposicoes/credito-da-diferenca.ts`,
+  `dados/credito-da-reposicao.ts`): ao marcar, a Kelly decide (já marcado sim) se a
+  diferença vira crédito (`pendencias_reposicao.credito_diferenca`). O crédito só nasce
+  com a presença na reposição (`gravarChamada`) e é estornado se ela deixa de constar como
+  feita. Liga por `credito_diferenca_id`, NUNCA por `creditos.pendencia_id` (que quer dizer
+  "a aula perdida virou crédito" e trava chamada e aviso). A base do professor o desconta.
 - Outubro de 2026 foi cobrado fora do sistema: `INICIO_DA_COBRANCA_NO_SISTEMA`
   (`dominio/cobrancas/inicio.ts`) trava a geração antes de 11/2026, e o crédito só abate
   cobrança Confirmada/Enviada/Parcial (nunca rascunho).

@@ -1,6 +1,7 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { concluirReposicoes } from './lista-da-aula'
+import { creditarReposicoesFeitas, estornarCreditoDaReposicao } from './credito-da-reposicao'
 import { planejarCorrecao, type PendenciaDaAula } from '@/dominio/presencas/correcao'
 import {
   montarRegistro,
@@ -133,6 +134,9 @@ export async function gravarChamada(
       .in('id', naoAconteceram)
     const f = falha(error, 'Falha ao reabrir a reposição')
     if (f) return f
+    // A reposicao mais barata que nao aconteceu nao deixa credito (24/11/2026).
+    const e = await estornarCreditoDaReposicao(db, naoAconteceram, entrada.usuario)
+    if (!e.ok) console.warn('credito da reposicao nao estornado:', e.motivo)
   }
 
   // Corrigir nao troca quem registrou: o professor continua sendo o autor.
@@ -158,6 +162,9 @@ export async function gravarChamada(
   }
 
   await concluirReposicoes(db, aulaId, presencas)
+  // Reposicao em turma mais barata, com o sim da Kelly: o credito nasce agora.
+  const c = await creditarReposicoesFeitas(db, aulaId, presencas.filter((p) => p.presente).map((p) => p.aluno_id))
+  if (!c.ok) console.warn('credito da reposicao mais barata nao criado:', c.motivo)
 
   // Aula excluida no meio da chamada continua excluida (Rodada 4).
   await db.from('aulas').update({ status: resultado.novoStatusAula }).eq('id', aulaId).neq('status', 'Excluída')

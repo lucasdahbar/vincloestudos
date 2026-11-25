@@ -13,7 +13,9 @@ import {
   type Decisao,
   type StatusCobranca,
 } from '@/dominio/reposicoes/desfecho'
-import { deNumeric, paraNumeric } from '@/dominio/dinheiro'
+import { deNumeric, paraNumeric, type Centavos } from '@/dominio/dinheiro'
+import { carregarVigencias } from './vigencias'
+import { decisaoAoMarcar, diferencaDaReposicao } from '@/dominio/reposicoes/credito-da-diferenca'
 import { refazerTextoDaCobranca } from './cobrancas'
 import { acertosDaTroca } from './troca-de-servico'
 import { semAnotacaoDeAusencia } from '@/dominio/cobrancas/geracao'
@@ -31,9 +33,16 @@ export interface PendenciaComRelacoes {
   aula_origem: {
     id: number
     data_hora_inicio: string
+    data_hora_referencia: string
+    servico_id: number
     turma_id: number
     turma: { id: number; nome: string } | null
   } | null
+  /** O serviço da aula perdida, na data dela (para a reposição mais barata, 24/11/2026). */
+  valor_origem: Centavos
+  /** Resposta da Kelly ao marcar num destino mais barato; nulo: não se aplica. */
+  credito_diferenca: boolean | null
+  credito_diferenca_id: number | null
   /** Onde a reposição foi marcada (fica guardada mesmo se o aluno faltou nela). */
   aula_reposicao: {
     id: number
@@ -45,9 +54,10 @@ export interface PendenciaComRelacoes {
 
 const SELECT = `
   id, aluno_id, aula_origem_id, status, origem, cobrar, pagar_professor, aula_reposicao_id,
+  credito_diferenca, credito_diferenca_id,
   aluno:alunos!aluno_id (id, nome),
   aula_origem:aulas!aula_origem_id (
-    id, data_hora_inicio, turma_id, turma:turmas!turma_id (id, nome)
+    id, data_hora_inicio, data_hora_referencia, servico_id, turma_id, turma:turmas!turma_id (id, nome)
   ),
   aula_reposicao:aulas!aula_reposicao_id (
     id, data_hora_inicio, status, turma:turmas!turma_id (id, nome)
@@ -61,28 +71,45 @@ export async function listarPendencias(filtros: { status?: string; alunoId?: num
   if (filtros.status) consulta = consulta.eq('status', filtros.status)
   if (filtros.alunoId) consulta = consulta.eq('aluno_id', filtros.alunoId)
 
-  const { data, error } = await consulta.order('created_at', { ascending: false })
+  const [{ data, error }, vigencias] = await Promise.all([
+    consulta.order('created_at', { ascending: false }),
+    carregarVigencias(),
+  ])
   if (error) throw new Error(`Falha ao listar reposições: ${error.message}`)
-  return (data ?? []) as unknown as PendenciaComRelacoes[]
+  return ((data ?? []) as unknown as Omit<PendenciaComRelacoes, 'valor_origem'>[]).map((p) => ({
+    ...p,
+    valor_origem: p.aula_origem
+      ? vigencias.valorServico(p.aula_origem.servico_id, String(p.aula_origem.data_hora_referencia).slice(0, 10))
+      : 0,
+  }))
 }
 
-/** Aulas futuras agendadas, para a gestora escolher o destino da reposição. */
+/**
+ * Aulas futuras agendadas, para a gestora escolher o destino da reposição.
+ * `valor`: o serviço da aula na data, para a tela mostrar quando o destino é
+ * mais barato (24/11/2026).
+ */
 export async function aulasDisponiveis(de: string) {
   const supabase = await clienteServidor()
-  const { data } = await supabase
-    .from('aulas')
-    .select('id, data_hora_inicio, turma_id, turma:turmas!turma_id (id, nome)')
-    .eq('status', 'Agendada')
-    .gte('data_hora_inicio', `${de}T00:00:00`)
-    .order('data_hora_inicio')
-    .limit(200)
+  const [{ data }, vigencias] = await Promise.all([
+    supabase
+      .from('aulas')
+      .select('id, data_hora_inicio, data_hora_referencia, servico_id, turma_id, turma:turmas!turma_id (id, nome)')
+      .eq('status', 'Agendada')
+      .gte('data_hora_inicio', `${de}T00:00:00`)
+      .order('data_hora_inicio')
+      .limit(200),
+    carregarVigencias(),
+  ])
 
-  return (data ?? []) as unknown as {
+  return ((data ?? []) as unknown as {
     id: number
     data_hora_inicio: string
+    data_hora_referencia: string
+    servico_id: number
     turma_id: number
     turma: { id: number; nome: string } | null
-  }[]
+  }[]).map((a) => ({ ...a, valor: vigencias.valorServico(a.servico_id, String(a.data_hora_referencia).slice(0, 10)) }))
 }
 
 /**
@@ -92,13 +119,15 @@ export async function aulasDisponiveis(de: string) {
 export async function agendarReposicao(
   pendenciaId: number,
   aulaDestinoId: number,
+  /** Destino mais barato: gerar o credito da diferenca? (24/11/2026). Ausente = sim. */
+  gerarCredito?: boolean,
 ): Promise<{ ok: boolean; erros?: string[]; turmasAfetadas?: number[] }> {
   const supabase = await clienteServidor()
 
   const { data: p } = await supabase
     .from('pendencias_reposicao')
     .select(
-      'id, aluno_id, aula_origem_id, status, matricula_reposicao_id, aula_origem:aulas!aula_origem_id (turma_id), matricula:matriculas!matricula_reposicao_id (turma_id)',
+      'id, aluno_id, aula_origem_id, status, matricula_reposicao_id, aula_origem:aulas!aula_origem_id (turma_id, servico_id, data_hora_referencia), matricula:matriculas!matricula_reposicao_id (turma_id)',
     )
     .eq('id', pendenciaId)
     .maybeSingle()
@@ -107,14 +136,21 @@ export async function agendarReposicao(
 
   const { data: destino } = await supabase
     .from('aulas')
-    .select('id, turma_id, status, data_hora_inicio, data_hora_referencia')
+    .select('id, turma_id, status, data_hora_inicio, data_hora_referencia, servico_id')
     .eq('id', aulaDestinoId)
     .maybeSingle()
 
   if (!destino) return { ok: false, erros: ['Aula de destino não encontrada.'] }
   const diaDestino = String(destino.data_hora_referencia).slice(0, 10)
 
-  const origem = p.aula_origem as unknown as { turma_id: number } | null
+  const origem = p.aula_origem as unknown as { turma_id: number; servico_id: number; data_hora_referencia: string } | null
+  const vigencias = await carregarVigencias()
+  const diferenca = origem
+    ? diferencaDaReposicao(
+        vigencias.valorServico(origem.servico_id, String(origem.data_hora_referencia).slice(0, 10)),
+        vigencias.valorServico(destino.servico_id, diaDestino),
+      )
+    : 0
 
   const pendencia: Pendencia = {
     id: p.id,
@@ -169,6 +205,7 @@ export async function agendarReposicao(
       status: 'Agendada',
       aula_reposicao_id: aulaDestinoId,
       matricula_reposicao_id: matriculaId,
+      credito_diferenca: decisaoAoMarcar(diferenca, gerarCredito),
     })
     .eq('id', pendenciaId)
 

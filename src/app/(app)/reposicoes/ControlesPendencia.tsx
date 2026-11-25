@@ -5,23 +5,35 @@ import { agendar, desistir } from './acoes'
 import { PerguntasDeCobranca } from './PerguntasDeCobranca'
 import { Botao } from '@/ui/Botao'
 import { entradaClasse } from '@/ui/Campo'
+import { formatarBRL } from '@/dominio/dinheiro'
+import { diferencaDaReposicao } from '@/dominio/reposicoes/credito-da-diferenca'
 
 interface OpcaoAula {
   id: number
   rotulo: string
+  /** O serviço da aula na data, em centavos. */
+  valor: number
 }
 
 export function AcoesPendencia({
   pendenciaId,
   aulas,
+  valorOrigem,
   remarcar = false,
 }: {
   pendenciaId: number
   aulas: OpcaoAula[]
+  /** O serviço da aula perdida, na data dela. */
+  valorOrigem: number
   /** A reposição já está marcada: o botão passa a remarcar. */
   remarcar?: boolean
 }) {
   const [destino, setDestino] = useState('')
+  // Julio, 24/11/2026: destino mais barato pergunta se a diferença vira
+  // crédito, já marcado sim. O crédito só nasce com a presença na reposição.
+  const [gerarCredito, setGerarCredito] = useState(true)
+  const escolhida = aulas.find((a) => String(a.id) === destino)
+  const diferenca = escolhida ? diferencaDaReposicao(valorOrigem, escolhida.valor) : 0
   // Desistencia: a regra pede a decisao de cobranca antes de registrar.
   const [desistindo, setDesistindo] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -59,7 +71,10 @@ export function AcoesPendencia({
       <div className="flex flex-wrap items-center gap-2">
         <select
           value={destino}
-          onChange={(e) => setDestino(e.target.value)}
+          onChange={(e) => {
+            setDestino(e.target.value)
+            setGerarCredito(true)
+          }}
           aria-label="Aula de destino da reposição"
           className={`${entradaClasse} max-w-xs`}
         >
@@ -74,7 +89,7 @@ export function AcoesPendencia({
         <Botao
           type="button"
           disabled={pendente || destino === ''}
-          onClick={() => executar(() => agendar(pendenciaId, Number(destino)))}
+          onClick={() => executar(() => agendar(pendenciaId, Number(destino), diferenca > 0 ? gerarCredito : undefined))}
         >
           {remarcar ? 'Remarcar' : 'Agendar'}
         </Botao>
@@ -88,6 +103,16 @@ export function AcoesPendencia({
           Desistiu
         </Botao>
       </div>
+
+      {diferenca > 0 && (
+        <label className="flex items-start gap-2 rounded-campo bg-alerta-suave px-3 py-2 text-sm">
+          <input type="checkbox" checked={gerarCredito} onChange={(e) => setGerarCredito(e.target.checked)} className="mt-1" />
+          <span>
+            Esta aula custa {formatarBRL(diferenca)} a menos que a perdida.{' '}
+            <span className="font-medium">Gerar crédito de {formatarBRL(diferenca)} quando ele fizer a reposição</span>
+          </span>
+        </label>
+      )}
 
       {erro && (
         <p role="alert" className="rounded-campo bg-erro-suave px-3 py-2 text-sm text-erro">

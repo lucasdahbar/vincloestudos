@@ -60,6 +60,7 @@ export default async function PaginaReposicoes({
   const opcoes = aulas.map((a) => ({
     id: a.id,
     rotulo: `${quando(a.data_hora_inicio, true)} — ${a.turma?.nome ?? ''}`.slice(0, 70),
+    valor: a.valor,
   }))
 
   const pendentes = todas.filter((p) => p.status === 'Pendente')
@@ -131,7 +132,7 @@ function CartaoDaReposicao({
   opcoes,
 }: {
   p: PendenciaComRelacoes
-  opcoes: { id: number; rotulo: string }[]
+  opcoes: { id: number; rotulo: string; valor: number }[]
 }) {
   const destino = p.aula_reposicao
   const destinoTexto = destino
@@ -167,6 +168,13 @@ function CartaoDaReposicao({
       {(p.status === 'Agendada' || p.status === 'Realizada') && destinoTexto && (
         <p className="mt-2 text-sm text-tinta-suave">
           {p.status === 'Agendada' ? 'Marcada para' : 'Feita em'} {destinoTexto}
+          {p.credito_diferenca === true &&
+            (p.credito_diferenca_id
+              ? ' · a diferença virou crédito'
+              : p.status === 'Agendada'
+                ? ' · a diferença vira crédito quando ele fizer a reposição'
+                : '')}
+          {p.credito_diferenca === false && ' · sem crédito da diferença'}
         </p>
       )}
 
@@ -184,7 +192,12 @@ function CartaoDaReposicao({
 
       {(p.status === 'Pendente' || p.status === 'Agendada') && (
         <div className="mt-4">
-          <AcoesPendencia pendenciaId={p.id} aulas={opcoes} remarcar={p.status === 'Agendada'} />
+          <AcoesPendencia
+            pendenciaId={p.id}
+            aulas={opcoes}
+            valorOrigem={p.valor_origem}
+            remarcar={p.status === 'Agendada'}
+          />
         </div>
       )}
     </Cartao>

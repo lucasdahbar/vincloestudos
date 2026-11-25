@@ -1,4 +1,5 @@
 import 'server-only'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { clienteServidor } from './cliente'
 import { deNumeric, type Centavos } from '@/dominio/dinheiro'
 
@@ -37,8 +38,12 @@ export interface TabelaDeVigencias {
   percentualProfessor: (professorId: number, data: string) => number
 }
 
-export async function carregarVigencias(): Promise<TabelaDeVigencias> {
-  const supabase = await clienteServidor()
+/**
+ * `db`: quem nao tem sessao de gestora passa o proprio cliente (a chamada pelo
+ * link do professor credita a reposicao mais barata, 24/11/2026).
+ */
+export async function carregarVigencias(db?: SupabaseClient): Promise<TabelaDeVigencias> {
+  const supabase = db ?? (await clienteServidor())
 
   const [servicos, professores] = await Promise.all([
     supabase

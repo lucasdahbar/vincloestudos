@@ -113,12 +113,12 @@ export async function previaFechamento(professorId: number, ate: string) {
   // pendência, e não pela marca da matrícula: a reposição na própria turma do
   // aluno não tem matrícula de reposição.
   const aulasDasPresencas = [...new Set(presencas.map((p) => p.aula.id))]
-  const reposicoes = new Map<string, { aula_id: number; dia: string; servico_id: number }>()
+  const reposicoes = new Map<string, { aula_id: number; dia: string; servico_id: number; credito: Centavos }>()
   for (const grupo of emGrupos(aulasDasPresencas)) {
     const linhas = (await lerTudo((a, b) =>
       supabase
         .from('pendencias_reposicao')
-        .select('id, aluno_id, aula_origem_id, aula_reposicao_id, aula_origem:aulas!aula_origem_id (data_hora_referencia, servico_id)')
+        .select('id, aluno_id, aula_origem_id, aula_reposicao_id, aula_origem:aulas!aula_origem_id (data_hora_referencia, servico_id), credito:creditos!credito_diferenca_id (valor)')
         .in('aula_reposicao_id', grupo)
         .neq('status', 'Desistida')
         .order('id')
@@ -128,6 +128,7 @@ export async function previaFechamento(professorId: number, ate: string) {
       aula_origem_id: number
       aula_reposicao_id: number
       aula_origem: { data_hora_referencia: string; servico_id: number } | null
+      credito: { valor: string } | null
     }[]
     for (const r of linhas) {
       reposicoes.set(`${r.aula_reposicao_id}:${r.aluno_id}`, {
@@ -135,6 +136,9 @@ export async function previaFechamento(professorId: number, ate: string) {
         // O mes de cobranca e o da data de referencia (aula remarcada).
         dia: String(r.aula_origem?.data_hora_referencia ?? '').slice(0, 10),
         servico_id: r.aula_origem?.servico_id ?? 0,
+        // Reposicao mais barata (24/11/2026): a diferenca devolvida a familia
+        // sai da base, como o credito da troca de servico.
+        credito: r.credito ? deNumeric(r.credito.valor) : 0,
       })
     }
   }
@@ -223,6 +227,7 @@ export async function previaFechamento(professorId: number, ate: string) {
               ),
               ...partesDaDiferenca(diferencas, origem.aula_id, p.aluno_id),
               ...daAula(p.aula.id, p.aluno_id),
+              ...(origem.credito > 0 ? [{ situacao: 'confirmada' as const, valor: -origem.credito }] : []),
             ]
           : p.flag_reposicao
             ? []
