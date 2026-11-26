@@ -207,6 +207,17 @@ Reposição e ausência (`dominio/reposicoes/desfecho.ts`, `dados/reposicoes.ts`
   (`dominio/cobrancas/inicio.ts`) trava a geração antes de 11/2026, e o crédito só abate
   cobrança Confirmada/Enviada/Parcial (nunca rascunho).
 
+## Relatório financeiro (26/11/2026)
+
+`dominio/relatorios/financeiro.ts`, `dados/relatorio-financeiro.ts`, `/relatorios/financeiro`:
+- Cada linha é uma aula de um aluno, vinda da agenda pelo mesmo levantamento da geração
+  (`aulasDoMes` + `montarCobrancas`), juntada aos itens já em cobrança (que valem mais).
+- "Vendido" = tudo que a geração cobraria, cobrado ou não, inclusive aula futura do mês.
+  A aula que a gestora decidiu não cobrar fica à parte ("Não cobrada").
+- O recebimento é por cobrança: o recebido da linha é rateado pela parte da cobrança, e
+  o filtro de conta vale só para o recebido. Crédito abatido aparece como conta "Crédito".
+- Um mês por vez (mês da aula para a cobrança, `data_hora_referencia`). Exporta CSV para o Excel.
+
 ## Cadastro pelo próprio responsável (18/10/2026)
 
 `dominio/cadastro-publico/`, `dados/cadastro-publico.ts`, `/p/cadastro/[token]`, `/novos-cadastros`:
