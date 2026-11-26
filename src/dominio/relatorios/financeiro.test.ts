@@ -6,7 +6,9 @@ import {
   juntarLinhas,
   type CobrancaDoRelatorio,
   type LinhaFinanceira,
+  previstasDaGeracao,
 } from './financeiro'
+import type { AulaFaturavel } from '@/dominio/cobrancas/geracao'
 
 function linha(p: Partial<LinhaFinanceira>): LinhaFinanceira {
   return {
@@ -127,5 +129,43 @@ describe('agrupar', () => {
       ['Santo Agostinho', 1, 3000],
       ['Eleva', 2, 2000],
     ])
+  })
+})
+
+describe('previstasDaGeracao', () => {
+  const base: AulaFaturavel = {
+    aula_id: 1,
+    aluno_id: 1,
+    aluno_nome: 'Ana',
+    responsavel_id: 10,
+    responsavel_nome: 'Maria',
+    data: '2026-11-05',
+    descricao: 'Matemática — 8º ano — Aula regular',
+    valor: 10000,
+    status_aula: 'Agendada',
+    matricula_ativa: true,
+    matricula_reposicao: false,
+    ja_cobrada: false,
+  }
+
+  it('o que a geração cobraria entra sem cobrança, com o valor dela', () => {
+    expect(previstasDaGeracao([base])).toEqual([
+      { chave: '1:1', aula_id: 1, aluno_id: 1, valor: 10000, situacao: 'Sem cobrança' },
+    ])
+  })
+
+  it('a aula que a gestora decidiu não cobrar fica à parte, com o valor da aula', () => {
+    const r = previstasDaGeracao([{ ...base, ausencia: { origem: 'Aviso', cobrar: false } }])
+    expect(r).toEqual([{ chave: '1:1', aula_id: 1, aluno_id: 1, valor: 10000, situacao: 'Não cobrada' }])
+  })
+
+  it('aula cancelada e aluno sem matrícula não entram', () => {
+    expect(previstasDaGeracao([{ ...base, status_aula: 'Cancelada' }])).toEqual([])
+    expect(previstasDaGeracao([{ ...base, matricula_ativa: false }])).toEqual([])
+  })
+
+  it('a diferença da troca de serviço tem chave própria', () => {
+    const r = previstasDaGeracao([{ ...base, valor: 2000, diferenca: { id: 5 } }])
+    expect(r[0].chave).toBe('1:1:d5')
   })
 })

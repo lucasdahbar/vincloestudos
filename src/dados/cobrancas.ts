@@ -58,7 +58,7 @@ export async function lerTudo<T>(
  * O valor vem de `valor_servico_em`, resolvido para a data de cada aula — nunca
  * do valor corrente do serviço, que pode ter mudado desde então.
  */
-async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
+export async function aulasDoMes(mes: string): Promise<AulaFaturavel[]> {
   const supabase = await clienteServidor()
   const { primeiro, ultimo } = limitesDoMes(mes)
   const de = `${primeiro}T00:00:00`

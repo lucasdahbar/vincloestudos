@@ -1,4 +1,5 @@
 import { somar, type Centavos } from '@/dominio/dinheiro'
+import { faturavel, montarCobrancas, type AulaFaturavel } from '@/dominio/cobrancas/geracao'
 
 /**
  * Relatorio financeiro (pedido do Julio, 25/11/2026). A Kelly olhava primeiro
@@ -70,6 +71,45 @@ export interface CobrancaDoRelatorio {
 
 /** Recebimento sem conta e o credito abatido (Rodada 3). */
 const SEM_CONTA = 'Crédito'
+
+export function chaveDaLinha(aulaId: number, alunoId: number, diferencaId?: number | null): string {
+  return diferencaId ? `${aulaId}:${alunoId}:d${diferencaId}` : `${aulaId}:${alunoId}`
+}
+
+export interface Prevista {
+  chave: string
+  aula_id: number
+  aluno_id: number
+  valor: Centavos
+  situacao: 'Sem cobrança' | 'Não cobrada'
+}
+
+/**
+ * O que a geracao poria na cobranca (mesma regra e mesmo valor, para o
+ * relatorio nunca divergir dela), mais a aula que a gestora decidiu nao
+ * cobrar, que so nao entra por essa decisao.
+ */
+export function previstasDaGeracao(aulas: AulaFaturavel[]): Prevista[] {
+  const aCobrar = montarCobrancas(aulas).flatMap((c) =>
+    c.itens.map((i) => ({
+      chave: chaveDaLinha(i.aula_id, i.aluno_id, i.diferenca_id),
+      aula_id: i.aula_id,
+      aluno_id: i.aluno_id,
+      valor: i.valor_final,
+      situacao: 'Sem cobrança' as const,
+    })),
+  )
+  const naoCobradas = aulas
+    .filter((a) => a.ausencia?.cobrar === false && faturavel({ ...a, ausencia: null }))
+    .map((a) => ({
+      chave: chaveDaLinha(a.aula_id, a.aluno_id, a.diferenca?.id),
+      aula_id: a.aula_id,
+      aluno_id: a.aluno_id,
+      valor: a.valor,
+      situacao: 'Não cobrada' as const,
+    }))
+  return [...aCobrar, ...naoCobradas]
+}
 
 /**
  * Junta o que ja esta em cobranca com o que a geracao poria nela. A linha da
