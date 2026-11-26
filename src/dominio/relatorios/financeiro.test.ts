@@ -6,6 +6,7 @@ import {
   juntarLinhas,
   type CobrancaDoRelatorio,
   type LinhaFinanceira,
+  paraCsv,
   previstasDaGeracao,
 } from './financeiro'
 import type { AulaFaturavel } from '@/dominio/cobrancas/geracao'
@@ -167,5 +168,19 @@ describe('previstasDaGeracao', () => {
   it('a diferença da troca de serviço tem chave própria', () => {
     const r = previstasDaGeracao([{ ...base, valor: 2000, diferenca: { id: 5 } }])
     expect(r[0].chave).toBe('1:1:d5')
+  })
+})
+
+describe('paraCsv (exportar para o Excel)', () => {
+  it('separa por ponto e vírgula, com vírgula decimal e o status como na tela', () => {
+    const csv = paraCsv([linha({ valor: 12345, situacao: 'Confirmada', aluno: 'Ana "Bia"' })])
+    const [cabecalho, primeira] = csv.replace(/^﻿/, '').split('\r\n')
+    expect(cabecalho.startsWith('Data;Início;Fim;Aluno;Responsável')).toBe(true)
+    expect(primeira).toContain('05/11/2026;15:00;16:00;"Ana ""Bia""";Maria')
+    expect(primeira).toContain(';123,45;Pronta p/ enviar')
+  })
+
+  it('começa com a marca de UTF-8, para o Excel ler os acentos', () => {
+    expect(paraCsv([]).charCodeAt(0)).toBe(0xfeff)
   })
 })

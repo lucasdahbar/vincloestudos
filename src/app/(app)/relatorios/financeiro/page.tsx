@@ -4,7 +4,8 @@ import { exigirGestora } from '@/dados/sessao'
 import { rotuloDoStatus } from '@/dominio/cobrancas/lista'
 import { INICIO_DA_COBRANCA_NO_SISTEMA } from '@/dominio/cobrancas/inicio'
 import { formatarBRL } from '@/dominio/dinheiro'
-import { comoId, comoOpcao, comoTexto, deValores } from '@/dominio/filtros'
+import { comoOpcao, deValores } from '@/dominio/filtros'
+import { filtrosDaUrl } from './filtros'
 import {
   DIMENSOES,
   SITUACOES,
@@ -80,28 +81,27 @@ export default async function PaginaRelatorioFinanceiro({
     DIMENSOES.map((d) => d.valor),
   )
 
-  const linhas = filtrarLinhas(todas, {
-    responsavel_id: comoId(params.responsavel),
-    aluno_id: comoId(params.aluno),
-    professor_id: comoId(params.professor),
-    materia: comoTexto(params.materia),
-    ano_escolar: comoTexto(params.ano),
-    escola: comoTexto(params.escola),
-    turma: comoTexto(params.turma),
-    servico: comoTexto(params.servico),
-    situacao: comoOpcao(params.status, SITUACOES),
-  })
+  const linhas = filtrarLinhas(todas, filtrosDaUrl(params))
   const totais = calcularTotais(linhas, cobrancas, conta)
   const grupos = dimensao ? agrupar(linhas, dimensao, cobrancas, conta) : null
 
   return (
     <div className="flex flex-col gap-6">
-      <header>
-        <h1 className="text-3xl">Relatório financeiro</h1>
-        <p className="mt-1 text-tinta-suave">
-          Aulas de {mesPorExtenso(mes)} lançadas na agenda, cobradas ou não, com o status da
-          cobrança de cada uma.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl">Relatório financeiro</h1>
+          <p className="mt-1 text-tinta-suave">
+            Aulas de {mesPorExtenso(mes)} lançadas na agenda, cobradas ou não, com o status da
+            cobrança de cada uma.
+          </p>
+        </div>
+        {/* Link comum, nao <Link>: e um arquivo para baixar, nao uma pagina. */}
+        <a
+          href={`/relatorios/financeiro/exportar?${novaUrl(params, { mes })}`}
+          className="inline-flex min-h-11 items-center rounded-campo border border-borda bg-superficie px-4 font-medium transition-colors hover:border-destaque/40 hover:text-destaque"
+        >
+          Exportar para Excel
+        </a>
       </header>
 
       <Filtros

@@ -1,5 +1,6 @@
 import { somar, type Centavos } from '@/dominio/dinheiro'
 import { faturavel, montarCobrancas, type AulaFaturavel } from '@/dominio/cobrancas/geracao'
+import { rotuloDoStatus } from '@/dominio/cobrancas/lista'
 
 /**
  * Relatorio financeiro (pedido do Julio, 25/11/2026). A Kelly olhava primeiro
@@ -260,4 +261,40 @@ export function agrupar(
       totais: calcularTotais(doGrupo, cobrancas, conta),
     }))
     .sort((a, b) => b.totais.vendido - a.totais.vendido || a.rotulo.localeCompare(b.rotulo))
+}
+
+const COLUNAS: [string, (l: LinhaFinanceira) => string][] = [
+  ['Data', (l) => l.data.split('-').reverse().join('/')],
+  ['Início', (l) => l.inicio],
+  ['Fim', (l) => l.fim],
+  ['Aluno', (l) => l.aluno],
+  ['Responsável', (l) => l.responsavel],
+  ['Professor', (l) => l.professor],
+  ['Escola', (l) => l.escola],
+  ['Matéria', (l) => l.materia],
+  ['Ano escolar', (l) => l.ano_escolar],
+  ['Turma', (l) => l.turma],
+  ['Serviço', (l) => l.servico],
+  // Virgula decimal e sem "R$": o Excel em portugues le como numero e soma.
+  ['Valor', (l) => (l.valor / 100).toFixed(2).replace('.', ',')],
+  ['Status', (l) => rotuloDoStatus(l.situacao)],
+  ['Cobrança', (l) => (l.cobranca_id ? String(l.cobranca_id) : '')],
+]
+
+/** Campo com separador, aspas ou quebra de linha vai entre aspas. */
+function celula(valor: string): string {
+  return /[;"\r\n]/.test(valor) ? `"${valor.replace(/"/g, '""')}"` : valor
+}
+
+/**
+ * Exportar para o Excel (a Kelly confere com a planilha dela). Ponto e
+ * virgula e o separador que o Excel em portugues abre direto, e a marca de
+ * UTF-8 no comeco faz ele ler os acentos.
+ */
+export function paraCsv(linhas: LinhaFinanceira[]): string {
+  const corpo = [
+    COLUNAS.map(([nome]) => nome).join(';'),
+    ...linhas.map((l) => COLUNAS.map(([, valor]) => celula(valor(l))).join(';')),
+  ]
+  return `﻿${corpo.join('\r\n')}`
 }
