@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gerarTextoCobranca, type DadosDoTexto } from './texto'
+import { diasEHorarios, gerarTextoCobranca, type DadosDoTexto } from './texto'
 
 const dados: DadosDoTexto = {
   responsavel_nome: 'Ana Ribeiro',
@@ -201,5 +201,47 @@ describe('gerarTextoCobranca — texto editado pela gestora', () => {
     const t = gerarTextoCobranca({ ...dados, chave_pix: null })
     expect(t.endsWith('Vencimento: 05/08/2026')).toBe(true)
     expect(t).not.toContain('Pix')
+  })
+})
+
+describe('dias e horários das aulas (pedido do Julio, 25/11/2026)', () => {
+  it('mesmo horário em todas as aulas: o horário aparece uma vez', () => {
+    expect(
+      diasEHorarios([
+        { data: '2026-11-06', inicio: '15:00', fim: '16:30' },
+        { data: '2026-11-13', inicio: '15:00', fim: '16:30' },
+        { data: '2026-11-20', inicio: '15:00', fim: '16:30' },
+      ]),
+    ).toBe('06, 13 e 20/11, 15h–16h30')
+  })
+
+  it('horários diferentes: cada horário com os seus dias', () => {
+    expect(
+      diasEHorarios([
+        { data: '2026-11-06', inicio: '15:00', fim: '16:00' },
+        { data: '2026-11-20', inicio: '16:30', fim: '17:30' },
+        { data: '2026-11-13', inicio: '15:00', fim: '16:00' },
+      ]),
+    ).toBe('06 e 13/11, 15h–16h; 20/11, 16h30–17h30')
+  })
+
+  it('sem horário, fica só com os dias', () => {
+    expect(diasEHorarios([{ data: '2026-11-06' }, { data: '2026-11-13' }])).toBe('06 e 13/11')
+  })
+
+  it('entra na linha do texto da cobrança', () => {
+    const texto = gerarTextoCobranca({
+      ...dados,
+      itens: [1, 8].map((d) => ({
+        aluno_nome: 'Maria',
+        contexto: '7º ano — Português',
+        descricao: 'Aula regular',
+        data: `2026-08-0${d}`,
+        inicio: '14:30',
+        fim: '15:30',
+        valor_final: 10000,
+      })),
+    })
+    expect(texto).toContain('2x Aula regular (01 e 08/08, 14h30–15h30)')
   })
 })

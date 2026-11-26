@@ -528,7 +528,7 @@ export async function obterCobranca(id: number) {
 
   const { data: itens } = await supabase
     .from('itens_cobranca')
-    .select('id, aluno_id, aula_id, descricao, valor_original, desconto, valor_final, aluno:alunos!aluno_id (nome), aula:aulas!aula_id (data_hora_inicio)')
+    .select('id, aluno_id, aula_id, descricao, valor_original, desconto, valor_final, aluno:alunos!aluno_id (nome), aula:aulas!aula_id (data_hora_inicio, data_hora_fim)')
     .eq('cobranca_id', id)
 
   const c = cobranca as unknown as {
@@ -589,13 +589,15 @@ export async function obterCobranca(id: number) {
       desconto: string
       valor_final: string
       aluno: { nome: string } | null
-      aula: { data_hora_inicio: string } | null
+      aula: { data_hora_inicio: string; data_hora_fim: string } | null
     }[]).map((i) => ({
       ...i,
       valor_original: deNumeric(i.valor_original),
       desconto: deNumeric(i.desconto),
       valor_final: deNumeric(i.valor_final),
       data: i.aula?.data_hora_inicio.slice(0, 10) ?? '',
+      inicio: i.aula?.data_hora_inicio.slice(11, 16),
+      fim: i.aula?.data_hora_fim.slice(11, 16),
     })),
   }
 }
@@ -731,6 +733,8 @@ async function montarTexto(
     contexto: i.descricao.split(' — ').slice(0, 2).join(' — '),
     descricao: i.descricao.split(' — ').slice(-1)[0],
     data: i.data,
+    inicio: i.inicio,
+    fim: i.fim,
     valor_final: i.valor_final,
   }))
 

@@ -9,6 +9,9 @@ export interface ItemDoTexto {
   contexto: string
   descricao: string
   data: string
+  /** Inicio e fim da aula, "HH:MM" (pedido do Julio, 25/11/2026). */
+  inicio?: string
+  fim?: string
   valor_final: Centavos
 }
 
@@ -63,6 +66,29 @@ export function diasDasAulas(isos: string[]): string {
   return partes.length === 1 ? partes[0] : `${partes.slice(0, -1).join(', ')} e ${partes[partes.length - 1]}`
 }
 
+/** "15:00" vira "15h"; "16:30" vira "16h30". */
+function hora(hhmm: string): string {
+  const [h, m] = hhmm.split(':')
+  return m === '00' ? `${Number(h)}h` : `${Number(h)}h${m}`
+}
+
+/**
+ * Pedido do Julio (25/11/2026): o texto mostra tambem o horario de inicio e
+ * fim. Para a linha nao ficar enorme, os dias sao agrupados por horario: no
+ * caso normal (toda semana no mesmo horario) ele aparece uma vez so,
+ * "06, 13 e 20/11, 15h–16h30". Aula sem horario fica so com o dia.
+ */
+export function diasEHorarios(aulas: { data: string; inicio?: string; fim?: string }[]): string {
+  const porHorario = new Map<string, string[]>()
+  for (const a of [...aulas].sort((x, y) => x.data.localeCompare(y.data))) {
+    const chave = a.inicio && a.fim ? `${hora(a.inicio)}–${hora(a.fim)}` : ''
+    porHorario.set(chave, [...(porHorario.get(chave) ?? []), a.data])
+  }
+  return [...porHorario]
+    .map(([horario, dias]) => (horario ? `${diasDasAulas(dias)}, ${horario}` : diasDasAulas(dias)))
+    .join('; ')
+}
+
 /** Largura da coluna de pontinhos, para os valores alinharem no WhatsApp. */
 const LARGURA = 38
 
@@ -102,7 +128,7 @@ export function gerarTextoCobranca(dados: DadosDoTexto, modelos?: ModelosEditado
     }
 
     for (const [descricao, grupo] of porDescricao) {
-      const rotulo = `${grupo.length}x ${descricao} (${diasDasAulas(grupo.map((g) => g.data))})`
+      const rotulo = `${grupo.length}x ${descricao} (${diasEHorarios(grupo)})`
       const valor = formatarBRL(somar(...grupo.map((g) => g.valor_final)))
       const pontos = '.'.repeat(Math.max(1, LARGURA - rotulo.length))
       linhas.push(`${rotulo} ${pontos} ${valor}`)
