@@ -91,7 +91,7 @@ export async function linksDaAula(aulaId: number): Promise<Map<number, DestinoDo
           modalidade: 'Online',
         },
         referencia: { tipo: 'aulas', id: aula.id },
-        aula: { data_hora_inicio: inicio, link },
+        aula: { data_hora_inicio: inicio, data_hora_fim: String(aula.data_hora_fim), link },
         modelos,
       }
       return [a.id, destinosDoLink(ctx, (registrados ?? []) as RegistroDeEnvio[])]

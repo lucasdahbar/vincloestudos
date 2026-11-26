@@ -27,7 +27,8 @@ export interface ContextoNotificacao {
   }
   referencia: { tipo: string; id: number }
   /** Presente apenas no lembrete de aula. */
-  aula?: { data_hora_inicio: string; link: string | null }
+  /** O fim e opcional: sem ele, o texto fica so com o inicio. */
+  aula?: { data_hora_inicio: string; data_hora_fim?: string; link: string | null }
   /** Textos que a gestora reescreveu (tabela `mensagens_modelo`); ausente = os originais. */
   modelos?: ModelosEditados
 }
@@ -105,10 +106,14 @@ const MESES = [
  * horário de parede como se fosse UTC (ver `agoraNaEscola`). Converter fuso
  * aqui deslocaria a hora em três e, de madrugada, mudaria o dia.
  */
-function quandoDaAula(dataHoraInicio: string): string {
+function quandoDaAula(dataHoraInicio: string, dataHoraFim?: string): string {
   const [ano, mes, dia] = dataHoraInicio.slice(0, 10).split('-').map(Number)
   const semana = new Date(Date.UTC(ano, mes - 1, dia)).getUTCDay()
-  return `${DIAS_DA_SEMANA[semana]}, ${dia} de ${MESES[mes - 1]}, às ${dataHoraInicio.slice(11, 16)}`
+  const inicio = dataHoraInicio.slice(11, 16)
+  // Pedido do Julio (25/11/2026): o horario de fim tambem. Fica no {quando},
+  // para valer nos textos que a gestora ja editou.
+  const horario = dataHoraFim ? `das ${inicio} às ${dataHoraFim.slice(11, 16)}` : `às ${inicio}`
+  return `${DIAS_DA_SEMANA[semana]}, ${dia} de ${MESES[mes - 1]}, ${horario}`
 }
 
 function textoLinkAula(ctx: ContextoNotificacao, paraAluno: boolean): string {
@@ -118,7 +123,7 @@ function textoLinkAula(ctx: ContextoNotificacao, paraAluno: boolean): string {
       nome: primeiroNome(paraAluno ? ctx.aluno.nome : ctx.responsavel.nome),
       aluno: primeiroNome(ctx.aluno.nome),
       turma: ctx.turma.nome,
-      quando: quandoDaAula(ctx.aula!.data_hora_inicio),
+      quando: quandoDaAula(ctx.aula!.data_hora_inicio, ctx.aula!.data_hora_fim),
       link: ctx.aula!.link ?? '',
     },
   )

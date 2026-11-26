@@ -173,6 +173,18 @@ describe('planejarNotificacoes — lembrete do link da aula', () => {
     expect(n.texto_gerado).toContain('Quarta-feira, 5 de agosto, às 01:00.')
   })
 
+  it('com o fim da aula, diz das que horas às que horas (Julio, 25/11/2026)', () => {
+    const [n] = planejarNotificacoes({
+      ...ctx,
+      aula: {
+        data_hora_inicio: '2026-08-04T15:00:00+00:00',
+        data_hora_fim: '2026-08-04T16:30:00+00:00',
+        link: 'https://x/aula-77',
+      },
+    })
+    expect(n.texto_gerado).toContain('Terça-feira, 4 de agosto, das 15:00 às 16:30.')
+  })
+
   it('escreve sábado e domingo sem o "-feira"', () => {
     const [n] = planejarNotificacoes({
       ...ctx,

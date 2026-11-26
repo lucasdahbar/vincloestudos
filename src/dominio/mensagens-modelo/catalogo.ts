@@ -118,14 +118,14 @@ export const MODELOS: Record<ChaveModelo, DefinicaoModelo> = {
     campos: [
       { nome: 'nome', descricao: 'Primeiro nome do aluno' },
       { nome: 'turma', descricao: 'Nome da turma' },
-      { nome: 'quando', descricao: 'Dia e hora da aula, como "Terça-feira, 4 de agosto, às 15:00"' },
+      { nome: 'quando', descricao: 'Dia e horário da aula, como "Terça-feira, 4 de agosto, das 15:00 às 16:00"' },
       { nome: 'link', descricao: 'Endereço da sala da aula' },
     ],
     obrigatorios: ['link'],
     exemplo: {
       nome: 'Ana',
       turma: 'Matemática — 9º ano',
-      quando: 'Terça-feira, 4 de agosto, às 15:00',
+      quando: 'Terça-feira, 4 de agosto, das 15:00 às 16:00',
       link: 'https://meet.google.com/abc-defg-hij',
     },
     padrao: [
@@ -146,7 +146,7 @@ export const MODELOS: Record<ChaveModelo, DefinicaoModelo> = {
       { nome: 'nome', descricao: 'Primeiro nome do responsável' },
       { nome: 'aluno', descricao: 'Primeiro nome do aluno' },
       { nome: 'turma', descricao: 'Nome da turma' },
-      { nome: 'quando', descricao: 'Dia e hora da aula, como "Terça-feira, 4 de agosto, às 15:00"' },
+      { nome: 'quando', descricao: 'Dia e horário da aula, como "Terça-feira, 4 de agosto, das 15:00 às 16:00"' },
       { nome: 'link', descricao: 'Endereço da sala da aula' },
     ],
     obrigatorios: ['link'],
@@ -154,7 +154,7 @@ export const MODELOS: Record<ChaveModelo, DefinicaoModelo> = {
       nome: 'Maria',
       aluno: 'Ana',
       turma: 'Matemática — 9º ano',
-      quando: 'Terça-feira, 4 de agosto, às 15:00',
+      quando: 'Terça-feira, 4 de agosto, das 15:00 às 16:00',
       link: 'https://meet.google.com/abc-defg-hij',
     },
     padrao: [
