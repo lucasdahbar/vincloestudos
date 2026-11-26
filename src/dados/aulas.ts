@@ -35,13 +35,14 @@ export interface AulaComTurma {
     professor_id: number
     tipo_recorrencia: 'Recorrente' | 'Único'
     horario_fim: string
+    link_videochamada: string | null
   } | null
 }
 
 const SELECT_AULA = `
   id, turma_id, google_calendar_event_id, data_hora_inicio, data_hora_fim,
   status, link_online, observacao, data_hora_original, data_hora_referencia, professor_id, servico_id, modalidade,
-  turma:turmas!turma_id (id, nome, modalidade, professor_id, tipo_recorrencia, horario_fim)
+  turma:turmas!turma_id (id, nome, modalidade, professor_id, tipo_recorrencia, horario_fim, link_videochamada)
 `
 
 /**
@@ -171,6 +172,11 @@ export async function listarAulas(filtros: {
    */
   turmaIds?: number[]
   professorId?: number
+  /**
+   * Modalidade DA AULA, nao da turma (caso 26/11/2026): a aula de turma
+   * presencial que virou online so nesse dia tem de aparecer no filtro Online.
+   */
+  modalidade?: 'Presencial' | 'Online'
   status?: string
 }): Promise<AulaComTurma[]> {
   if (filtros.turmaIds?.length === 0) return []
@@ -188,6 +194,7 @@ export async function listarAulas(filtros: {
   if (filtros.turmaId) consulta = consulta.eq('turma_id', filtros.turmaId)
   if (filtros.turmaIds) consulta = consulta.in('turma_id', filtros.turmaIds)
   if (filtros.status) consulta = consulta.eq('status', filtros.status)
+  if (filtros.modalidade) consulta = consulta.eq('modalidade', filtros.modalidade)
 
   const { data, error } = await consulta.order('data_hora_inicio')
   if (error) throw new Error(`Falha ao listar aulas: ${error.message}`)

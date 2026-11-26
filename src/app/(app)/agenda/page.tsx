@@ -113,15 +113,16 @@ export default async function PaginaAgenda({
   const link = (href: string) => comFiltros(href, params, CAMPOS_FILTRO)
   const filtrando = CAMPOS_FILTRO.some((c) => params[c])
 
-  // Professor, materia, escola e modalidade sao da turma: viram a lista de
-  // turmas que passam. O professor logado nunca escolhe professor — ele so
-  // ve as proprias aulas, pelo `professorId` mais abaixo.
+  // Professor, materia e escola sao da turma: viram a lista de turmas que
+  // passam. O professor logado nunca escolhe professor — ele so ve as
+  // proprias aulas, pelo `professorId` mais abaixo. A modalidade e da aula
+  // (26/11/2026): uma aula so pode virar online sem mudar a turma.
   const daTurma = {
     professorId: ehGestora ? comoId(params.professor) : undefined,
     materiaId: comoId(params.materia),
     escolaId: comoId(params.escola),
-    modalidade: comoOpcao(params.modalidade, MODALIDADES),
   }
+  const modalidade = comoOpcao(params.modalidade, MODALIDADES)
   const filtraPelaTurma = Object.values(daTurma).some(Boolean)
 
   // Sincronizacao sob demanda ao abrir a agenda (Operacionais 4.3), rodando
@@ -154,6 +155,7 @@ export default async function PaginaAgenda({
         professorId: sessao.papel === 'professor' ? (sessao.professorId ?? -1) : undefined,
         turmaId: comoId(params.turma),
         turmaIds: filtraPelaTurma ? (await turmasResumidas(daTurma)).map((t) => t.id) : undefined,
+        modalidade,
         status: comoOpcao(params.status, STATUS_DO_FILTRO),
       }))(),
     sessao.papel === 'gestora' ? conflitosDeFeriado(ctx.de, ctx.ate) : Promise.resolve([]),

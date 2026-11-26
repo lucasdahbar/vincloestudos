@@ -10,7 +10,7 @@ import { AvisarFalta } from './AvisarFalta'
 import { EnviarLink } from './EnviarLink'
 import { MensagemDoLink } from './MensagemDoLink'
 import { CriarSalaDaAula } from './CriarSalaDaAula'
-import { aulaPrecisaDeSala } from '@/dominio/agenda/meet'
+import { aulaPrecisaDeSala, linkDaAula } from '@/dominio/agenda/meet'
 import { ExcluirAula } from './ExcluirAula'
 import { CorrigirChamada } from './CorrigirChamada'
 import { CancelarAviso } from '../../../reposicoes/CancelarAviso'
@@ -102,6 +102,17 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
     return null
   })()
 
+  // Caso 26/11/2026: a aula de turma presencial que virou online so nesse dia
+  // tinha a sala criada, mas o endereco nao aparecia na tela, e parecia que o
+  // link nao tinha sido gerado. A modalidade que vale e a da aula.
+  const turmaOnline = aula.turma?.modalidade === 'Online'
+  const salaDaAula = aula.turma
+    ? linkDaAula(aula, {
+        modalidade: turmaOnline ? 'Online' : 'Presencial',
+        link_videochamada: aula.turma.link_videochamada,
+      })
+    : null
+
   return (
     <div className="flex flex-col gap-6">
       <header>
@@ -133,6 +144,19 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
             })}
             , das {String(aula.data_hora_inicio).slice(11, 16)} às {String(aula.data_hora_fim).slice(11, 16)}
           </span>
+          {aula.modalidade !== aula.turma?.modalidade && (
+            <Selo tom="alerta">{aula.modalidade} só nesta aula</Selo>
+          )}
+          {salaDaAula && (
+            <a
+              href={salaDaAula}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-destaque hover:underline"
+            >
+              Entrar na sala do Meet
+            </a>
+          )}
           {original && (
             <Selo tom="alerta">
               Remarcada (era {original.slice(8, 10)}/{original.slice(5, 7)} às {original.slice(11, 16)})
@@ -144,7 +168,7 @@ export async function ConteudoDaAula({ id, noPainel = false }: { id: number; noP
       {ehGestora &&
         aula.turma &&
         aulaPrecisaDeSala(aula, {
-          modalidade: aula.turma.modalidade === 'Online' ? 'Online' : 'Presencial',
+          modalidade: turmaOnline ? 'Online' : 'Presencial',
           link_videochamada: null,
         }) && <CriarSalaDaAula aulaId={aula.id} />}
 
