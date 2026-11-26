@@ -66,6 +66,8 @@ export interface FiltrosDeTurma {
   status?: string
   materiaId?: number
   escolaId?: number
+  /** Pedido do Julio (25/11/2026), para o filtro da agenda. */
+  anoEscolarId?: number
   modalidade?: string
 }
 
@@ -79,6 +81,7 @@ export async function listarTurmas(
   if (filtros.status) consulta = consulta.eq('status', filtros.status)
   if (filtros.materiaId) consulta = consulta.eq('materia_id', filtros.materiaId)
   if (filtros.escolaId) consulta = consulta.eq('escola_id', filtros.escolaId)
+  if (filtros.anoEscolarId) consulta = consulta.eq('ano_escolar_id', filtros.anoEscolarId)
   if (filtros.modalidade) consulta = consulta.eq('modalidade', filtros.modalidade)
 
   const { data, error } = await consulta.order('nome')
@@ -136,6 +139,7 @@ export async function turmasResumidas(
   if (filtros.status) consulta = consulta.eq('status', filtros.status)
   if (filtros.materiaId) consulta = consulta.eq('materia_id', filtros.materiaId)
   if (filtros.escolaId) consulta = consulta.eq('escola_id', filtros.escolaId)
+  if (filtros.anoEscolarId) consulta = consulta.eq('ano_escolar_id', filtros.anoEscolarId)
   if (filtros.modalidade) consulta = consulta.eq('modalidade', filtros.modalidade)
 
   const { data, error } = await consulta.order('nome').order('horario_inicio')

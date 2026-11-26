@@ -75,8 +75,8 @@ function contexto(vista: 'mes' | 'semana', data: string | undefined, hoje: strin
     ate: iso(new Date(ano, m + 1, 0)),
     inicioSemana: '',
     rotulo: base.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
-    anterior: `/agenda?data=${anterior.getFullYear()}-${String(anterior.getMonth() + 1).padStart(2, '0')}`,
-    seguinte: `/agenda?data=${seguinte.getFullYear()}-${String(seguinte.getMonth() + 1).padStart(2, '0')}`,
+    anterior: `/agenda?vista=mes&data=${anterior.getFullYear()}-${String(anterior.getMonth() + 1).padStart(2, '0')}`,
+    seguinte: `/agenda?vista=mes&data=${seguinte.getFullYear()}-${String(seguinte.getMonth() + 1).padStart(2, '0')}`,
     mesReferencia: `${ano}-${String(m + 1).padStart(2, '0')}`,
   }
 }
@@ -89,7 +89,7 @@ const LEGENDA = [
 ]
 
 /** Os parametros que sao filtro — `vista` e `data` sao navegacao. */
-const CAMPOS_FILTRO = ['aluno', 'professor', 'turma', 'materia', 'escola', 'modalidade', 'status']
+const CAMPOS_FILTRO = ['aluno', 'professor', 'turma', 'materia', 'ano', 'escola', 'modalidade', 'status']
 
 /** A agenda não lista aula excluída: filtrar por ela mostraria sempre nada. */
 const STATUS_DO_FILTRO = STATUS_AULA.filter((s) => s !== 'Excluída')
@@ -101,19 +101,22 @@ export default async function PaginaAgenda({
 }) {
   const sessao = await exigirSessao()
   const params = await searchParams
-  const vista = params.vista === 'semana' ? 'semana' : 'mes'
+  // A agenda abre na semana (pedido do Julio, 25/11/2026): e a vista no
+  // formato do Google Agenda. Link antigo com `data=AAAA-MM` continua no mes.
+  const dataPedida = comoTexto(params.data) ?? comoTexto(params.mes)
+  const vista = params.vista === 'mes' || dataPedida?.length === 7 ? 'mes' : 'semana'
   const ehGestora = sessao.papel === 'gestora'
 
   const agoraData = new Date()
   const hoje = iso(agoraData)
   // `mes` continua aceito para nao quebrar links antigos.
-  const ctx = contexto(vista, comoTexto(params.data) ?? comoTexto(params.mes), hoje)
+  const ctx = contexto(vista, dataPedida, hoje)
 
   // Trocar de semana ou de formato nao pode perder o que foi filtrado.
   const link = (href: string) => comFiltros(href, params, CAMPOS_FILTRO)
   const filtrando = CAMPOS_FILTRO.some((c) => params[c])
 
-  // Professor, materia e escola sao da turma: viram a lista de turmas que
+  // Professor, materia, ano escolar e escola sao da turma: viram a lista de turmas que
   // passam. O professor logado nunca escolhe professor — ele so ve as
   // proprias aulas, pelo `professorId` mais abaixo. A modalidade e da aula
   // (26/11/2026): uma aula so pode virar online sem mudar a turma.
@@ -121,6 +124,7 @@ export default async function PaginaAgenda({
     professorId: ehGestora ? comoId(params.professor) : undefined,
     materiaId: comoId(params.materia),
     escolaId: comoId(params.escola),
+    anoEscolarId: comoId(params.ano),
   }
   const modalidade = comoOpcao(params.modalidade, MODALIDADES)
   const filtraPelaTurma = Object.values(daTurma).some(Boolean)
@@ -203,7 +207,7 @@ export default async function PaginaAgenda({
 
   const abas = [
     { rotulo: 'Semana', href: link('/agenda?vista=semana'), ativa: vista === 'semana' },
-    { rotulo: 'Mês', href: link('/agenda'), ativa: vista === 'mes' },
+    { rotulo: 'Mês', href: link('/agenda?vista=mes'), ativa: vista === 'mes' },
   ]
 
   return (
@@ -249,7 +253,7 @@ export default async function PaginaAgenda({
               ‹
             </Link>
             <Link
-              href={link(vista === 'semana' ? '/agenda?vista=semana' : '/agenda')}
+              href={link(vista === 'semana' ? '/agenda?vista=semana' : '/agenda?vista=mes')}
               className="flex min-h-[44px] items-center rounded-campo border border-borda bg-superficie px-4 font-medium transition-colors hover:border-destaque/40 hover:text-destaque"
             >
               Hoje
@@ -275,6 +279,7 @@ export default async function PaginaAgenda({
           },
           { campo: 'turma', rotulo: 'Turma', opcoes: deOpcoes(turmas), todos: 'Todas' },
           { campo: 'materia', rotulo: 'Matéria', opcoes: deOpcoes(opcoes.materias), todos: 'Todas' },
+          { campo: 'ano', rotulo: 'Ano escolar', opcoes: deOpcoes(opcoes.anosEscolares), todos: 'Todos' },
           { campo: 'escola', rotulo: 'Escola', opcoes: deOpcoes(opcoes.escolas), todos: 'Todas' },
           { campo: 'modalidade', rotulo: 'Modalidade', opcoes: deValores(MODALIDADES), todos: 'Todas' },
           { campo: 'status', rotulo: 'Situação da aula', opcoes: deValores(STATUS_DO_FILTRO), todos: 'Todas' },
