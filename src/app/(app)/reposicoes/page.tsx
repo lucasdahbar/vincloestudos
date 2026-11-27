@@ -1,8 +1,11 @@
 import Link from 'next/link'
 import { aulasDisponiveis, listarPendencias, type PendenciaComRelacoes } from '@/dados/reposicoes'
 import { exigirGestora } from '@/dados/sessao'
+import { Botao } from '@/ui/Botao'
+import { entradaClasse } from '@/ui/Campo'
 import { Cartao } from '@/ui/Cartao'
 import { EstadoVazio } from '@/ui/EstadoVazio'
+import { Filtros } from '@/ui/Filtros'
 import { Selo } from '@/ui/Selo'
 import { AcoesPendencia } from './ControlesPendencia'
 import { CancelarAviso } from './CancelarAviso'
@@ -40,6 +43,14 @@ function quando(iso: string, comHora: boolean): string {
  * histórico. Quem avisa ou falta à reposição marcada volta para as pendentes
  * (a regra está em dados/reposicoes.ts e dados/gravar-chamada.ts).
  */
+/** Trocar de aba mantem o aluno filtrado. */
+function linkDaAba(historico: boolean, aluno?: string): string {
+  const q = new URLSearchParams()
+  if (historico) q.set('aba', 'historico')
+  if (aluno) q.set('aluno', aluno)
+  return q.size ? `/reposicoes?${q}` : '/reposicoes'
+}
+
 const ABAS = [
   { chave: 'pendentes', rotulo: 'Pendentes' },
   { chave: 'historico', rotulo: 'Histórico' },
@@ -48,10 +59,10 @@ const ABAS = [
 export default async function PaginaReposicoes({
   searchParams,
 }: {
-  searchParams: Promise<{ aba?: string }>
+  searchParams: Promise<{ aba?: string; aluno?: string }>
 }) {
   await exigirGestora()
-  const { aba } = await searchParams
+  const { aba, aluno } = await searchParams
   const noHistorico = aba === 'historico'
 
   const hoje = new Date().toISOString().slice(0, 10)
@@ -63,12 +74,32 @@ export default async function PaginaReposicoes({
     valor: a.valor,
   }))
 
-  const pendentes = todas.filter((p) => p.status === 'Pendente')
+  // Filtro por aluno (pedido do Lucas, 27/11/2026). As opcoes saem das proprias
+  // reposicoes: so aparece quem tem alguma, em qualquer aba. A lista ja vem
+  // inteira do banco, entao filtrar aqui nao custa outra consulta.
+  const nomes = new Map<number, string>()
+  for (const p of todas) if (p.aluno?.nome) nomes.set(p.aluno_id, p.aluno.nome)
+  const opcoesAluno = [...nomes]
+    .sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'))
+    .map(([id, nome]) => ({ valor: String(id), nome }))
+  const doAluno = aluno ? todas.filter((p) => String(p.aluno_id) === aluno) : todas
+
+  const pendentes = doAluno.filter((p) => p.status === 'Pendente')
   // As marcadas primeiro: são as que ainda podem pedir uma ação (remarcar).
-  const historico = todas
+  const historico = doAluno
     .filter((p) => p.status !== 'Pendente')
     .sort((a, b) => Number(b.status === 'Agendada') - Number(a.status === 'Agendada'))
-  const lista = noHistorico ? historico : pendentes
+  // Filtro por aluno no histórico (pedido do Lucas, 27/11/2026): a lista cresce
+  // a cada mês. As opções são só os alunos que têm algo no histórico.
+  const alunosDoHistorico = [
+    ...new Map(historico.map((p) => [p.aluno_id, p.aluno?.nome ?? `Aluno ${p.aluno_id}`])).entries(),
+  ].sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'))
+  const alunoFiltro = noHistorico && aluno ? Number(aluno) : null
+  const lista = noHistorico
+    ? alunoFiltro
+      ? historico.filter((p) => p.aluno_id === alunoFiltro)
+      : historico
+    : pendentes
   const contagem = { pendentes: pendentes.length, historico: historico.length }
 
   return (
@@ -88,7 +119,7 @@ export default async function PaginaReposicoes({
           return (
             <Link
               key={a.chave}
-              href={a.chave === 'historico' ? '/reposicoes?aba=historico' : '/reposicoes'}
+              href={linkDaAba(a.chave === 'historico', aluno)}
               aria-current={ativa ? 'page' : undefined}
               className={`-mb-px min-h-[44px] border-b-2 px-4 py-2.5 font-medium ${
                 ativa
@@ -102,8 +133,41 @@ export default async function PaginaReposicoes({
         })}
       </nav>
 
+      <Filtros
+        seletores={[{ campo: 'aluno', rotulo: 'Aluno', opcoes: opcoesAluno }]}
+        total={lista.length}
+        contagem={{ um: 'reposição', varios: 'reposições', nenhum: 'Nenhuma reposição deste aluno nesta aba.' }}
+      />
+
+      {noHistorico && alunosDoHistorico.length > 0 && (
+        <form method="get" className="flex flex-wrap items-center gap-2">
+          <input type="hidden" name="aba" value="historico" />
+          <select
+            name="aluno"
+            defaultValue={alunoFiltro ? String(alunoFiltro) : ''}
+            aria-label="Filtrar por aluno"
+            className={`${entradaClasse} max-w-xs`}
+          >
+            <option value="">Todos os alunos</option>
+            {alunosDoHistorico.map(([id, nome]) => (
+              <option key={id} value={id}>
+                {nome}
+              </option>
+            ))}
+          </select>
+          <Botao type="submit" aparencia="secundario">
+            Filtrar
+          </Botao>
+          {alunoFiltro && (
+            <Link href="/reposicoes?aba=historico" className="text-sm text-destaque hover:underline">
+              Limpar filtro
+            </Link>
+          )}
+        </form>
+      )}
+
       {lista.length === 0 ? (
-        noHistorico ? (
+        aluno ? null : noHistorico ? (
           <EstadoVazio
             titulo="O histórico está vazio"
             descricao="As reposições marcadas, realizadas ou desistidas aparecem aqui."

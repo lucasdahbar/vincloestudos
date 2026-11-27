@@ -116,12 +116,13 @@ export default async function PaginaAgenda({
   const link = (href: string) => comFiltros(href, params, CAMPOS_FILTRO)
   const filtrando = CAMPOS_FILTRO.some((c) => params[c])
 
-  // Professor, materia, ano escolar e escola sao da turma: viram a lista de turmas que
-  // passam. O professor logado nunca escolhe professor — ele so ve as
-  // proprias aulas, pelo `professorId` mais abaixo. A modalidade e da aula
-  // (26/11/2026): uma aula so pode virar online sem mudar a turma.
+  // Materia, ano escolar e escola sao da turma: viram a lista de turmas que
+  // passam. O professor e a modalidade sao da aula: uma aula pode trocar de
+  // professor ou virar online sem mudar a turma (bug de 27/11/2026: a aula
+  // passada para a Kelly continuava no filtro da Luana). O professor logado
+  // nunca escolhe professor — ele so ve as proprias aulas.
+  const professorDaAula = ehGestora ? comoId(params.professor) : (sessao.professorId ?? -1)
   const daTurma = {
-    professorId: ehGestora ? comoId(params.professor) : undefined,
     materiaId: comoId(params.materia),
     escolaId: comoId(params.escola),
     anoEscolarId: comoId(params.ano),
@@ -156,7 +157,7 @@ export default async function PaginaAgenda({
       listarAulas({
         de: ctx.de,
         ate: ctx.ate,
-        professorId: sessao.papel === 'professor' ? (sessao.professorId ?? -1) : undefined,
+        professorId: professorDaAula,
         turmaId: comoId(params.turma),
         turmaIds: filtraPelaTurma ? (await turmasResumidas(daTurma)).map((t) => t.id) : undefined,
         modalidade,
